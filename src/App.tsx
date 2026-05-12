@@ -2,21 +2,40 @@ import { BookOpen, Copy, DoorOpen, Dices, LogOut, ScrollText, Shield, Swords } f
 import { useCallback, useEffect, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { AuthPanel } from './components/AuthPanel';
+import { CharacterEntryModal } from './components/CharacterEntryModal';
 import { CharacterSheet } from './components/CharacterSheet';
 import { CharacterSheetView } from './components/CharacterSheetView';
 import { CombatTracker } from './components/CombatTracker';
 import { DiceRoller } from './components/DiceRoller';
 import { GamePhasePanel } from './components/GamePhasePanel';
+import { HexHeroBuilder } from './components/HexHeroBuilder';
 import { PartyPanel } from './components/PartyPanel';
-import { SessionLobby } from './components/SessionLobby';
+import { CompanionPanel } from './components/CompanionPanel';
+import { SessionLobby, type RoomModal } from './components/SessionLobby';
 import { addUniqueMessage, StoryLog } from './components/StoryLog';
+import { TableSetupPanel } from './components/TableSetupPanel';
 import { demoCharacter, demoMessages } from './data/demo';
 import { loadCharacter, saveCharacter } from './lib/characters';
+import { applyLongRest, applyShortRest } from './engine/character/rest';
+import { createEventQueueState, processEventQueue, type EventRuntimeState } from './engine/events/eventQueue';
+import type { GameEvent } from './engine/events/types';
 import { getGamePhaseDefinition } from './lib/gamePhases';
-import { sendSessionMessage } from './lib/messages';
-import { subscribeToSessionUpdates, updateSessionPhase } from './lib/sessions';
+import { createEmptyInventory } from './lib/inventory';
+import { requestAiDmReply, sendSessionMessage } from './lib/messages';
+import { getPlayModeDefinition } from './lib/playModes';
+import { getSessionThemeDefinition } from './lib/sessionThemes';
+import { subscribeToSessionUpdates, updateSessionCombatState, updateSessionPhase } from './lib/sessions';
 import { hasSupabaseConfig, supabase } from './lib/supabase';
-import type { Character, DiceRoll, EncounterState, GamePhase, GameSession, StoryMessage } from './types';
+import type {
+  AiConfirmAction,
+  Character,
+  Combatant,
+  DiceRoll,
+  EncounterState,
+  GamePhase,
+  GameSession,
+  StoryMessage,
+} from './types';
 
 type CockpitMode = 'dm' | 'player';
 type MobilePanel = 'story' | 'character' | 'dice' | 'combat';
@@ -29,19 +48,85 @@ function formatLocalTime() {
   }).format(new Date());
 }
 
+function findCombatant(combatants: Combatant[], action: AiConfirmAction) {
+  if (action.targetId) {
+    const byId = combatants.find((combatant) => combatant.id === action.targetId);
+    if (byId) return byId;
+  }
+
+  if (!action.targetName) return null;
+  const targetName = action.targetName.toLowerCase().trim();
+  return combatants.find((combatant) => combatant.name.toLowerCase().trim() === targetName) ?? null;
+}
+
+function hasSceneFlow(messages: StoryMessage[]) {
+  return messages.some((message) => {
+    const kind = message.metadata?.kind;
+    return (kind === 'scene_opening' || kind === 'scene_objective') && Boolean(message.metadata?.scene);
+  });
+}
+
+function combatantToRuntimeCharacter(combatant: Combatant): Character {
+  return {
+    id: combatant.id,
+    name: combatant.name,
+    ancestry: '',
+    className: '',
+    level: 1,
+    background: '',
+    age: '',
+    alignment: '',
+    languages: [],
+    proficiencies: [],
+    armorClass: combatant.armorClass,
+    hitPoints: combatant.hitPoints,
+    maxHitPoints: combatant.maxHitPoints,
+    speed: 30,
+    darkvision: 0,
+    inspiration: false,
+    abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
+    skills: [],
+    inventory: createEmptyInventory(),
+    features: [],
+    spells: [],
+    backstory: '',
+    personalityTraits: [],
+    portraitUrl: '',
+    activeConditions: [...combatant.conditions],
+    exhaustionLevel: 0,
+    hitDice: 1,
+    maxHitDice: 1,
+    spellSlots: {},
+    systemData: {},
+  };
+}
+
+function applyRuntimeCharacterToCombatant(combatant: Combatant, runtimeCharacter: Character): Combatant {
+  return {
+    ...combatant,
+    hitPoints: runtimeCharacter.hitPoints,
+    maxHitPoints: runtimeCharacter.maxHitPoints,
+    conditions: [...runtimeCharacter.activeConditions],
+  };
+}
+
 export function App() {
   const [authSession, setAuthSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(hasSupabaseConfig);
   const [activeSession, setActiveSession] = useState<GameSession | null>(null);
+  const [pendingSession, setPendingSession] = useState<GameSession | null>(null);
+  const [roomModal, setRoomModal] = useState<RoomModal>(null);
   const [character, setCharacter] = useState<Character>(demoCharacter);
   const [characterStatus, setCharacterStatus] = useState('');
-  const [storyMessages, setStoryMessages] = useState<StoryMessage[]>(demoMessages);
+  const [storyMessages, setStoryMessages] = useState<StoryMessage[]>(hasSupabaseConfig ? [] : demoMessages);
   const [encounter, setEncounter] = useState<EncounterState | null>(null);
   const [localPhase, setLocalPhase] = useState<GamePhase>('setup');
   const [phaseBusy, setPhaseBusy] = useState(false);
+  const [openingSceneBusy, setOpeningSceneBusy] = useState(false);
   const [cockpitMode, setCockpitMode] = useState<CockpitMode>('dm');
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('story');
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const user: User | null = authSession?.user ?? null;
 
   useEffect(() => {
     if (!supabase) return;
@@ -60,6 +145,8 @@ export function App() {
       setAuthLoading(false);
       if (!session) {
         setActiveSession(null);
+        setPendingSession(null);
+        setRoomModal(null);
         setCharacter(demoCharacter);
       }
     });
@@ -71,13 +158,49 @@ export function App() {
   }, []);
 
   const selectSession = useCallback((session: GameSession) => {
+    setPendingSession(null);
     setActiveSession(session);
-    setEncounter(null);
+    setEncounter(session.combatState);
   }, []);
 
-  const user: User | null = authSession?.user ?? null;
+  const requestEnterSession = useCallback(
+    async (session: GameSession) => {
+      if (!user || !supabase) {
+        selectSession(session);
+        return;
+      }
+
+      setCharacterStatus('Checking table character');
+      try {
+        const existingCharacter = await loadCharacter(session.id, user);
+        setCharacter(existingCharacter);
+        setCharacterStatus('Saved to this table');
+        setRoomModal(null);
+        selectSession(session);
+      } catch (error) {
+        setRoomModal(null);
+        setPendingSession(session);
+        setCharacterStatus(error instanceof Error ? error.message : 'Choose a character for this table.');
+      }
+    },
+    [selectSession, user],
+  );
+
+  const completeCharacterEntry = useCallback(
+    (session: GameSession, sessionCharacter: Character) => {
+      setCharacter(sessionCharacter);
+      setCharacterStatus('Character attached to this table');
+      selectSession(session);
+    },
+    [selectSession],
+  );
+
   const currentPhase = activeSession?.phase ?? localPhase;
   const phaseDefinition = getGamePhaseDefinition(currentPhase);
+  const playModeDefinition = getPlayModeDefinition(activeSession?.playMode);
+  const themeDefinition = getSessionThemeDefinition(activeSession?.theme.key ?? 'dark_fantasy');
+  const isHexploreMode = activeSession?.playMode === 'hexplore';
+  const hasOpeningScene = hasSceneFlow(storyMessages);
 
   useEffect(() => {
     if (!activeSession || !user || !supabase) {
@@ -111,6 +234,7 @@ export function App() {
     const client = supabase;
     const channel = subscribeToSessionUpdates(activeSession.id, (nextSession) => {
       setActiveSession((current) => (current?.id === nextSession.id ? nextSession : current));
+      setEncounter(nextSession.combatState);
     });
 
     return () => {
@@ -168,6 +292,20 @@ export function App() {
       try {
         const message = await sendSessionMessage(activeSession.id, 'system', 'Dice', body, metadata);
         setStoryMessages((current) => addUniqueMessage(current, message));
+
+        if (roll.type === 'initiative' && encounter?.combatants.length && activeSession.playMode === 'dnd') {
+          const combatantId = `pc-${character.id}`;
+          const nextEncounter = {
+            ...encounter,
+            combatants: encounter.combatants.map((combatant) =>
+              combatant.id === combatantId ? { ...combatant, initiative: roll.total } : combatant,
+            ),
+          };
+          setEncounter(nextEncounter);
+          const updatedSession = await updateSessionCombatState(activeSession.id, nextEncounter);
+          setActiveSession(updatedSession);
+          setEncounter(updatedSession.combatState);
+        }
       } catch (error) {
         const body = error instanceof Error ? error.message : 'Could not post dice roll.';
         setStoryMessages((current) =>
@@ -181,7 +319,7 @@ export function App() {
         );
       }
     },
-    [activeSession, character, user],
+    [activeSession, character, encounter, user],
   );
 
   const postCombatEvent = useCallback(
@@ -260,6 +398,160 @@ export function App() {
     [activeSession, user],
   );
 
+  const askAiToOpenScene = useCallback(
+    async (premise: string) => {
+      if (openingSceneBusy) return false;
+      const trimmedPremise = premise.trim();
+      const prompt = [
+        'เริ่มการผจญภัยของโต๊ะ DnD นี้แบบ AI Dungeon Master ภาษาไทย',
+        trimmedPremise
+          ? `Premise จากโต๊ะ: ${trimmedPremise}`
+          : 'ถ้าไม่มี premise ให้สร้าง opening scene ที่เล่นต่อได้ทันทีจาก theme ของห้อง',
+        'ใช้สไตล์ dark fantasy / cosmic horror / mystery / psychological pressure แบบ dangerous but fair',
+        'สร้าง scene, atmosphere, current danger, objective, tactical context และ choices ตามสถานการณ์จริง',
+        'choices ต้องไม่เป็น generic และจำนวนเลือกตามสถานการณ์ 2-6 ข้อ ส่วน UI จะเติม “ทำอย่างอื่น...” เอง',
+        'อย่าเปลี่ยน HP, condition, turn, phase, inventory หรือ encounter state เอง ถ้าจำเป็นให้เสนอ events เพื่อให้ UI confirm',
+      ].join('\n');
+
+      if (!activeSession || !user || !supabase) {
+        setOpeningSceneBusy(true);
+        setStoryMessages((current) =>
+          addUniqueMessage(current, {
+            id: crypto.randomUUID(),
+            speaker: 'dm',
+            author: 'Dungeon Master',
+            body: trimmedPremise
+              ? `ฉากเปิดเริ่มจาก: ${trimmedPremise}`
+              : 'หมอกเย็นคลี่ตัวเหนือถนนหินเก่า โต๊ะพร้อมแล้วสำหรับการผจญภัยแรก',
+            createdAt: formatLocalTime(),
+            metadata: {
+              kind: 'scene_opening',
+              scene: {
+                title: 'Opening Scene',
+                location: trimmedPremise || 'A shadowed frontier road',
+                objective: 'เลือกการกระทำแรกของปาร์ตี้',
+                hook: 'มีบางอย่างผิดปกติรอให้ค้นพบ',
+                nextActions: ['Investigate', 'Talk', 'Travel', 'Roll Skill'],
+              },
+            },
+          }),
+        );
+        setOpeningSceneBusy(false);
+        return true;
+      }
+
+      setOpeningSceneBusy(true);
+      try {
+        const message = await requestAiDmReply(activeSession.id, character.name, prompt, storyMessages, {
+          session: activeSession,
+          gamePhase: 'setup',
+          character,
+          encounter,
+          aiMode: 'adventure',
+          partySummary: `${character.name}, level ${character.level} ${character.ancestry} ${character.className}`,
+        });
+        setStoryMessages((current) => addUniqueMessage(current, message));
+        return true;
+      } catch (error) {
+        setStoryMessages((current) =>
+          addUniqueMessage(current, {
+            id: crypto.randomUUID(),
+            speaker: 'system',
+            author: 'Table',
+            body: error instanceof Error ? error.message : 'Could not ask AI DM to open the scene.',
+            createdAt: formatLocalTime(),
+          }),
+        );
+        return false;
+      } finally {
+        setOpeningSceneBusy(false);
+      }
+    },
+    [activeSession, character, encounter, openingSceneBusy, storyMessages, user],
+  );
+
+  const askAiForRestSummary = useCallback(async () => {
+    if (openingSceneBusy || !activeSession || !user || !supabase) return;
+
+    setOpeningSceneBusy(true);
+    try {
+      const message = await requestAiDmReply(
+        activeSession.id,
+        character.name,
+        [
+          'สรุปช่วงพักของ session นี้เป็นภาษาไทย',
+          'ให้มีเหตุการณ์สำคัญ consequence, unresolved threat, และ next hook',
+          'อย่าเปลี่ยน HP, condition, inventory, phase หรือ encounter state เอง',
+        ].join('\n'),
+        storyMessages,
+        {
+          session: activeSession,
+          gamePhase: 'rest',
+          character,
+          encounter,
+          aiMode: 'adventure',
+          partySummary: `${character.name}, level ${character.level} ${character.ancestry} ${character.className}`,
+        },
+      );
+      setStoryMessages((current) =>
+        addUniqueMessage(current, {
+          ...message,
+          metadata: {
+            ...message.metadata,
+            kind: 'rest_summary',
+          },
+        }),
+      );
+    } catch (error) {
+      setStoryMessages((current) =>
+        addUniqueMessage(current, {
+          id: crypto.randomUUID(),
+          speaker: 'system',
+          author: 'Table',
+          body: error instanceof Error ? error.message : 'Could not ask AI DM for a recap.',
+          createdAt: formatLocalTime(),
+        }),
+      );
+    } finally {
+      setOpeningSceneBusy(false);
+    }
+  }, [activeSession, character, encounter, openingSceneBusy, storyMessages, user]);
+
+  const handleShortRest = useCallback(
+    async (hitDiceSpent: number) => {
+      const updatedCharacter = applyShortRest(character, hitDiceSpent);
+      if (hasSupabaseConfig && activeSession && user) {
+        await persistCharacter(updatedCharacter);
+      } else {
+        await saveLocalCharacter(updatedCharacter);
+      }
+
+      await postCombatEvent(
+        `${character.name} takes a short rest and spends ${hitDiceSpent} hit dice.`,
+        {
+          kind: 'rest_event',
+          restType: 'short',
+          hitDiceSpent,
+        },
+      );
+    },
+    [activeSession, character, persistCharacter, postCombatEvent, saveLocalCharacter, user],
+  );
+
+  const handleLongRest = useCallback(async () => {
+    const updatedCharacter = applyLongRest(character);
+    if (hasSupabaseConfig && activeSession && user) {
+      await persistCharacter(updatedCharacter);
+    } else {
+      await saveLocalCharacter(updatedCharacter);
+    }
+
+    await postCombatEvent(`${character.name} takes a long rest and recovers fully.`, {
+      kind: 'rest_event',
+      restType: 'long',
+    });
+  }, [activeSession, character, persistCharacter, postCombatEvent, saveLocalCharacter, user]);
+
   const changeGamePhase = useCallback(
     async (nextPhase: GamePhase) => {
       if (nextPhase === currentPhase || phaseBusy) return;
@@ -268,7 +560,11 @@ export function App() {
       try {
         if (activeSession && user && supabase) {
           const updatedSession = await updateSessionPhase(activeSession.id, nextPhase);
-          setActiveSession(updatedSession);
+          setActiveSession((current) =>
+            current?.id === updatedSession.id
+              ? { ...updatedSession, combatState: updatedSession.combatState ?? current.combatState }
+              : updatedSession,
+          );
         } else {
           setLocalPhase(nextPhase);
         }
@@ -290,6 +586,211 @@ export function App() {
     [activeSession, currentPhase, phaseBusy, postPhaseEvent, user],
   );
 
+  const startAdventure = useCallback(
+    async (premise: string) => {
+      if (phaseBusy || openingSceneBusy) return;
+
+      if (!hasOpeningScene) {
+        const opened = await askAiToOpenScene(premise);
+        if (!opened) return;
+      }
+
+      await changeGamePhase('exploration');
+    },
+    [askAiToOpenScene, changeGamePhase, hasOpeningScene, openingSceneBusy, phaseBusy],
+  );
+
+  const changeEncounter = useCallback(
+    async (nextEncounter: EncounterState | null) => {
+      setEncounter(nextEncounter);
+
+      if (!activeSession || !user || !supabase || activeSession.playMode !== 'dnd') return;
+
+      try {
+        const updatedSession = await updateSessionCombatState(activeSession.id, nextEncounter);
+        setActiveSession(updatedSession);
+        setEncounter(updatedSession.combatState);
+      } catch (error) {
+        setStoryMessages((current) =>
+          addUniqueMessage(current, {
+            id: crypto.randomUUID(),
+            speaker: 'system',
+            author: 'Table',
+            body: error instanceof Error ? error.message : 'Could not sync combat state.',
+            createdAt: formatLocalTime(),
+          }),
+        );
+      }
+    },
+    [activeSession, user],
+  );
+
+  const applyAiConfirmAction = useCallback(
+    async (action: AiConfirmAction, sourceMessage: StoryMessage) => {
+      if (action.type === 'phase_change') {
+        if (!action.phase) throw new Error('AI action is missing a target phase.');
+        await changeGamePhase(action.phase);
+        return;
+      }
+
+      if (action.type === 'start_combat') {
+        const nextEncounter: EncounterState = {
+          id: crypto.randomUUID(),
+          name: action.encounterName || action.label || 'AI Suggested Encounter',
+          round: 1,
+          activeIndex: 0,
+          isActive: true,
+          combatants: [
+            {
+              id: `pc-${character.id}`,
+              name: character.name,
+              type: 'player',
+              armorClass: character.armorClass,
+              hitPoints: character.hitPoints,
+              maxHitPoints: character.maxHitPoints,
+              tempHitPoints: 0,
+              initiative: 0,
+              conditions: [],
+              deathSaves: { successes: 0, failures: 0 },
+            },
+          ],
+        };
+        await changeEncounter(nextEncounter);
+        if (currentPhase !== 'combat') {
+          await changeGamePhase('combat');
+        }
+        await postCombatEvent(`Encounter started: ${nextEncounter.name}.`, {
+          kind: 'combat_event',
+          action: action.type,
+          aiAction: action,
+          sourceMessageId: sourceMessage.id,
+        });
+        return;
+      }
+
+      if (!encounter) {
+        throw new Error('Start an encounter before applying combat actions.');
+      }
+
+      let eventText = action.label;
+      let nextEncounter = encounter;
+
+      if (action.type === 'next_turn' || action.type === 'previous_turn') {
+        const direction = action.type === 'next_turn' ? 1 : -1;
+        const nextIndex = encounter.activeIndex + direction;
+        const wrappedForward = nextIndex >= encounter.combatants.length;
+        const wrappedBackward = nextIndex < 0;
+        const activeIndex = wrappedForward
+          ? 0
+          : wrappedBackward
+            ? encounter.combatants.length - 1
+            : nextIndex;
+        const round = wrappedForward ? encounter.round + 1 : wrappedBackward ? Math.max(1, encounter.round - 1) : encounter.round;
+        const activeCombatant = encounter.combatants[activeIndex];
+        nextEncounter = { ...encounter, activeIndex, round };
+        eventText = `Turn started: ${activeCombatant.name} (Round ${round})`;
+      } else {
+        const target = findCombatant(encounter.combatants, action);
+        if (!target) {
+          throw new Error('Could not match the AI action to a combatant.');
+        }
+
+        const toGameEvent = (): GameEvent | null => {
+          const base = {
+            id: crypto.randomUUID(),
+            sessionId: activeSession?.id ?? 'local-session',
+            actorId: action.targetId ?? character.id,
+            targetId: target.id,
+            createdAt: new Date().toISOString(),
+            source: 'ai' as const,
+          };
+
+          if (action.type === 'damage') {
+            return {
+              ...base,
+              type: 'apply_damage',
+              amount: Math.max(0, action.amount ?? 0),
+            };
+          }
+
+          if (action.type === 'healing') {
+            return {
+              ...base,
+              type: 'recover_hp',
+              amount: Math.max(0, action.amount ?? 0),
+              recoveryKind: 'healing',
+            };
+          }
+
+          if (action.type === 'add_condition' && action.condition) {
+            return {
+              ...base,
+              type: 'apply_condition',
+              condition: action.condition,
+            };
+          }
+
+          if (action.type === 'remove_condition' && action.condition) {
+            return {
+              ...base,
+              type: 'remove_condition',
+              condition: action.condition,
+            };
+          }
+
+          return null;
+        };
+
+        const nextEvent = toGameEvent();
+        if (!nextEvent) {
+          throw new Error('Unsupported AI combat event.');
+        }
+
+        const runtimeState: EventRuntimeState = {
+          charactersById: {
+            [target.id]: combatantToRuntimeCharacter(target),
+          },
+        };
+        const queue = createEventQueueState([nextEvent]);
+        const processed = processEventQueue(runtimeState, queue);
+        if (processed.failedEvents.length > 0) {
+          throw new Error(processed.failedEvents[0].error);
+        }
+        const processedCharacter = processed.state.charactersById[target.id];
+        if (!processedCharacter) {
+          throw new Error('Event queue did not return target state.');
+        }
+
+        nextEncounter = {
+          ...encounter,
+          combatants: encounter.combatants.map((combatant) => {
+            if (combatant.id !== target.id) return combatant;
+            return applyRuntimeCharacterToCombatant(combatant, processedCharacter);
+          }),
+        };
+
+        if (action.type === 'damage') {
+          eventText = `${target.name} took ${Math.max(0, action.amount ?? 0)} damage. HP ${processedCharacter.hitPoints}/${processedCharacter.maxHitPoints}.`;
+        } else if (action.type === 'healing') {
+          eventText = `${target.name} healed ${Math.max(0, action.amount ?? 0)}. HP ${processedCharacter.hitPoints}/${processedCharacter.maxHitPoints}.`;
+        } else if (action.type === 'add_condition' && action.condition) {
+          eventText = `${action.condition} added to ${target.name}.`;
+        } else if (action.type === 'remove_condition' && action.condition) {
+          eventText = `${action.condition} removed from ${target.name}.`;
+        }
+      }
+
+      await changeEncounter(nextEncounter);
+      await postCombatEvent(eventText, {
+        kind: 'combat_event',
+        action: action.type,
+        aiAction: action,
+        sourceMessageId: sourceMessage.id,
+      });
+    },
+    [changeEncounter, changeGamePhase, character, currentPhase, encounter, postCombatEvent],
+  );
+
   function copyJoinCode() {
     if (!activeSession) return;
     void navigator.clipboard?.writeText(activeSession.joinCode);
@@ -297,6 +798,8 @@ export function App() {
 
   function switchTable() {
     setActiveSession(null);
+    setPendingSession(null);
+    setRoomModal(null);
     setEncounter(null);
     setLocalPhase('setup');
     setIsSheetOpen(false);
@@ -306,6 +809,8 @@ export function App() {
     if (!supabase) return;
     await supabase.auth.signOut();
     setActiveSession(null);
+    setPendingSession(null);
+    setRoomModal(null);
     setEncounter(null);
     setLocalPhase('setup');
     setIsSheetOpen(false);
@@ -317,23 +822,64 @@ export function App() {
       <main className="app-shell gate-shell">
         <section className="gate-hero">
           <div className="gate-copy">
-            <p className="eyebrow">Fatewarden</p>
-            <h1>Choose Your Table</h1>
+            <div className="gate-brand-mark" aria-hidden="true">
+              <span>FW</span>
+            </div>
+            <p className="eyebrow">Fatewarden Web Table</p>
+            <h1>Gather the party before the veil opens.</h1>
             <p>
-              Sign in, create a campaign table, or join with a code before entering the DM cockpit.
+              Create or join a room first. Fatewarden will ask each player to choose or create a character before
+              entering the live DnD cockpit.
             </p>
+            <div className="gate-flow" aria-label="Entry flow">
+              <span className={user ? 'complete' : 'active'}>1. Sign in</span>
+              <span className={user ? 'active' : ''}>2. Table</span>
+              <span>3. Character</span>
+              <span>4. Play</span>
+            </div>
           </div>
           <div className="gate-status">
-            <span className={user ? 'status connected' : 'status'}>{user ? 'Signed in' : 'Auth required'}</span>
-            <span className="status">SRD 5.1</span>
-            <span className="status">Core / Combat / Conditions</span>
+            <div className="gate-status-card primary">
+              <span>Access</span>
+              <strong>{user ? 'Signed in' : 'Auth required'}</strong>
+              <small>{user?.email ?? 'Use your table account'}</small>
+            </div>
+            <div className="gate-status-card">
+              <span>Ruleset</span>
+              <strong>SRD 5.1</strong>
+              <small>Core / Combat / Conditions</small>
+            </div>
+            <div className="gate-status-card">
+              <span>Modes</span>
+              <strong>DnD first</strong>
+              <small>HEXplore parked for later</small>
+            </div>
           </div>
         </section>
 
-        <section className="gate-grid">
-          <AuthPanel loading={authLoading} user={user} />
-          <SessionLobby activeSession={activeSession} onSelectSession={selectSession} user={user} />
+        <section className={`gate-grid table-first-gate ${user ? '' : 'auth-only-gate'}`}>
+          <div className="gate-column auth-column">
+            <AuthPanel loading={authLoading} user={user} />
+          </div>
+          {user ? (
+            <SessionLobby
+              onRequestEnterSession={requestEnterSession}
+              onRoomModalChange={setRoomModal}
+              onSignOut={signOut}
+              roomModal={roomModal}
+              user={user}
+            />
+          ) : null}
         </section>
+
+        {pendingSession && user ? (
+          <CharacterEntryModal
+            onCancel={() => setPendingSession(null)}
+            onEnter={completeCharacterEntry}
+            session={pendingSession}
+            user={user}
+          />
+        ) : null}
       </main>
     );
   }
@@ -344,7 +890,10 @@ export function App() {
         <div className="brand-lockup">
           <p className="eyebrow">Fatewarden</p>
           <h1>{activeSession?.title ?? 'Adventuring Table'}</h1>
-          <span>{cockpitMode === 'dm' ? 'DM Cockpit' : 'Player Focus'} · {phaseDefinition.label}</span>
+          <span>
+            {cockpitMode === 'dm' ? 'DM Cockpit' : 'Player Focus'} · {playModeDefinition.label} ·{' '}
+            {phaseDefinition.label}
+          </span>
         </div>
         <div className="mode-switch" aria-label="Cockpit mode">
           <button
@@ -366,6 +915,8 @@ export function App() {
           <span className={hasSupabaseConfig ? 'status connected' : 'status'}>
             {hasSupabaseConfig ? 'Live Supabase' : 'Local demo'}
           </span>
+          <span className="status mode-chip">{playModeDefinition.shortLabel}</span>
+          <span className="status theme-chip">{themeDefinition.label}</span>
           <span className="status phase-chip">{phaseDefinition.label}</span>
           <span className="status">{activeSession?.joinCode ? `Code ${activeSession.joinCode}` : 'No table'}</span>
           <span className="status character-status-chip">{user?.email?.split('@')[0] ?? character.name}</span>
@@ -405,7 +956,7 @@ export function App() {
           type="button"
         >
           <Shield size={16} aria-hidden="true" />
-          Sheet
+          {isHexploreMode ? 'Hero' : 'Sheet'}
         </button>
         <button
           className={mobilePanel === 'dice' ? 'active' : ''}
@@ -427,6 +978,23 @@ export function App() {
 
       <section className="cockpit-layout">
         <aside className="table-rail">
+          {currentPhase === 'setup' || currentPhase === 'rest' ? (
+            <TableSetupPanel
+              activeSession={activeSession}
+              busy={phaseBusy || openingSceneBusy}
+              character={character}
+              characterStatus={characterStatus}
+              disabled={hasSupabaseConfig && (!activeSession || !user)}
+              encounter={encounter}
+              hasOpeningScene={hasOpeningScene}
+              onAskOpeningScene={askAiToOpenScene}
+              onAskRestSummary={askAiForRestSummary}
+              onApplyLongRest={handleLongRest}
+              onApplyShortRest={handleShortRest}
+              onStartExploration={startAdventure}
+              phase={currentPhase}
+            />
+          ) : null}
           <GamePhasePanel
             busy={phaseBusy}
             disabled={hasSupabaseConfig && (!activeSession || !user)}
@@ -434,6 +1002,11 @@ export function App() {
             phase={currentPhase}
           />
           <PartyPanel activeSession={activeSession} currentCharacter={character} />
+          <CompanionPanel
+            currentUserId={user?.id ?? null}
+            isHost={Boolean(activeSession?.createdBy && user?.id && activeSession.createdBy === user.id)}
+            sessionId={activeSession?.id ?? null}
+          />
           <section className="panel rules-panel">
             <div className="panel-heading">
               <div>
@@ -443,13 +1016,20 @@ export function App() {
               <BookOpen size={22} aria-hidden="true" />
             </div>
             <div className="rules-grid">
+              <span>{playModeDefinition.shortLabel}</span>
+              <span>{themeDefinition.label}</span>
               <span>SRD 5.1</span>
               {(activeSession?.rules.enabledModules ?? ['core', 'combat', 'conditions']).map((module) => (
                 <span key={module}>{module}</span>
               ))}
             </div>
             <p className="rules-note">
-              {activeSession?.rules.houseRules || 'Core formulas only. Longer rules text stays outside the app.'}
+              {activeSession?.theme.notes
+                ? `${themeDefinition.label}: ${activeSession.theme.notes}`
+                : activeSession?.rules.houseRules ||
+                (activeSession?.playMode === 'hexplore'
+                  ? 'HEXplore mode is ready as a table mode. Expedition tools will be added as the next gameplay layer.'
+                  : 'Core formulas only. Longer rules text stays outside the app.')}
             </p>
           </section>
         </aside>
@@ -463,6 +1043,7 @@ export function App() {
             gamePhase={currentPhase}
             initialMessages={demoMessages}
             messages={storyMessages}
+            onConfirmAction={applyAiConfirmAction}
             onMessagesChange={setStoryMessages}
             sessionTitle={activeSession?.title}
             user={user}
@@ -471,13 +1052,22 @@ export function App() {
 
         <aside className="tool-dock">
           <div className={`mobile-panel ${mobilePanel === 'character' ? 'active' : ''}`}>
-            <CharacterSheet
-              character={character}
-              disabled={hasSupabaseConfig && (!activeSession || !user)}
-              onOpenFullSheet={() => setIsSheetOpen(true)}
-              onSave={hasSupabaseConfig ? persistCharacter : saveLocalCharacter}
-              status={characterStatus}
-            />
+            {isHexploreMode ? (
+              <HexHeroBuilder
+                character={character}
+                disabled={hasSupabaseConfig && (!activeSession || !user)}
+                onSave={hasSupabaseConfig ? persistCharacter : saveLocalCharacter}
+                status={characterStatus}
+              />
+            ) : (
+              <CharacterSheet
+                character={character}
+                disabled={hasSupabaseConfig && (!activeSession || !user)}
+                onOpenFullSheet={() => setIsSheetOpen(true)}
+                onSave={hasSupabaseConfig ? persistCharacter : saveLocalCharacter}
+                status={characterStatus}
+              />
+            )}
           </div>
           <div className={`mobile-panel ${mobilePanel === 'dice' ? 'active' : ''}`}>
             <DiceRoller character={character} onRoll={postDiceRoll} />
@@ -487,14 +1077,14 @@ export function App() {
               character={character}
               encounter={encounter}
               onCombatEvent={postCombatEvent}
-              onEncounterChange={setEncounter}
+              onEncounterChange={changeEncounter}
               onRequestPhaseChange={changeGamePhase}
             />
           </div>
         </aside>
       </section>
 
-      {isSheetOpen ? (
+      {isSheetOpen && !isHexploreMode ? (
         <CharacterSheetView
           character={character}
           disabled={hasSupabaseConfig && (!activeSession || !user)}

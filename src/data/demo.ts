@@ -1,4 +1,8 @@
+import { getDefaultRestState } from '../engine/character/rest';
+import { inventoryFromNames } from '../lib/inventory';
 import type { Character, StoryMessage } from '../types';
+
+const defaultRest = getDefaultRestState('Ranger', 3);
 
 export const demoCharacter: Character = {
   id: 'char-demo-1',
@@ -26,13 +30,19 @@ export const demoCharacter: Character = {
     cha: 11,
   },
   skills: ['Perception', 'Survival', 'Stealth', 'Animal Handling'],
-  equipment: ['Longbow', 'Twin daggers', 'Explorer pack', 'Black cloak'],
+  inventory: inventoryFromNames(['Longbow', 'Twin daggers', 'Explorer pack', 'Black cloak']),
   features: ['Favored Enemy', 'Natural Explorer', 'Hunter Instinct', 'Cursed Resilience'],
   spells: ['Detect Magic', 'Hunter Mark'],
   backstory:
     'Mira survived the fall of a rain-soaked border shrine and now follows the marks left by the same violet curse that spared her.',
   personalityTraits: ['Quiet observer', 'Not easy to trust', 'Notices small details first'],
   portraitUrl: '',
+  activeConditions: [],
+  exhaustionLevel: 0,
+  hitDice: defaultRest.hitDice,
+  maxHitDice: defaultRest.maxHitDice,
+  spellSlots: defaultRest.spellSlots,
+  systemData: {},
 };
 
 export const demoMessages: StoryMessage[] = [

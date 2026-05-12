@@ -1,12 +1,17 @@
-import { HeartPulse, Minus, Plus, RotateCcw, SkipBack, SkipForward, Swords } from 'lucide-react';
+import { HeartPulse, Minus, Plus, RotateCcw, SkipBack, SkipForward, Swords, XCircle } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
+import { addParticipant, advanceTurn, createCombat, endCombat, sortInitiativeOrder, startCombat } from '../engine/combat';
+import type { CombatState as EngineCombatState } from '../engine/combat';
+import { createEventQueueState, processEventQueue, type EventRuntimeState } from '../engine/events/eventQueue';
+import type { GameEvent } from '../engine/events/types';
+import { createEmptyInventory } from '../lib/inventory';
 import { conditions } from '../lib/rules';
 import type { Character, Combatant, EncounterState, GamePhase } from '../types';
 
 type CombatTrackerProps = {
   character: Character;
   encounter: EncounterState | null;
-  onEncounterChange: (encounter: EncounterState | null) => void;
+  onEncounterChange: (encounter: EncounterState | null) => Promise<void> | void;
   onCombatEvent: (body: string, metadata: Record<string, unknown>) => Promise<void> | void;
   onRequestPhaseChange?: (phase: GamePhase) => void;
 };
@@ -26,12 +31,150 @@ function makePlayerCombatant(character: Character): Combatant {
   };
 }
 
-function sortCombatants(combatants: Combatant[]) {
-  return [...combatants].sort((a, b) => b.initiative - a.initiative || a.name.localeCompare(b.name));
-}
-
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
+}
+
+function combatantToRuntimeCharacter(combatant: Combatant): Character {
+  return {
+    id: combatant.id,
+    name: combatant.name,
+    ancestry: '',
+    className: '',
+    level: 1,
+    background: '',
+    age: '',
+    alignment: '',
+    languages: [],
+    proficiencies: [],
+    armorClass: combatant.armorClass,
+    hitPoints: combatant.hitPoints,
+    maxHitPoints: combatant.maxHitPoints,
+    speed: 30,
+    darkvision: 0,
+    inspiration: false,
+    abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
+    skills: [],
+    inventory: createEmptyInventory(),
+    features: [],
+    spells: [],
+    backstory: '',
+    personalityTraits: [],
+    portraitUrl: '',
+    activeConditions: [...combatant.conditions],
+    exhaustionLevel: 0,
+    hitDice: 1,
+    maxHitDice: 1,
+    spellSlots: {},
+    systemData: {},
+  };
+}
+
+function applyRuntimeCharacterToCombatant(combatant: Combatant, runtimeCharacter: Character): Combatant {
+  return {
+    ...combatant,
+    hitPoints: runtimeCharacter.hitPoints,
+    maxHitPoints: runtimeCharacter.maxHitPoints,
+    conditions: [...runtimeCharacter.activeConditions],
+  };
+}
+
+function processCombatantEvent(encounter: EncounterState, targetId: string, event: GameEvent) {
+  const target = encounter.combatants.find((combatant) => combatant.id === targetId);
+  if (!target) {
+    throw new Error('Target combatant not found.');
+  }
+
+  const runtimeState: EventRuntimeState = {
+    charactersById: {
+      [target.id]: combatantToRuntimeCharacter(target),
+    },
+  };
+  const queue = createEventQueueState([event]);
+  const processed = processEventQueue(runtimeState, queue);
+
+  if (processed.failedEvents.length > 0) {
+    throw new Error(processed.failedEvents[0].error);
+  }
+
+  const processedCharacter = processed.state.charactersById[target.id];
+  if (!processedCharacter) {
+    throw new Error('Event queue did not return target character.');
+  }
+
+  return {
+    target,
+    processedCharacter,
+  };
+}
+
+function toCombatState(encounter: EncounterState, activeCharacter: Character): EngineCombatState {
+  return {
+    id: encounter.id,
+    name: encounter.name,
+    roomId: undefined,
+    phase: encounter.isActive ? ('active' as const) : ('setup' as const),
+    participants: encounter.combatants.map((combatant, index) => ({
+      id: combatant.id,
+      characterId: combatant.type === 'player' && combatant.id === `pc-${activeCharacter.id}` ? activeCharacter.id : undefined,
+      name: combatant.name,
+      type: combatant.type === 'enemy' ? ('monster' as const) : ('player' as const),
+      initiativeScore: combatant.initiative,
+      dexScore: 10,
+      armorClass: combatant.armorClass,
+      hitPoints: combatant.hitPoints,
+      maxHitPoints: combatant.maxHitPoints,
+      tempHitPoints: combatant.tempHitPoints,
+      speed: 30,
+      conditions: combatant.conditions,
+      status: combatant.hitPoints <= 0 ? ('unconscious' as const) : ('active' as const),
+      joinedOrder: index,
+    })),
+    initiativeOrder: encounter.combatants.map((combatant) => combatant.id),
+    turn: {
+      round: encounter.round,
+      turnIndex: encounter.activeIndex,
+      activeParticipantId: encounter.combatants[encounter.activeIndex]?.id ?? null,
+      hasStarted: encounter.isActive,
+    },
+    createdAt: new Date().toISOString(),
+    startedAt: encounter.isActive ? new Date().toISOString() : null,
+    endedAt: null,
+  };
+}
+
+function toEncounterState(combat: EngineCombatState): EncounterState {
+  const order = combat.initiativeOrder.length
+    ? combat.initiativeOrder
+    : combat.participants.map((participant) => participant.id);
+  const orderedParticipants = order
+    .map((id) => combat.participants.find((participant) => participant.id === id) ?? null)
+    .filter((participant): participant is EngineCombatState['participants'][number] => participant !== null);
+  const orderedCombatants = orderedParticipants.map((participant) => ({
+      id: participant.id,
+      name: participant.name,
+      type: participant.type === 'player' ? ('player' as const) : ('enemy' as const),
+      armorClass: participant.armorClass,
+      hitPoints: participant.hitPoints,
+      maxHitPoints: participant.maxHitPoints,
+      tempHitPoints: participant.tempHitPoints,
+      initiative: participant.initiativeScore ?? 0,
+      conditions: [...participant.conditions],
+      deathSaves: { successes: 0, failures: 0 },
+    }));
+
+  const activeIndex = combat.turn.activeParticipantId
+    ? Math.max(0, orderedCombatants.findIndex((combatant) => combatant.id === combat.turn.activeParticipantId))
+    : Math.max(0, Math.min(combat.turn.turnIndex, Math.max(0, orderedCombatants.length - 1)));
+
+  return {
+    id: combat.id,
+    name: combat.name,
+    round: combat.turn.round,
+    activeIndex,
+    isActive: combat.phase === 'active',
+    combatants: orderedCombatants,
+  };
 }
 
 export function CombatTracker({
@@ -48,6 +191,7 @@ export function CombatTracker({
   const [enemyInitiative, setEnemyInitiative] = useState(10);
   const [amounts, setAmounts] = useState<Record<string, number>>({});
   const [conditionDrafts, setConditionDrafts] = useState<Record<string, string>>({});
+  const runtimeCharactersById = useMemo(() => ({ [character.id]: character }), [character]);
 
   const activeCombatant = useMemo(() => {
     if (!encounter?.combatants.length) return null;
@@ -61,16 +205,38 @@ export function CombatTracker({
     if (event) void onCombatEvent(event, { kind: 'combat_event', encounterId: next.id, ...metadata });
   }
 
+  function endEncounter() {
+    if (!encounter) return;
+    const endedEncounter = toEncounterState(endCombat(toCombatState(encounter, character)));
+    void onEncounterChange(null);
+    void onCombatEvent(`Encounter ended: ${endedEncounter.name}`, {
+      kind: 'combat_event',
+      action: 'encounter_ended',
+      encounterId: endedEncounter.id,
+      encounter: endedEncounter,
+    });
+  }
+
   function createEncounter(event: FormEvent) {
     event.preventDefault();
-    const next: EncounterState = {
-      id: crypto.randomUUID(),
-      name: name.trim() || 'Encounter',
-      round: 1,
-      activeIndex: 0,
-      isActive: true,
-      combatants: [makePlayerCombatant(character)],
-    };
+    const initialCombat = createCombat(name.trim() || 'Encounter');
+    const withPlayer = addParticipant(initialCombat, {
+      id: `pc-${character.id}`,
+      characterId: character.id,
+      name: character.name,
+      type: 'player',
+      initiativeScore: 0,
+      dexScore: 10,
+      armorClass: character.armorClass,
+      hitPoints: character.hitPoints,
+      maxHitPoints: character.maxHitPoints,
+      tempHitPoints: 0,
+      speed: character.speed,
+      conditions: [],
+      status: 'active',
+      joinedOrder: 0,
+    }, runtimeCharactersById);
+    const next = toEncounterState(startCombat(withPlayer, runtimeCharactersById));
     onEncounterChange(next);
     onRequestPhaseChange?.('combat');
     void onCombatEvent(`Encounter started: ${next.name}`, {
@@ -83,13 +249,26 @@ export function CombatTracker({
   function addPlayer() {
     if (!encounter) return;
     const player = makePlayerCombatant(character);
-    updateEncounter(
-      (current) => ({
-        ...current,
-        combatants: current.combatants.some((combatant) => combatant.id === player.id)
-          ? current.combatants
-          : [...current.combatants, player],
-      }),
+    updateEncounter((current) => {
+      if (current.combatants.some((combatant) => combatant.id === player.id)) return current;
+      const withPlayer = addParticipant(toCombatState(current, character), {
+        id: player.id,
+        characterId: character.id,
+        name: player.name,
+        type: 'player',
+        initiativeScore: player.initiative,
+        dexScore: 10,
+        armorClass: player.armorClass,
+        hitPoints: player.hitPoints,
+        maxHitPoints: player.maxHitPoints,
+        tempHitPoints: player.tempHitPoints,
+        speed: character.speed,
+        conditions: player.conditions,
+        status: 'active',
+        joinedOrder: current.combatants.length,
+      }, runtimeCharactersById);
+      return toEncounterState(withPlayer);
+    },
       `${character.name} joined the initiative list.`,
       { action: 'combatant_added', combatant: player },
     );
@@ -110,11 +289,24 @@ export function CombatTracker({
       conditions: [],
       deathSaves: { successes: 0, failures: 0 },
     };
-    updateEncounter(
-      (current) => ({
-        ...current,
-        combatants: [...current.combatants, enemy],
-      }),
+    updateEncounter((current) => {
+      const withEnemy = addParticipant(toCombatState(current, character), {
+        id: enemy.id,
+        name: enemy.name,
+        type: 'monster',
+        initiativeScore: enemy.initiative,
+        dexScore: 10,
+        armorClass: enemy.armorClass,
+        hitPoints: enemy.hitPoints,
+        maxHitPoints: enemy.maxHitPoints,
+        tempHitPoints: enemy.tempHitPoints,
+        speed: 30,
+        conditions: enemy.conditions,
+        status: 'active',
+        joinedOrder: current.combatants.length,
+      }, runtimeCharactersById);
+      return toEncounterState(withEnemy);
+    },
       `${enemy.name} entered combat with initiative ${enemy.initiative}.`,
       { action: 'combatant_added', combatant: enemy },
     );
@@ -130,12 +322,20 @@ export function CombatTracker({
   }
 
   function sortInitiative() {
-    updateEncounter(
-      (current) => ({
-        ...current,
-        activeIndex: 0,
-        combatants: sortCombatants(current.combatants),
-      }),
+    updateEncounter((current) => {
+      const combat = toCombatState(current, character);
+      const orderedIds = sortInitiativeOrder(combat.participants);
+      const sorted = {
+        ...combat,
+        initiativeOrder: orderedIds,
+        turn: {
+          ...combat.turn,
+          turnIndex: 0,
+          activeParticipantId: orderedIds[0] ?? null,
+        },
+      };
+      return toEncounterState(sorted);
+    },
       'Initiative order locked.',
       { action: 'initiative_sorted' },
     );
@@ -144,24 +344,28 @@ export function CombatTracker({
   function moveTurn(direction: 1 | -1) {
     updateEncounter((current) => {
       if (!current.combatants.length) return current;
-      const nextIndex = current.activeIndex + direction;
-      const wrappedForward = nextIndex >= current.combatants.length;
-      const wrappedBackward = nextIndex < 0;
-      const activeIndex = wrappedForward
-        ? 0
-        : wrappedBackward
-          ? current.combatants.length - 1
-          : nextIndex;
-      const round = wrappedForward ? current.round + 1 : wrappedBackward ? Math.max(1, current.round - 1) : current.round;
-      const active = current.combatants[activeIndex];
-      const next = { ...current, activeIndex, round };
-      void onCombatEvent(`Turn started: ${active.name} (Round ${round})`, {
-        kind: 'combat_event',
-        action: 'turn_started',
-        encounterId: current.id,
-        round,
-        activeCombatant: active,
-      });
+
+      let nextCombat = toCombatState(current, character);
+      if (direction === -1) {
+        const total = Math.max(1, nextCombat.initiativeOrder.length);
+        for (let index = 0; index < total - 1; index += 1) {
+          nextCombat = advanceTurn(nextCombat, runtimeCharactersById);
+        }
+      } else {
+        nextCombat = advanceTurn(nextCombat, runtimeCharactersById);
+      }
+
+      const next = toEncounterState(nextCombat);
+      const active = next.combatants[next.activeIndex];
+      if (active) {
+        void onCombatEvent(`Turn started: ${active.name} (Round ${next.round})`, {
+          kind: 'combat_event',
+          action: 'turn_started',
+          encounterId: current.id,
+          round: next.round,
+          activeCombatant: active,
+        });
+      }
       return next;
     });
   }
@@ -171,34 +375,46 @@ export function CombatTracker({
     if (!amount) return;
 
     updateEncounter((current) => {
-      let eventText = '';
-      let eventCombatant: Combatant | undefined;
-      const combatants = current.combatants.map((combatant) => {
-        if (combatant.id !== id) return combatant;
+      const event: GameEvent =
+        direction === 'damage'
+          ? {
+              id: crypto.randomUUID(),
+              type: 'apply_damage',
+              sessionId: current.id,
+              actorId: id,
+              targetId: id,
+              amount,
+              createdAt: new Date().toISOString(),
+              source: 'user',
+            }
+          : {
+              id: crypto.randomUUID(),
+              type: 'recover_hp',
+              sessionId: current.id,
+              actorId: id,
+              targetId: id,
+              amount,
+              recoveryKind: 'healing',
+              createdAt: new Date().toISOString(),
+              source: 'user',
+            };
 
-        if (direction === 'damage') {
-          const tempAbsorbed = Math.min(combatant.tempHitPoints, amount);
-          const remainingDamage = amount - tempAbsorbed;
-          const hitPoints = clamp(combatant.hitPoints - remainingDamage, 0, combatant.maxHitPoints);
-          eventCombatant = { ...combatant, tempHitPoints: combatant.tempHitPoints - tempAbsorbed, hitPoints };
-          eventText = `${combatant.name} took ${amount} damage. HP ${hitPoints}/${combatant.maxHitPoints}.`;
-          return eventCombatant;
-        }
+      const { target, processedCharacter } = processCombatantEvent(current, id, event);
+      const eventText =
+        direction === 'damage'
+          ? `${target.name} took ${amount} damage. HP ${processedCharacter.hitPoints}/${processedCharacter.maxHitPoints}.`
+          : `${target.name} healed ${amount}. HP ${processedCharacter.hitPoints}/${processedCharacter.maxHitPoints}.`;
 
-        const hitPoints = clamp(combatant.hitPoints + amount, 0, combatant.maxHitPoints);
-        eventCombatant = { ...combatant, hitPoints };
-        eventText = `${combatant.name} healed ${amount}. HP ${hitPoints}/${combatant.maxHitPoints}.`;
-        return eventCombatant;
+      const combatants = current.combatants.map((combatant) =>
+        combatant.id === id ? applyRuntimeCharacterToCombatant(combatant, processedCharacter) : combatant,
+      );
+
+      void onCombatEvent(eventText, {
+        kind: 'combat_event',
+        action: direction,
+        amount,
+        combatant: combatants.find((combatant) => combatant.id === id),
       });
-
-      if (eventText) {
-        void onCombatEvent(eventText, {
-          kind: 'combat_event',
-          action: direction,
-          amount,
-          combatant: eventCombatant,
-        });
-      }
 
       return { ...current, combatants };
     });
@@ -217,37 +433,54 @@ export function CombatTracker({
     const condition = conditionDrafts[id];
     if (!condition) return;
     updateEncounter((current) => {
-      let targetName = '';
-      return {
-        ...current,
-        combatants: current.combatants.map((combatant) => {
-          if (combatant.id !== id) return combatant;
-          targetName = combatant.name;
-          return combatant.conditions.includes(condition)
-            ? combatant
-            : { ...combatant, conditions: [...combatant.conditions, condition] };
-        }),
+      const event: GameEvent = {
+        id: crypto.randomUUID(),
+        type: 'apply_condition',
+        sessionId: current.id,
+        actorId: id,
+        targetId: id,
+        condition,
+        createdAt: new Date().toISOString(),
+        source: 'user',
       };
-    }, `${condition} added to ${encounter?.combatants.find((combatant) => combatant.id === id)?.name ?? 'target'}.`, {
-      action: 'condition_added',
-      condition,
-      combatantId: id,
+      const { target, processedCharacter } = processCombatantEvent(current, id, event);
+      const combatants = current.combatants.map((combatant) =>
+        combatant.id === id ? applyRuntimeCharacterToCombatant(combatant, processedCharacter) : combatant,
+      );
+      void onCombatEvent(`${condition} added to ${target.name}.`, {
+        kind: 'combat_event',
+        action: 'condition_added',
+        condition,
+        combatantId: id,
+      });
+      return { ...current, combatants };
     });
   }
 
   function removeCondition(id: string, condition: string) {
-    updateEncounter(
-      (current) => ({
-        ...current,
-        combatants: current.combatants.map((combatant) =>
-          combatant.id === id
-            ? { ...combatant, conditions: combatant.conditions.filter((item) => item !== condition) }
-            : combatant,
-        ),
-      }),
-      `${condition} removed from ${encounter?.combatants.find((combatant) => combatant.id === id)?.name ?? 'target'}.`,
-      { action: 'condition_removed', condition, combatantId: id },
-    );
+    updateEncounter((current) => {
+      const event: GameEvent = {
+        id: crypto.randomUUID(),
+        type: 'remove_condition',
+        sessionId: current.id,
+        actorId: id,
+        targetId: id,
+        condition,
+        createdAt: new Date().toISOString(),
+        source: 'user',
+      };
+      const { target, processedCharacter } = processCombatantEvent(current, id, event);
+      const combatants = current.combatants.map((combatant) =>
+        combatant.id === id ? applyRuntimeCharacterToCombatant(combatant, processedCharacter) : combatant,
+      );
+      void onCombatEvent(`${condition} removed from ${target.name}.`, {
+        kind: 'combat_event',
+        action: 'condition_removed',
+        condition,
+        combatantId: id,
+      });
+      return { ...current, combatants };
+    });
   }
 
   function setDeathSave(id: string, key: 'successes' | 'failures', delta: number) {
@@ -315,6 +548,10 @@ export function CombatTracker({
         <button className="secondary-button" onClick={sortInitiative} type="button">
           <RotateCcw size={16} aria-hidden="true" />
           Sort
+        </button>
+        <button className="danger-button" onClick={endEncounter} type="button">
+          <XCircle size={16} aria-hidden="true" />
+          End
         </button>
       </div>
 

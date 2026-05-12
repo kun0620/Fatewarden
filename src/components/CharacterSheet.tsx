@@ -1,5 +1,8 @@
 import { Maximize2, Save, Shield, Sparkles } from 'lucide-react';
 import { ChangeEvent, FormEvent, useEffect, useState } from 'react';
+import { canLevelUp } from '../lib/characterProgression';
+import { InventoryPanel } from './InventoryPanel';
+import { LevelUpModal } from './LevelUpModal';
 import type { AbilityKey, Character } from '../types';
 
 const abilityLabels: Record<AbilityKey, string> = {
@@ -31,6 +34,7 @@ function clamp(value: number, min: number, max: number) {
 export function CharacterSheet({ character, disabled = false, onOpenFullSheet, onSave, status }: CharacterSheetProps) {
   const [draft, setDraft] = useState(character);
   const [saving, setSaving] = useState(false);
+  const [levelUpOpen, setLevelUpOpen] = useState(false);
 
   useEffect(() => {
     setDraft(character);
@@ -193,8 +197,22 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
         />
       </label>
 
+      <InventoryPanel
+        character={draft}
+        disabled={disabled || saving}
+        onUpdateCharacter={(updatedCharacter) => setDraft(updatedCharacter)}
+      />
+
       <div className="character-actions">
         {status ? <p className="form-message">{status}</p> : null}
+        <button
+          className="secondary-button"
+          disabled={disabled || saving || !onSave || !canLevelUp(draft)}
+          onClick={() => setLevelUpOpen(true)}
+          type="button"
+        >
+          Level Up
+        </button>
         <button className="secondary-button" onClick={onOpenFullSheet} type="button">
           <Maximize2 size={17} aria-hidden="true" />
           Open Sheet
@@ -204,6 +222,21 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
           {saving ? 'Saving...' : 'Save'}
         </button>
       </div>
+
+      <LevelUpModal
+        character={draft}
+        onCancel={() => setLevelUpOpen(false)}
+        onConfirm={async (updatedCharacter) => {
+          setDraft(updatedCharacter);
+          if (onSave) {
+            setSaving(true);
+            await onSave(updatedCharacter);
+            setSaving(false);
+          }
+          setLevelUpOpen(false);
+        }}
+        open={levelUpOpen}
+      />
     </form>
   );
 }

@@ -1,8 +1,10 @@
 import type { User } from '@supabase/supabase-js';
-import { demoCharacter } from '../data/demo';
-import type { GamePhase, GameSession } from '../types';
+import type { EncounterState, GamePhase, GameSession, SessionPlayMode, SessionTheme } from '../types';
+import { normalizeEncounterState } from './combat';
 import { normalizeGamePhase } from './gamePhases';
+import { normalizePlayMode } from './playModes';
 import { defaultSessionRules, normalizeRules } from './rules';
+import { defaultSessionTheme, normalizeSessionTheme } from './sessionThemes';
 import { supabase } from './supabase';
 
 type SessionRow = {
@@ -10,14 +12,24 @@ type SessionRow = {
   title: string;
   join_code: string;
   created_at: string;
+  created_by?: string | null;
+  play_mode?: string | null;
   game_phase?: string | null;
+  combat_state?: unknown;
+  theme_key?: string | null;
+  theme_tone?: string | null;
+  theme_notes?: string | null;
   rules_version?: string | null;
   enabled_modules?: string[] | null;
   house_rules?: string | null;
 };
 
-const sessionSelect = 'id,title,join_code,created_at,game_phase,rules_version,enabled_modules,house_rules';
-const legacySessionSelect = 'id,title,join_code,created_at,rules_version,enabled_modules,house_rules';
+const sessionSelect =
+  'id,title,join_code,created_at,created_by,play_mode,game_phase,combat_state,theme_key,theme_tone,theme_notes,rules_version,enabled_modules,house_rules';
+const combatSessionSelect =
+  'id,title,join_code,created_at,created_by,play_mode,game_phase,combat_state,rules_version,enabled_modules,house_rules';
+const legacySessionSelect = 'id,title,join_code,created_at,created_by,play_mode,game_phase,rules_version,enabled_modules,house_rules';
+const baseSessionSelect = 'id,title,join_code,created_at,created_by,rules_version,enabled_modules,house_rules';
 
 function mapSession(row: SessionRow): GameSession {
   return {
@@ -25,13 +37,25 @@ function mapSession(row: SessionRow): GameSession {
     title: row.title,
     joinCode: row.join_code,
     createdAt: row.created_at,
+    createdBy: row.created_by ?? undefined,
+    playMode: normalizePlayMode(row.play_mode),
     phase: normalizeGamePhase(row.game_phase),
+    theme: normalizeSessionTheme(row.theme_key, row.theme_tone, row.theme_notes),
+    combatState: normalizeEncounterState(row.combat_state),
     rules: normalizeRules(row.rules_version, row.enabled_modules, row.house_rules),
   };
 }
 
-function isMissingGamePhaseColumn(error: { code?: string; message?: string }) {
-  return error.code === '42703' || error.message?.includes('game_phase');
+function isMissingSessionColumn(error: { code?: string; message?: string }) {
+  return (
+    error.code === '42703' ||
+    error.message?.includes('game_phase') ||
+    error.message?.includes('play_mode') ||
+    error.message?.includes('combat_state') ||
+    error.message?.includes('theme_key') ||
+    error.message?.includes('theme_tone') ||
+    error.message?.includes('theme_notes')
+  );
 }
 
 function makeJoinCode() {
@@ -59,7 +83,7 @@ export async function listJoinedSessions() {
   let data: unknown[] | null = result.data;
   let error = result.error;
 
-  if (error && isMissingGamePhaseColumn(error)) {
+  if (error && isMissingSessionColumn(error)) {
     const legacyResult = await client
       .from('sessions')
       .select(legacySessionSelect)
@@ -68,12 +92,27 @@ export async function listJoinedSessions() {
     error = legacyResult.error;
   }
 
+  if (error && isMissingSessionColumn(error)) {
+    const baseResult = await client
+      .from('sessions')
+      .select(baseSessionSelect)
+      .order('created_at', { ascending: false });
+    data = baseResult.data;
+    error = baseResult.error;
+  }
+
   if (error) throw error;
 
   return (data ?? []).map((row) => mapSession(row as SessionRow));
 }
 
-export async function createGameSession(title: string, user: User, houseRules = '') {
+export async function createGameSession(
+  title: string,
+  user: User,
+  houseRules = '',
+  playMode: SessionPlayMode = 'dnd',
+  theme: SessionTheme = defaultSessionTheme,
+) {
   const client = requireClient();
   const joinCode = makeJoinCode();
   const { data, error } = await client
@@ -82,17 +121,40 @@ export async function createGameSession(title: string, user: User, houseRules = 
       title,
       join_code: joinCode,
       created_by: user.id,
+      play_mode: playMode,
       rules_version: defaultSessionRules.version,
       enabled_modules: defaultSessionRules.enabledModules,
       house_rules: houseRules.trim() || defaultSessionRules.houseRules,
       game_phase: 'setup',
+      theme_key: theme.key,
+      theme_tone: theme.tone,
+      theme_notes: theme.notes.trim(),
     })
     .select(sessionSelect)
     .single();
 
+  if (error && isMissingSessionColumn(error)) {
+    const legacyResult = await client
+      .from('sessions')
+      .insert({
+        title,
+        join_code: joinCode,
+        created_by: user.id,
+        play_mode: playMode,
+        rules_version: defaultSessionRules.version,
+        enabled_modules: defaultSessionRules.enabledModules,
+        house_rules: houseRules.trim() || defaultSessionRules.houseRules,
+        game_phase: 'setup',
+      })
+      .select(combatSessionSelect)
+      .single();
+
+    if (legacyResult.error) throw legacyResult.error;
+    return mapSession(legacyResult.data as SessionRow);
+  }
+
   if (error) throw error;
 
-  await upsertDemoCharacter(data.id, user.id);
   return mapSession(data as SessionRow);
 }
 
@@ -106,7 +168,6 @@ export async function joinGameSession(joinCode: string, user: User) {
   if (!data) throw new Error('No session found for that join code.');
 
   const session = mapSession(data as SessionRow);
-  await upsertDemoCharacter(session.id, user.id);
   return session;
 }
 
@@ -122,6 +183,29 @@ export async function updateSessionPhase(sessionId: string, phase: GamePhase) {
   if (error) throw error;
 
   return mapSession(data as SessionRow);
+}
+
+export async function updateSessionCombatState(sessionId: string, encounter: EncounterState | null) {
+  const client = requireClient();
+  const { data, error } = await client
+    .rpc('set_session_combat_state', {
+      target_session_id: sessionId,
+      next_combat_state: encounter,
+    })
+    .single();
+
+  if (error) throw error;
+
+  return mapSession(data as SessionRow);
+}
+
+export async function deleteGameSession(sessionId: string) {
+  const client = requireClient();
+  const { error } = await client.rpc('delete_owned_session', {
+    target_session_id: sessionId,
+  });
+
+  if (error) throw error;
 }
 
 export function subscribeToSessionUpdates(
@@ -142,26 +226,4 @@ export function subscribeToSessionUpdates(
       (payload) => onSession(mapSession(payload.new as SessionRow)),
     )
     .subscribe();
-}
-
-async function upsertDemoCharacter(sessionId: string, userId: string) {
-  const client = requireClient();
-  const { error } = await client.from('characters').upsert(
-    {
-      session_id: sessionId,
-      user_id: userId,
-      name: demoCharacter.name,
-      ancestry: demoCharacter.ancestry,
-      class_name: demoCharacter.className,
-      level: demoCharacter.level,
-      armor_class: demoCharacter.armorClass,
-      hit_points: demoCharacter.hitPoints,
-      max_hit_points: demoCharacter.maxHitPoints,
-      abilities: demoCharacter.abilities,
-      skills: demoCharacter.skills,
-    },
-    { onConflict: 'session_id,user_id' },
-  );
-
-  if (error) throw error;
 }

@@ -1,6 +1,7 @@
 node_modules
 dist
 .omx
+.omc
 .codex
 supabase/.temp/
 .env

@@ -1,5 +1,6 @@
 import { Save, X } from 'lucide-react';
 import { ChangeEvent, FormEvent, useEffect, useState } from 'react';
+import { inventoryFromNames, inventoryToNames } from '../lib/inventory';
 import { abilityLabels, abilityModifier, formatModifier, proficiencyBonus } from '../lib/rules';
 import type { AbilityKey, Character } from '../types';
 
@@ -86,7 +87,7 @@ export function CharacterSheetView({
       skills: draft.skills.map((skill) => skill.trim()).filter(Boolean),
       languages: draft.languages.map((language) => language.trim()).filter(Boolean),
       proficiencies: draft.proficiencies.map((item) => item.trim()).filter(Boolean),
-      equipment: draft.equipment.map((item) => item.trim()).filter(Boolean),
+      inventory: inventoryFromNames(inventoryToNames(draft.inventory).map((item) => item.trim()).filter(Boolean)),
       features: draft.features.map((item) => item.trim()).filter(Boolean),
       spells: draft.spells.map((item) => item.trim()).filter(Boolean),
       personalityTraits: draft.personalityTraits.map((item) => item.trim()).filter(Boolean),
@@ -141,9 +142,9 @@ export function CharacterSheetView({
               <p className="sheet-card-title">Weapon / Equipment</p>
               <textarea
                 disabled={disabled || saving}
-                onChange={(event) => updateField('equipment', textToList(event.target.value))}
+                onChange={(event) => updateField('inventory', inventoryFromNames(textToList(event.target.value)))}
                 rows={6}
-                value={listToText(draft.equipment)}
+                value={listToText(inventoryToNames(draft.inventory))}
               />
             </section>
 
