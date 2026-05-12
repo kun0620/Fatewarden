@@ -23,11 +23,11 @@ export function RestPanel({ character, busy = false, disabled = false, onLongRes
   const clampedSpend = clamp(hitDiceSpent, 1, Math.max(1, maxSpend));
 
   return (
-    <section className="panel rest-panel">
-      <div className="panel-heading">
+    <section className="fw-panel rest-panel">
+      <div className="fw-panel__header">
         <div>
-          <p className="eyebrow">Recovery</p>
-          <h2>Rest Actions</h2>
+          <p className="fw-caption">Recovery</p>
+          <h2 className="fw-h2">Rest Actions</h2>
         </div>
         <BedDouble size={22} aria-hidden="true" />
       </div>
@@ -49,10 +49,11 @@ export function RestPanel({ character, busy = false, disabled = false, onLongRes
         </div>
       </div>
 
-      <div className="stack-form">
-        <label>
-          Spend Hit Dice
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+        <div className="fw-field">
+          <label className="fw-field__label">Spend Hit Dice</label>
           <input
+            className="fw-input"
             disabled={!canShortRest}
             max={Math.max(1, maxSpend)}
             min={1}
@@ -60,14 +61,14 @@ export function RestPanel({ character, busy = false, disabled = false, onLongRes
             type="number"
             value={clampedSpend}
           />
-        </label>
-        <button className="secondary-button" disabled={!canShortRest} onClick={() => void onShortRest(clampedSpend)} type="button">
+        </div>
+        <button className="fw-btn fw-btn--ghost" disabled={!canShortRest} onClick={() => void onShortRest(clampedSpend)} type="button">
           <Dice6 size={16} aria-hidden="true" />
           Short Rest
         </button>
       </div>
 
-      <button className="primary-button" disabled={disabled || busy} onClick={() => void onLongRest()} type="button">
+      <button className="fw-btn fw-btn--primary" disabled={disabled || busy} onClick={() => void onLongRest()} type="button">
         <MoonStar size={16} aria-hidden="true" />
         Long Rest
       </button>

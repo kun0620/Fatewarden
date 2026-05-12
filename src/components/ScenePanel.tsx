@@ -29,12 +29,11 @@ function clampClockPercent(current: number, max: number) {
   return Math.max(0, Math.min(100, Math.round((current / max) * 100)));
 }
 
-function threatBarColor(percent: number) {
-  if (percent >= 85) return '#ef4444';
-  if (percent >= 65) return '#f97316';
-  if (percent >= 40) return '#facc15';
-  if (percent >= 20) return '#84cc16';
-  return '#64748b';
+function hpState(percent: number): 'full' | 'mid' | 'low' | 'bleed' {
+  if (percent > 60) return 'full';
+  if (percent > 30) return 'mid';
+  if (percent > 10) return 'low';
+  return 'bleed';
 }
 
 export function ScenePanel({ isSessionHost }: ScenePanelProps) {
@@ -134,44 +133,44 @@ export function ScenePanel({ isSessionHost }: ScenePanelProps) {
 
   if (!sceneState) {
     return (
-      <section className="panel scene-panel">
-        <div className="panel-heading">
+      <section className="fw-panel">
+        <div className="fw-panel__header">
           <div>
-            <p className="eyebrow">Scene</p>
-            <h2>No scene</h2>
+            <p className="fw-caption">Scene</p>
+            <h2 className="fw-h2">No scene</h2>
           </div>
           <MapPin size={20} aria-hidden="true" />
         </div>
-        <p className="phase-description">ยังไม่มี scene state ใน runtime store</p>
+        <p className="fw-body">ยังไม่มี scene state ใน runtime store</p>
       </section>
     );
   }
 
   return (
-    <section className="panel scene-panel">
-      <div className="panel-heading">
+    <section className="fw-panel">
+      <div className="fw-panel__header">
         <div>
-          <p className="eyebrow">Scene</p>
-          <h2>{sceneState.location}</h2>
+          <p className="fw-caption">Scene</p>
+          <h2 className="fw-h2">{sceneState.location}</h2>
         </div>
-        <span className="phase-chip">{modeLabel[sceneState.mode]}</span>
+        <span className="fw-caption">{modeLabel[sceneState.mode]}</span>
       </div>
 
-      <div className="setup-status-strip">
-        <span className={`setup-status ${dangerClassByLevel[sceneState.flags.dangerLevel]}`}>
+      <div>
+        <span className={`fw-caption ${dangerClassByLevel[sceneState.flags.dangerLevel]}`}>
           <ShieldAlert size={14} aria-hidden="true" />
           Danger: {sceneState.flags.dangerLevel}
         </span>
-        <span className="setup-status">
+        <span className="fw-caption">
           <TriangleAlert size={14} aria-hidden="true" />
           Reality: {sceneState.flags.realityStability}
         </span>
       </div>
 
-      <div className="scene-section">
-        <h3>Objectives</h3>
+      <div>
+        <p className="fw-caption">Objectives</p>
         {sceneState.objectives.length ? (
-          <ul className="scene-objective-list">
+          <ul>
             {sceneState.objectives.map((objective) => (
               <li key={objective.id}>
                 {objective.status === 'completed' ? <CheckCircle2 size={14} aria-hidden="true" /> : null}
@@ -182,119 +181,129 @@ export function ScenePanel({ isSessionHost }: ScenePanelProps) {
             ))}
           </ul>
         ) : (
-          <p className="phase-description">No objectives yet.</p>
+          <p className="fw-body">No objectives yet.</p>
         )}
       </div>
 
-      <div className="scene-section">
-        <h3>Threat Clocks</h3>
+      <div>
+        <p className="fw-caption">Threat Clocks</p>
         {sceneState.threatClocks.length ? (
-          <div className="scene-clock-list">
+          <div>
             {sceneState.threatClocks.map((clock) => {
               const percent = clampClockPercent(clock.current, clock.max);
-              const color = threatBarColor(percent);
               return (
-                <article className="scene-clock-item" key={clock.id}>
-                  <div className="scene-clock-header">
+                <article key={clock.id}>
+                  <div>
                     <strong>{clock.name}</strong>
                     <span>
                       {clock.current}/{clock.max}
                     </span>
                   </div>
-                  <div className="scene-clock-track" aria-label={`${clock.name} ${clock.current}/${clock.max}`}>
-                    <span className="scene-clock-fill" style={{ width: `${percent}%`, backgroundColor: color }} />
+                  <div
+                    className="fw-hp"
+                    data-state={hpState(percent)}
+                    aria-label={`${clock.name} ${clock.current}/${clock.max}`}
+                  >
+                    <div className="fw-hp__fill" style={{ width: `${percent}%` }} />
                   </div>
                 </article>
               );
             })}
           </div>
         ) : (
-          <p className="phase-description">No threat clocks yet.</p>
+          <p className="fw-body">No threat clocks yet.</p>
         )}
       </div>
 
       {isSessionHost ? (
-        <div className="phase-grid">
-          <button type="button" onClick={() => setShowTransitionModal(true)}>Transition Scene</button>
-          <button type="button" onClick={() => setShowObjectiveModal(true)}>Add Objective</button>
-          <button type="button" onClick={() => setShowClockModal(true)} disabled={!sceneState.threatClocks.length}>
+        <div>
+          <button className="fw-btn fw-btn--ghost" type="button" onClick={() => setShowTransitionModal(true)}>Transition Scene</button>
+          <button className="fw-btn fw-btn--ghost" type="button" onClick={() => setShowObjectiveModal(true)}>Add Objective</button>
+          <button className="fw-btn fw-btn--ghost" type="button" onClick={() => setShowClockModal(true)} disabled={!sceneState.threatClocks.length}>
             Advance Clock
           </button>
         </div>
       ) : null}
 
-      {errorMessage ? <p className="form-message">{errorMessage}</p> : null}
+      {errorMessage ? <p className="fw-caption">{errorMessage}</p> : null}
 
       {showTransitionModal ? (
-        <div className="modal-overlay" role="dialog" aria-modal="true">
-          <form className="modal-card" onSubmit={submitTransition}>
-            <h3>Transition Scene</h3>
-            <label>
-              Mode
-              <select value={transitionMode} onChange={(event) => setTransitionMode(event.target.value as SceneMode)}>
+        <div className="fw-backdrop" role="dialog" aria-modal="true">
+          <form className="fw-modal" onSubmit={submitTransition}>
+            <div className="fw-modal__header">
+              <h2 className="fw-modal__title">Transition Scene</h2>
+            </div>
+            <div className="fw-field">
+              <label className="fw-field__label">Mode</label>
+              <select className="fw-select" value={transitionMode} onChange={(event) => setTransitionMode(event.target.value as SceneMode)}>
                 {(Object.keys(modeLabel) as SceneMode[]).map((mode) => (
                   <option key={mode} value={mode}>{modeLabel[mode]}</option>
                 ))}
               </select>
-            </label>
-            <label>
-              Location
-              <input value={transitionLocation} onChange={(event) => setTransitionLocation(event.target.value)} />
-            </label>
-            <label>
-              Description
-              <textarea rows={3} value={transitionDescription} onChange={(event) => setTransitionDescription(event.target.value)} />
-            </label>
-            <div className="modal-actions">
-              <button type="button" onClick={() => setShowTransitionModal(false)}>Cancel</button>
-              <button type="submit">Apply</button>
+            </div>
+            <div className="fw-field">
+              <label className="fw-field__label">Location</label>
+              <input className="fw-input" value={transitionLocation} onChange={(event) => setTransitionLocation(event.target.value)} />
+            </div>
+            <div className="fw-field">
+              <label className="fw-field__label">Description</label>
+              <textarea className="fw-input" rows={3} value={transitionDescription} onChange={(event) => setTransitionDescription(event.target.value)} />
+            </div>
+            <div className="fw-modal__footer">
+              <button className="fw-btn fw-btn--ghost" type="button" onClick={() => setShowTransitionModal(false)}>Cancel</button>
+              <button className="fw-btn fw-btn--primary" type="submit">Apply</button>
             </div>
           </form>
         </div>
       ) : null}
 
       {showObjectiveModal ? (
-        <div className="modal-overlay" role="dialog" aria-modal="true">
-          <form className="modal-card" onSubmit={submitAddObjective}>
-            <h3>Add Objective</h3>
-            <label>
-              Objective text
-              <input value={objectiveText} onChange={(event) => setObjectiveText(event.target.value)} />
-            </label>
-            <div className="modal-actions">
-              <button type="button" onClick={() => setShowObjectiveModal(false)}>Cancel</button>
-              <button type="submit">Add</button>
+        <div className="fw-backdrop" role="dialog" aria-modal="true">
+          <form className="fw-modal" onSubmit={submitAddObjective}>
+            <div className="fw-modal__header">
+              <h2 className="fw-modal__title">Add Objective</h2>
+            </div>
+            <div className="fw-field">
+              <label className="fw-field__label">Objective text</label>
+              <input className="fw-input" value={objectiveText} onChange={(event) => setObjectiveText(event.target.value)} />
+            </div>
+            <div className="fw-modal__footer">
+              <button className="fw-btn fw-btn--ghost" type="button" onClick={() => setShowObjectiveModal(false)}>Cancel</button>
+              <button className="fw-btn fw-btn--primary" type="submit">Add</button>
             </div>
           </form>
         </div>
       ) : null}
 
       {showClockModal ? (
-        <div className="modal-overlay" role="dialog" aria-modal="true">
-          <form className="modal-card" onSubmit={submitAdvanceClock}>
-            <h3>Advance Clock</h3>
-            <label>
-              Clock
-              <select value={selectedClockId} onChange={(event) => setSelectedClockId(event.target.value)}>
+        <div className="fw-backdrop" role="dialog" aria-modal="true">
+          <form className="fw-modal" onSubmit={submitAdvanceClock}>
+            <div className="fw-modal__header">
+              <h2 className="fw-modal__title">Advance Clock</h2>
+            </div>
+            <div className="fw-field">
+              <label className="fw-field__label">Clock</label>
+              <select className="fw-select" value={selectedClockId} onChange={(event) => setSelectedClockId(event.target.value)}>
                 <option value="">Select a clock</option>
                 {sceneState.threatClocks.map((clock) => (
                   <option key={clock.id} value={clock.id}>{clock.name}</option>
                 ))}
               </select>
-            </label>
-            <label>
-              Amount
+            </div>
+            <div className="fw-field">
+              <label className="fw-field__label">Amount</label>
               <input
+                className="fw-input"
                 min={1}
                 step={1}
                 type="number"
                 value={clockAmount}
                 onChange={(event) => setClockAmount(Number(event.target.value) || 1)}
               />
-            </label>
-            <div className="modal-actions">
-              <button type="button" onClick={() => setShowClockModal(false)}>Cancel</button>
-              <button type="submit">
+            </div>
+            <div className="fw-modal__footer">
+              <button className="fw-btn fw-btn--ghost" type="button" onClick={() => setShowClockModal(false)}>Cancel</button>
+              <button className="fw-btn fw-btn--primary" type="submit">
                 <Skull size={14} aria-hidden="true" />
                 Advance
               </button>

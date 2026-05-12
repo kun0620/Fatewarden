@@ -33,28 +33,31 @@ export function LevelUpModal({ character, open, onCancel, onConfirm }: LevelUpMo
   }
 
   return (
-    <div className="modal-backdrop" role="presentation">
-      <section aria-modal="true" className="character-setup-modal" role="dialog">
-        <div className="modal-heading">
+    <div className="fw-backdrop" role="presentation">
+      <section aria-modal="true" className="fw-modal" role="dialog">
+        <div className="fw-modal__header">
           <div>
-            <p className="eyebrow">Level Up</p>
-            <h2>
+            <p className="fw-caption">Level Up</p>
+            <h2 className="fw-h2">
               {character.name} to Level {Math.min(character.level + 1, 20)}
             </h2>
             <small>
               {character.ancestry} {character.className}
             </small>
           </div>
-          <button aria-label="Close level up modal" className="icon-button" disabled={busy} onClick={onCancel} type="button">
+          <button aria-label="Close level up modal" className="fw-btn fw-btn--icon" disabled={busy} onClick={onCancel} type="button">
             <X aria-hidden="true" size={18} />
           </button>
         </div>
 
-        <div className="stack-form">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
           {choices.map((choice) => (
-            <label key={choice.type}>
-              {choice.type === 'hp' ? 'HP Growth' : choice.type === 'feature' ? 'New Features' : choice.type === 'spell' ? 'Spell Choice' : 'Ability Score'}
+            <div className="fw-field" key={choice.type}>
+              <label className="fw-field__label">
+                {choice.type === 'hp' ? 'HP Growth' : choice.type === 'feature' ? 'New Features' : choice.type === 'spell' ? 'Spell Choice' : 'Ability Score'}
+              </label>
               <select
+                className="fw-select"
                 disabled={busy}
                 onChange={(event) => setChoices((current) => updateChoice(current, choice.type, event.target.value))}
                 value={choice.selected ?? choice.options[0] ?? ''}
@@ -65,15 +68,15 @@ export function LevelUpModal({ character, open, onCancel, onConfirm }: LevelUpMo
                   </option>
                 ))}
               </select>
-            </label>
+            </div>
           ))}
         </div>
 
-        <div className="character-actions">
-          <button className="secondary-button" disabled={busy} onClick={onCancel} type="button">
+        <div style={{ display: 'flex', gap: 'var(--sp-2)', justifyContent: 'flex-end', marginTop: 'var(--sp-4)' }}>
+          <button className="fw-btn fw-btn--ghost" disabled={busy} onClick={onCancel} type="button">
             Cancel
           </button>
-          <button className="primary-button" disabled={busy || !choices.length} onClick={() => void confirmLevelUp()} type="button">
+          <button className="fw-btn fw-btn--primary" disabled={busy || !choices.length} onClick={() => void confirmLevelUp()} type="button">
             <Sparkles aria-hidden="true" size={16} />
             {busy ? 'Applying...' : 'Confirm Level Up'}
           </button>

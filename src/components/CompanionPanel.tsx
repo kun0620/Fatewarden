@@ -25,11 +25,11 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-function loyaltyClass(tier: CompanionSheet['loyalty']['tier']) {
+function loyaltyTier(tier: CompanionSheet['loyalty']['tier']): string {
   if (tier === 'hostile') return 'hostile';
-  if (tier === 'friendly') return 'friendly';
   if (tier === 'devoted') return 'devoted';
-  return 'neutral';
+  if (tier === 'friendly') return 'loyal';
+  return 'wary';
 }
 
 function hpPercent(companion: CompanionSheet) {
@@ -39,6 +39,13 @@ function hpPercent(companion: CompanionSheet) {
     0,
     100,
   );
+}
+
+function hpState(percent: number): 'full' | 'mid' | 'low' | 'bleed' {
+  if (percent > 60) return 'full';
+  if (percent > 30) return 'mid';
+  if (percent > 10) return 'low';
+  return 'bleed';
 }
 
 function toIsoNow() {
@@ -134,36 +141,38 @@ export function CompanionPanel({ sessionId, currentUserId, isHost }: CompanionPa
   }
 
   return (
-    <section className="panel companion-panel">
-      <div className="panel-heading">
+    <section className="fw-panel">
+      <div className="fw-panel__header">
         <div>
-          <p className="eyebrow">Room</p>
-          <h2>Companions</h2>
+          <p className="fw-caption">Room</p>
+          <h2 className="fw-h2">Companions</h2>
         </div>
-        <span className="status">{summary}</span>
+        <span className="fw-caption">{summary}</span>
       </div>
 
       {canSummon ? (
-        <button className="secondary-button" onClick={() => setIsSummonOpen((prev) => !prev)} type="button">
+        <button className="fw-btn fw-btn--ghost" onClick={() => setIsSummonOpen((prev) => !prev)} type="button">
           <Plus aria-hidden="true" size={16} />
           Summon
         </button>
       ) : null}
 
       {isSummonOpen ? (
-        <form className="stack-form" onSubmit={submitSummon}>
-          <label>
-            Name
+        <form style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }} onSubmit={submitSummon}>
+          <div className="fw-field">
+            <label className="fw-field__label">Name</label>
             <input
+              className="fw-input"
               onChange={(event) => setSummonDraft((prev) => ({ ...prev, name: event.target.value }))}
               required
               value={summonDraft.name}
             />
-          </label>
-          <div className="stepper-row">
-            <label>
-              Type
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-3)' }}>
+            <div className="fw-field">
+              <label className="fw-field__label">Type</label>
               <select
+                className="fw-select"
                 onChange={(event) =>
                   setSummonDraft((prev) => ({
                     ...prev,
@@ -177,67 +186,74 @@ export function CompanionPanel({ sessionId, currentUserId, isHost }: CompanionPa
                 <option value="summon">Summon</option>
                 <option value="hireling">Hireling</option>
               </select>
-            </label>
-            <label>
-              Attack Dice
+            </div>
+            <div className="fw-field">
+              <label className="fw-field__label">Attack Dice</label>
               <input
+                className="fw-input fw-input--mono"
                 onChange={(event) => setSummonDraft((prev) => ({ ...prev, attackDice: event.target.value }))}
                 value={summonDraft.attackDice}
               />
-            </label>
+            </div>
           </div>
-          <div className="stepper-row">
-            <label>
-              AC
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--sp-3)' }}>
+            <div className="fw-field">
+              <label className="fw-field__label">AC</label>
               <input
+                className="fw-input fw-input--mono"
                 min={1}
                 onChange={(event) => setSummonDraft((prev) => ({ ...prev, armorClass: Number(event.target.value) || 1 }))}
+                style={{ textAlign: 'center' }}
                 type="number"
                 value={summonDraft.armorClass}
               />
-            </label>
-            <label>
-              HP
+            </div>
+            <div className="fw-field">
+              <label className="fw-field__label">HP</label>
               <input
+                className="fw-input fw-input--mono"
                 min={1}
                 onChange={(event) => setSummonDraft((prev) => ({ ...prev, hitPoints: Number(event.target.value) || 1 }))}
+                style={{ textAlign: 'center' }}
                 type="number"
                 value={summonDraft.hitPoints}
               />
-            </label>
+            </div>
+            <div className="fw-field">
+              <label className="fw-field__label">Speed</label>
+              <input
+                className="fw-input fw-input--mono"
+                min={0}
+                onChange={(event) => setSummonDraft((prev) => ({ ...prev, speed: Number(event.target.value) || 0 }))}
+                style={{ textAlign: 'center' }}
+                type="number"
+                value={summonDraft.speed}
+              />
+            </div>
           </div>
-          <label>
-            Speed
-            <input
-              min={0}
-              onChange={(event) => setSummonDraft((prev) => ({ ...prev, speed: Number(event.target.value) || 0 }))}
-              type="number"
-              value={summonDraft.speed}
-            />
-          </label>
-          <button className="primary-button" type="submit">
+          <button className="fw-btn fw-btn--primary" type="submit">
             <Plus aria-hidden="true" size={16} />
             Summon Companion
           </button>
         </form>
       ) : null}
 
-      <div className="companion-list">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
         {companions.map((companion) => {
           const canControl = isHost || companion.ownerId === currentUserId;
           const hp = hpPercent(companion);
           const loyalty = clamp(companion.loyalty.current, 0, 100);
-          const loyaltyTierClass = loyaltyClass(companion.loyalty.tier);
           return (
-            <article className="companion-card" key={companion.id}>
-              <div className="companion-header">
+            <article className="fw-card" key={companion.id}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 'var(--sp-3)', marginBottom: 'var(--sp-3)' }}>
                 <div>
-                  <strong>{companion.name}</strong>
-                  <span>{companion.type}</span>
+                  <strong className="fw-body-sm">{companion.name}</strong>
+                  <p className="fw-caption">{companion.type}</p>
                 </div>
-                <label className="select-label">
-                  <span>Behavior</span>
+                <div className="fw-field" style={{ minWidth: '110px' }}>
+                  <label className="fw-field__label">Behavior</label>
                   <select
+                    className="fw-select"
                     disabled={!canControl}
                     onChange={(event) => setBehavior(companion, event.target.value as CompanionBehavior)}
                     value={companion.behavior}
@@ -248,43 +264,48 @@ export function CompanionPanel({ sessionId, currentUserId, isHost }: CompanionPa
                       </option>
                     ))}
                   </select>
-                </label>
-              </div>
-
-              <div className="companion-hp-row">
-                <span>
-                  <Heart size={14} aria-hidden="true" /> HP {companion.characterSnapshot.hitPoints}/
-                  {companion.characterSnapshot.maxHitPoints}
-                </span>
-                <span>
-                  <Shield size={14} aria-hidden="true" /> AC {companion.characterSnapshot.armorClass}
-                </span>
-              </div>
-              <div className="progress-track">
-                <div className="progress-fill hp-fill" style={{ width: `${hp}%` }} />
-              </div>
-
-              <div className={`companion-loyalty ${loyaltyTierClass}`}>
-                <span>Loyalty {loyalty}/100</span>
-                <div className="progress-track">
-                  <div className="progress-fill loyalty-fill" style={{ width: `${loyalty}%` }} />
                 </div>
               </div>
 
-              <div className="companion-controls">
-                <button className="secondary-button" disabled={!canControl} onClick={() => toggleActive(companion)} type="button">
+              <div style={{ display: 'flex', gap: 'var(--sp-4)', marginBottom: 'var(--sp-2)' }}>
+                <span className="fw-caption">
+                  <Heart size={12} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'middle', marginRight: '3px' }} />
+                  {companion.characterSnapshot.hitPoints}/{companion.characterSnapshot.maxHitPoints}
+                </span>
+                <span className="fw-caption">
+                  <Shield size={12} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'middle', marginRight: '3px' }} />
+                  AC {companion.characterSnapshot.armorClass}
+                </span>
+              </div>
+              <div className="fw-hp" data-state={hpState(hp)} style={{ marginBottom: 'var(--sp-3)' }}>
+                <div className="fw-hp__fill" style={{ width: `${hp}%` }} />
+              </div>
+
+              <div className="fw-loyalty" data-tier={loyaltyTier(companion.loyalty.tier)} style={{ marginBottom: 'var(--sp-3)' }}>
+                <div className="fw-loyalty__row">
+                  <span className="fw-loyalty__tier">{companion.loyalty.tier}</span>
+                  <span className="fw-loyalty__value">{loyalty}/100</span>
+                </div>
+                <div className="fw-loyalty__track">
+                  <div className="fw-loyalty__fill" style={{ width: `${loyalty}%` }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)' }}>
+                <button className="fw-btn fw-btn--ghost fw-btn--sm" disabled={!canControl} onClick={() => toggleActive(companion)} type="button">
                   <UserRound size={14} aria-hidden="true" />
                   {companion.isActive ? 'Active' : 'Inactive'}
                 </button>
-                <button className="danger-button" disabled={!canControl} onClick={() => dismissCompanion(companion)} type="button">
+                <button className="fw-btn fw-btn--danger fw-btn--sm" disabled={!canControl} onClick={() => dismissCompanion(companion)} type="button">
                   <X size={14} aria-hidden="true" />
                   Dismiss
                 </button>
               </div>
 
-              <label>
-                Loyalty reason
+              <div className="fw-field" style={{ marginBottom: 'var(--sp-2)' }}>
+                <label className="fw-field__label">Loyalty reason</label>
                 <input
+                  className="fw-input"
                   disabled={!canControl}
                   onChange={(event) =>
                     setLoyaltyNotes((prev) => ({
@@ -295,24 +316,27 @@ export function CompanionPanel({ sessionId, currentUserId, isHost }: CompanionPa
                   placeholder="Why did loyalty change?"
                   value={loyaltyNotes[companion.id] ?? ''}
                 />
-              </label>
-              <div className="companion-controls">
-                <button className="secondary-button" disabled={!canControl} onClick={() => changeLoyalty(companion, 10)} type="button">
+              </div>
+              <div style={{ display: 'flex', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)' }}>
+                <button className="fw-btn fw-btn--ghost fw-btn--sm" disabled={!canControl} onClick={() => changeLoyalty(companion, 10)} type="button">
                   + Loyalty
                 </button>
-                <button className="secondary-button" disabled={!canControl} onClick={() => changeLoyalty(companion, -10)} type="button">
+                <button className="fw-btn fw-btn--ghost fw-btn--sm" disabled={!canControl} onClick={() => changeLoyalty(companion, -10)} type="button">
                   - Loyalty
                 </button>
               </div>
 
               {companion.characterSnapshot.conditions.length ? (
-                <div className="condition-chips">
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-2)' }}>
                   {companion.characterSnapshot.conditions.map((condition) => (
-                    <span key={`${companion.id}-${condition}`}>{condition}</span>
+                    <span className="fw-cond fw-cond--minor" key={`${companion.id}-${condition}`}>
+                      <span className="fw-cond__dot" />
+                      {condition}
+                    </span>
                   ))}
                 </div>
               ) : (
-                <p className="form-message">No active conditions.</p>
+                <p className="fw-caption">No active conditions.</p>
               )}
             </article>
           );

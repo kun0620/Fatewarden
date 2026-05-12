@@ -64,40 +64,55 @@ export function PartyPanel({ activeSession, currentCharacter }: PartyPanelProps)
   }, [activeSession, loadParty]);
 
   return (
-    <section className="panel party-panel">
-      <div className="panel-heading">
+    <section className="fw-panel party-panel">
+      <div className="fw-panel__header">
         <div>
-          <p className="eyebrow">Room</p>
-          <h2>Party</h2>
+          <p className="fw-caption">Room</p>
+          <h2 className="fw-h2">Party</h2>
         </div>
-        <button aria-label="Refresh party" className="icon-button" disabled={loading} onClick={loadParty} type="button">
+        <button aria-label="Refresh party" className="fw-btn fw-btn--icon" disabled={loading} onClick={loadParty} type="button">
           <RefreshCw size={17} aria-hidden="true" />
         </button>
       </div>
 
-      <div className="party-list">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
         {characters.map((character) => (
-          <article className={character.id === currentCharacter.id ? 'party-card active' : 'party-card'} key={character.id}>
-            <div className="party-avatar">
+          <article
+            className={character.id === currentCharacter.id ? 'fw-card fw-card--elevated active' : 'fw-card'}
+            key={character.id}
+            style={{ display: 'flex', gap: 'var(--sp-3)', alignItems: 'center', padding: 'var(--sp-3)' }}
+          >
+            <div
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: '50%',
+                overflow: 'hidden',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
               {character.portraitUrl ? (
-                <img alt={`${character.name} portrait`} src={character.portraitUrl} />
+                <img alt={`${character.name} portrait`} src={character.portraitUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               ) : (
                 <Users size={18} aria-hidden="true" />
               )}
             </div>
-            <div className="party-details">
-              <div className="party-name-row">
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <strong>{character.name}</strong>
                 <small>{character.id === currentCharacter.id ? 'You' : 'Member'}</small>
               </div>
-              <span>
+              <span className="fw-caption">
                 Lv {character.level} {character.ancestry} {character.className}
               </span>
-              <div className="party-stats">
-                <span>
+              <div style={{ display: 'flex', gap: 'var(--sp-3)', marginTop: 'var(--sp-1)' }}>
+                <span className="fw-caption">
                   HP {character.hitPoints}/{character.maxHitPoints}
                 </span>
-                <span>
+                <span className="fw-caption" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)' }}>
                   <Shield size={13} aria-hidden="true" />
                   AC {character.armorClass}
                 </span>
@@ -107,7 +122,7 @@ export function PartyPanel({ activeSession, currentCharacter }: PartyPanelProps)
         ))}
       </div>
 
-      {message ? <p className="form-message">{message}</p> : null}
+      {message ? <p className="fw-caption">{message}</p> : null}
     </section>
   );
 }

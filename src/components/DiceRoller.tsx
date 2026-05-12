@@ -126,11 +126,11 @@ export function DiceRoller({ character, onRoll }: DiceRollerProps) {
   const isFreeRoll = rollType === 'free';
 
   return (
-    <section className="panel dice-panel">
-      <div className="panel-heading">
+    <section className="fw-panel dice-panel">
+      <div className="fw-panel__header">
         <div>
-          <p className="eyebrow">Dice</p>
-          <h2>Roll Check</h2>
+          <p className="fw-caption">Dice</p>
+          <h2 className="fw-h2">Roll Check</h2>
         </div>
         <Dices size={24} aria-hidden="true" />
       </div>
@@ -162,22 +162,23 @@ export function DiceRoller({ character, onRoll }: DiceRollerProps) {
       </div>
 
       {rollType === 'skill' ? (
-        <label className="select-label">
-          Skill
-          <select value={selectedSkill} onChange={(event) => setSelectedSkill(event.target.value)}>
+        <div className="fw-field">
+          <label className="fw-field__label">Skill</label>
+          <select className="fw-select" value={selectedSkill} onChange={(event) => setSelectedSkill(event.target.value)}>
             {skills.map((skill) => (
               <option key={skill} value={skill}>
                 {skill} ({abilityLabels[skillAbilityMap[skill]]} {formatModifier(skillModifier(character, skill))})
               </option>
             ))}
           </select>
-        </label>
+        </div>
       ) : null}
 
       {rollType === 'save' ? (
-        <label className="select-label">
-          Ability
+        <div className="fw-field">
+          <label className="fw-field__label">Ability</label>
           <select
+            className="fw-select"
             value={selectedAbility}
             onChange={(event) => setSelectedAbility(event.target.value as AbilityKey)}
           >
@@ -187,7 +188,7 @@ export function DiceRoller({ character, onRoll }: DiceRollerProps) {
               </option>
             ))}
           </select>
-        </label>
+        </div>
       ) : null}
 
       {isFreeRoll ? (
@@ -239,11 +240,11 @@ export function DiceRoller({ character, onRoll }: DiceRollerProps) {
         </div>
       )}
 
-      <button className="roll-button" disabled={posting} onClick={roll} type="button">
+      <button className="fw-btn fw-btn--primary fw-btn--lg" disabled={posting} onClick={roll} type="button">
         {posting ? 'Posting...' : `Roll ${notation}`}
       </button>
 
-      <div className="roll-result" aria-live="polite">
+      <div className="fw-card roll-result" aria-live="polite">
         {lastRoll ? (
           <>
             <span>{lastRoll.label}</span>

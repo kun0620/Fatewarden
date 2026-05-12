@@ -141,11 +141,11 @@ export function HexHeroBuilder({ character, disabled = false, onSave, status }: 
   }
 
   return (
-    <form className="panel hex-hero-panel" onSubmit={submit}>
-      <div className="panel-heading">
+    <form className="fw-panel hex-hero-panel" onSubmit={submit}>
+      <div className="fw-panel__header">
         <div>
-          <p className="eyebrow">HEXplore</p>
-          <h2>{heroName || 'Hero Build'}</h2>
+          <p className="fw-caption">HEXplore</p>
+          <h2 className="fw-h2">{heroName || 'Hero Build'}</h2>
         </div>
         <span className="level-pill">
           <Compass size={14} aria-hidden="true" />
@@ -159,52 +159,57 @@ export function HexHeroBuilder({ character, disabled = false, onSave, status }: 
             <Boxes size={16} aria-hidden="true" />
             Identity
           </div>
-          <label>
-            Hero name
+          <div className="fw-field">
+            <label className="fw-field__label">Hero name</label>
             <input
+              className="fw-input"
               disabled={disabled || saving}
               onChange={(event) => setHeroName(event.target.value)}
               value={heroName}
             />
-          </label>
+          </div>
           <div className="hex-two-col">
-            <label>
-              Role
+            <div className="fw-field">
+              <label className="fw-field__label">Role</label>
               <input
+                className="fw-input"
                 disabled={disabled || saving}
                 onChange={(event) => updateRole('name', event.target.value)}
                 placeholder="Custom role"
                 value={draft.role.name}
               />
-            </label>
-            <label>
-              Race
+            </div>
+            <div className="fw-field">
+              <label className="fw-field__label">Race</label>
               <input
+                className="fw-input"
                 disabled={disabled || saving}
                 onChange={(event) => updateRace('name', event.target.value)}
                 placeholder="Custom race"
                 value={draft.race.name}
               />
-            </label>
+            </div>
           </div>
           <div className="hex-two-col">
-            <label>
-              Role category
+            <div className="fw-field">
+              <label className="fw-field__label">Role category</label>
               <input
+                className="fw-input"
                 disabled={disabled || saving}
                 onChange={(event) => updateRole('category', event.target.value)}
                 placeholder="Utility, striker, healer..."
                 value={draft.role.category}
               />
-            </label>
-            <label>
-              Favored opponent
+            </div>
+            <div className="fw-field">
+              <label className="fw-field__label">Favored opponent</label>
               <input
+                className="fw-input"
                 disabled={disabled || saving}
                 onChange={(event) => updateRole('favoredOpponent', event.target.value)}
                 value={draft.role.favoredOpponent}
               />
-            </label>
+            </div>
           </div>
         </section>
 
@@ -212,17 +217,19 @@ export function HexHeroBuilder({ character, disabled = false, onSave, status }: 
           <div className="hex-section-title">Abilities</div>
           {hexAbilityKeys.map((key) => (
             <div className="hex-ability-row" key={key}>
-              <label>
-                {hexAbilityLabels[key]} name
+              <div className="fw-field">
+                <label className="fw-field__label">{hexAbilityLabels[key]} name</label>
                 <input
+                  className="fw-input"
                   disabled={disabled || saving}
                   onChange={(event) => updateAbility(key, { name: event.target.value })}
                   value={draft.role.abilities[key].name}
                 />
-              </label>
-              <label>
-                Base
+              </div>
+              <div className="fw-field">
+                <label className="fw-field__label">Base</label>
                 <input
+                  className="fw-input"
                   disabled={disabled || saving}
                   max={30}
                   min={0}
@@ -230,10 +237,11 @@ export function HexHeroBuilder({ character, disabled = false, onSave, status }: 
                   type="number"
                   value={draft.role.abilities[key].base}
                 />
-              </label>
-              <label>
-                Energy
+              </div>
+              <div className="fw-field">
+                <label className="fw-field__label">Energy</label>
                 <input
+                  className="fw-input"
                   disabled={disabled || saving}
                   max={30}
                   min={0}
@@ -241,16 +249,17 @@ export function HexHeroBuilder({ character, disabled = false, onSave, status }: 
                   type="number"
                   value={draft.role.abilities[key].energyCost}
                 />
-              </label>
-              <label className="hex-wide-field">
-                Summary
+              </div>
+              <div className="fw-field hex-wide-field">
+                <label className="fw-field__label">Summary</label>
                 <textarea
+                  className="fw-input"
                   disabled={disabled || saving}
                   onChange={(event) => updateAbility(key, { summary: event.target.value })}
                   rows={2}
                   value={draft.role.abilities[key].summary}
                 />
-              </label>
+              </div>
             </div>
           ))}
         </section>
@@ -259,9 +268,10 @@ export function HexHeroBuilder({ character, disabled = false, onSave, status }: 
           <div className="hex-section-title">Scores</div>
           <div className="hex-score-grid">
             {hexSkillKeys.map((key) => (
-              <label key={key}>
-                {hexSkillLabels[key]}
+              <div className="fw-field" key={key}>
+                <label className="fw-field__label">{hexSkillLabels[key]}</label>
                 <input
+                  className="fw-input"
                   disabled={disabled || saving}
                   max={30}
                   min={0}
@@ -269,12 +279,13 @@ export function HexHeroBuilder({ character, disabled = false, onSave, status }: 
                   type="number"
                   value={draft.role.skills[key]}
                 />
-              </label>
+              </div>
             ))}
             {hexVitalKeys.map((key) => (
-              <label key={key}>
-                {hexVitalLabels[key]}
+              <div className="fw-field" key={key}>
+                <label className="fw-field__label">{hexVitalLabels[key]}</label>
                 <input
+                  className="fw-input"
                   disabled={disabled || saving}
                   max={99}
                   min={0}
@@ -282,7 +293,7 @@ export function HexHeroBuilder({ character, disabled = false, onSave, status }: 
                   type="number"
                   value={draft.role.vitals[key]}
                 />
-              </label>
+              </div>
             ))}
           </div>
         </section>
@@ -291,9 +302,10 @@ export function HexHeroBuilder({ character, disabled = false, onSave, status }: 
           <div className="hex-section-title">Race modifiers</div>
           <div className="hex-mod-grid">
             {hexStatKeys.map((key) => (
-              <label key={key}>
-                {hexStatLabels[key]}
+              <div className="fw-field" key={key}>
+                <label className="fw-field__label">{hexStatLabels[key]}</label>
                 <input
+                  className="fw-input"
                   disabled={disabled || saving}
                   max={30}
                   min={-30}
@@ -301,26 +313,28 @@ export function HexHeroBuilder({ character, disabled = false, onSave, status }: 
                   type="number"
                   value={draft.race.modifiers[key]}
                 />
-              </label>
+              </div>
             ))}
           </div>
-          <label>
-            Race notes
+          <div className="fw-field">
+            <label className="fw-field__label">Race notes</label>
             <textarea
+              className="fw-input"
               disabled={disabled || saving}
               onChange={(event) => updateRace('notes', event.target.value)}
               rows={3}
               value={draft.race.notes}
             />
-          </label>
+          </div>
         </section>
 
         <section className="hex-builder-section">
           <div className="hex-section-title">Resources</div>
           <div className="hex-two-col">
-            <label>
-              Food rating
+            <div className="fw-field">
+              <label className="fw-field__label">Food rating</label>
               <input
+                className="fw-input"
                 disabled={disabled || saving}
                 max={30}
                 min={0}
@@ -330,10 +344,11 @@ export function HexHeroBuilder({ character, disabled = false, onSave, status }: 
                 type="number"
                 value={draft.foodRating}
               />
-            </label>
-            <label>
-              Gold
+            </div>
+            <div className="fw-field">
+              <label className="fw-field__label">Gold</label>
               <input
+                className="fw-input"
                 disabled={disabled || saving}
                 max={999}
                 min={0}
@@ -343,17 +358,18 @@ export function HexHeroBuilder({ character, disabled = false, onSave, status }: 
                 type="number"
                 value={draft.gold}
               />
-            </label>
+            </div>
           </div>
-          <label>
-            Backpack notes
+          <div className="fw-field">
+            <label className="fw-field__label">Backpack notes</label>
             <textarea
+              className="fw-input"
               disabled={disabled || saving}
               onChange={(event) => setDraft((current) => ({ ...current, backpackNotes: event.target.value }))}
               rows={3}
               value={draft.backpackNotes}
             />
-          </label>
+          </div>
         </section>
 
         <section className="hex-preview">
@@ -396,9 +412,9 @@ export function HexHeroBuilder({ character, disabled = false, onSave, status }: 
         </section>
       </div>
 
-      <div className="character-actions">
-        {status ? <p className="form-message">{status}</p> : null}
-        <button className="secondary-button" disabled={disabled || saving || !onSave || Boolean(validation.length)} type="submit">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', marginTop: 'var(--sp-3)' }}>
+        {status ? <p className="fw-caption">{status}</p> : null}
+        <button className="fw-btn fw-btn--ghost" disabled={disabled || saving || !onSave || Boolean(validation.length)} type="submit">
           <Save size={17} aria-hidden="true" />
           {saving ? 'Saving...' : 'Save Hero'}
         </button>
