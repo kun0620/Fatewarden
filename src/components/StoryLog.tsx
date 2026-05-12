@@ -93,6 +93,13 @@ function getMessageKind(message: StoryMessage) {
   return message.speaker;
 }
 
+function getMsgVariant(kind: ReturnType<typeof getMessageKind>, speaker: string): string {
+  if (kind === 'scene_opening' || kind === 'scene_objective') return 'fw-msg--scene';
+  if (speaker === 'dm' || kind === 'ai_dm_reply' || kind === 'dm_prompt') return 'fw-msg--dm';
+  if (speaker === 'player') return 'fw-msg--player';
+  return 'fw-msg--system';
+}
+
 function getSceneFlow(message: StoryMessage): SceneFlow | null {
   const scene = message.metadata?.scene;
   if (!scene || typeof scene !== 'object') return null;
@@ -239,14 +246,15 @@ function renderMetadata(
     if (!roll) return null;
 
     return (
-      <div className="event-card dice-event">
-        <span>{roll.label ?? 'Dice roll'}</span>
-        <strong>{roll.total}</strong>
-        <small>
-          {roll.notation}
-          {roll.mode && roll.mode !== 'normal' ? ` · ${roll.mode}` : ''}
-          {roll.keptRoll ? ` · kept ${roll.keptRoll}` : ''}
-        </small>
+      <div className="fw-roll" data-result={roll.total === 20 ? 'crit' : roll.total === 1 ? 'fumble' : undefined}>
+        <div>
+          <div className="fw-roll__formula">{roll.label ?? 'Dice roll'}</div>
+          <div className="fw-roll__break">
+            {roll.notation}{roll.mode && roll.mode !== 'normal' ? ` · ${roll.mode}` : ''}
+            {roll.keptRoll ? ` · kept ${roll.keptRoll}` : ''}
+          </div>
+        </div>
+        <span className="fw-roll__total">{roll.total}</span>
       </div>
     );
   }
@@ -255,10 +263,12 @@ function renderMetadata(
     const action = typeof message.metadata.action === 'string' ? message.metadata.action : 'combat';
     const amount = typeof message.metadata.amount === 'number' ? message.metadata.amount : null;
     return (
-      <div className="event-card combat-event">
-        <span>{action.replaceAll('_', ' ')}</span>
-        {amount !== null ? <strong>{amount}</strong> : null}
-        <small>Combat state change requires table confirmation.</small>
+      <div className="fw-roll">
+        <div>
+          <div className="fw-roll__formula">{action.replaceAll('_', ' ')}</div>
+          <div className="fw-roll__break">Combat state change requires table confirmation.</div>
+        </div>
+        {amount !== null ? <span className="fw-roll__total">{amount}</span> : null}
       </div>
     );
   }
@@ -278,156 +288,30 @@ function renderMetadata(
 
     return (
       <>
-        <div className="event-card scene-event">
-          <span>{message.metadata.kind === 'scene_opening' ? 'Opening scene' : 'Scene objective'}</span>
-          <strong>{scene.title || scene.location || 'Current Scene'}</strong>
-          {scene.location ? <small>Location: {scene.location}</small> : null}
-          {scene.objective ? <small>Objective: {scene.objective}</small> : null}
-          {scene.threat ? <small>Threat: {scene.threat}</small> : null}
-          {scene.hook ? <small>Hook: {scene.hook}</small> : null}
-          {suggestedRoll ? (
-            <button
-              className="suggested-roll-card"
-              disabled={choicesDisabled || completedRolls.has(rollKey) || typeof suggestedRoll === 'string'}
-              onClick={() => onSuggestedRoll?.(suggestedRoll, message)}
-              type="button"
-            >
-              <span>Suggested roll</span>
-              <strong>{formatSuggestedRoll(suggestedRoll)}</strong>
-              {typeof suggestedRoll !== 'string' && suggestedRoll.reason ? <small>{suggestedRoll.reason}</small> : null}
-            </button>
-          ) : null}
-          {choices.length ? (
-            message.metadata?.partyMode === true ? (
-              <div className="party-choice-banner">
-                <strong>Party Decision</strong>
-                <small>การตัดสินใจนี้เปิดโหวตทั้งปาร์ตี้ก่อนเดินเรื่องต่อ</small>
-                <button
-                  className="secondary-button"
-                  disabled={choicesDisabled || !activeSession || !currentUserId || !dispatchGameEvent}
-                  onClick={async () => {
-                    if (!activeSession || !currentUserId || !dispatchGameEvent || !eventMetaBuilder) return;
-                    const base = createPartyChoice(
-                      activeSession.id,
-                      message.id,
-                      message.body,
-                      choices.filter((choice) => !choice.isCustom),
-                      'majority',
-                    );
-                    const choice = {
-                      ...base,
-                      status: 'voting' as const,
-                    };
-                    await createPartyChoiceInDb(choice);
-                    const meta = eventMetaBuilder(currentUserId);
-                    dispatchGameEvent({
-                      ...meta,
-                      type: 'PARTY_CHOICE_CREATED',
-                      sessionId: activeSession.id,
-                      choice,
-                    });
-                  }}
-                  type="button"
-                >
-                  Open Party Vote
-                </button>
-              </div>
-            ) : (
-              <div className="choice-list" aria-label="AI suggested choices">
-                {choices.map((choice) => {
-                  const selectedKey = `${message.id}:${choice.number}`;
-                  return (
-                    <button
-                      className="choice-button"
-                      disabled={choicesDisabled || selectedChoices.has(selectedKey)}
-                      key={selectedKey}
-                      onClick={() => onChoiceSelect?.(choice, message)}
-                      type="button"
-                    >
-                      <span>{choice.number}</span>
-                      <strong>{choice.label}</strong>
-                      {choice.suggestedRoll ? <small>{formatChoiceRoll(choice.suggestedRoll)}</small> : null}
-                    </button>
-                  );
-                })}
-              </div>
-            )
-          ) : actions.length ? (
-            <div className="scene-action-list">
-              {actions.map((action) => (
-                <span key={action}>{action}</span>
-              ))}
-            </div>
-          ) : null}
-        </div>
-        {confirmActions.length ? (
-          <div className="confirm-action-list">
-            {confirmActions.map((action) => (
-              <div className="event-card confirm-event" key={action.id}>
-                <span>{action.type.replaceAll('_', ' ')}</span>
-                <strong>{action.amount ?? action.condition ?? action.phase ?? action.encounterName ?? 'Apply'}</strong>
-                <small>{action.label}</small>
-                <button
-                  className="secondary-button"
-                  disabled={!onConfirmAction || appliedActions.has(`${message.id}:${action.id}`)}
-                  onClick={async () => {
-                    try {
-                      await onConfirmAction?.(action, message);
-                      markActionApplied?.(`${message.id}:${action.id}`);
-                    } catch (error) {
-                      onMessagesChange?.((current) =>
-                        addUniqueMessage(current, {
-                          id: crypto.randomUUID(),
-                          speaker: 'system',
-                          author: 'Table',
-                          body: error instanceof Error ? error.message : 'Could not apply AI action.',
-                          createdAt: new Intl.DateTimeFormat('en', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            hour12: false,
-                          }).format(new Date()),
-                        }),
-                      );
-                    }
-                  }}
-                  type="button"
-                >
-                  {appliedActions.has(`${message.id}:${action.id}`) ? 'Applied' : 'Apply'}
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : null}
-      </>
-    );
-  }
-
-  const actions = getConfirmActions(message);
-  const choices = getAiChoices(message);
-  const suggestedRoll = getSuggestedRoll(message);
-  if (actions.length || choices.length || suggestedRoll) {
-    const rollKey = `${message.id}:suggested-roll`;
-    return (
-      <>
         {suggestedRoll ? (
           <button
-            className="suggested-roll-card"
+            className="fw-roll"
             disabled={choicesDisabled || completedRolls.has(rollKey) || typeof suggestedRoll === 'string'}
             onClick={() => onSuggestedRoll?.(suggestedRoll, message)}
             type="button"
           >
-            <span>Suggested roll</span>
-            <strong>{formatSuggestedRoll(suggestedRoll)}</strong>
-            {typeof suggestedRoll !== 'string' && suggestedRoll.reason ? <small>{suggestedRoll.reason}</small> : null}
+            <div>
+              <div className="fw-roll__formula">Suggested roll</div>
+              <div className="fw-roll__break">
+                {formatSuggestedRoll(suggestedRoll)}
+                {typeof suggestedRoll !== 'string' && suggestedRoll.reason ? ` · ${suggestedRoll.reason}` : ''}
+              </div>
+            </div>
+            <span className="fw-roll__total">?</span>
           </button>
         ) : null}
         {choices.length ? (
           message.metadata?.partyMode === true ? (
-            <div className="party-choice-banner">
-              <strong>Party Decision</strong>
-              <small>การตัดสินใจนี้เปิดโหวตทั้งปาร์ตี้ก่อนเดินเรื่องต่อ</small>
+            <div className="fw-choices">
+              <div className="fw-choices__prompt">Party Decision</div>
+              <p className="fw-body-sm">การตัดสินใจนี้เปิดโหวตทั้งปาร์ตี้ก่อนเดินเรื่องต่อ</p>
               <button
-                className="secondary-button"
+                className="fw-btn fw-btn--secondary"
                 disabled={choicesDisabled || !activeSession || !currentUserId || !dispatchGameEvent}
                 onClick={async () => {
                   if (!activeSession || !currentUserId || !dispatchGameEvent || !eventMetaBuilder) return;
@@ -457,20 +341,162 @@ function renderMetadata(
               </button>
             </div>
           ) : (
-            <div className="choice-list" aria-label="AI suggested choices">
+            <div className="fw-choices" aria-label="AI suggested choices">
+              <div className="fw-choices__prompt">เลือกการกระทำ</div>
               {choices.map((choice) => {
                 const selectedKey = `${message.id}:${choice.number}`;
                 return (
                   <button
-                    className="choice-button"
+                    className="fw-choice"
+                    data-selected={selectedChoices.has(selectedKey) ? 'true' : undefined}
                     disabled={choicesDisabled || selectedChoices.has(selectedKey)}
                     key={selectedKey}
                     onClick={() => onChoiceSelect?.(choice, message)}
                     type="button"
                   >
-                    <span>{choice.number}</span>
-                    <strong>{choice.label}</strong>
-                    {choice.suggestedRoll ? <small>{formatChoiceRoll(choice.suggestedRoll)}</small> : null}
+                    <span className="fw-choice__letter">{choice.number}</span>
+                    {choice.label}
+                    {choice.suggestedRoll ? (
+                      <span className="fw-choice__votes">{formatChoiceRoll(choice.suggestedRoll)}</span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          )
+        ) : actions.length ? (
+          <div className="scene-action-list">
+            {actions.map((action) => (
+              <span key={action}>{action}</span>
+            ))}
+          </div>
+        ) : null}
+        {confirmActions.length ? (
+          <div className="fw-choices">
+            {confirmActions.map((action) => (
+              <div className="fw-roll" key={action.id}>
+                <div>
+                  <div className="fw-roll__formula">{action.type.replaceAll('_', ' ')}</div>
+                  <div className="fw-roll__break">{action.label}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
+                  <span className="fw-roll__total" style={{ fontSize: '1.25rem' }}>
+                    {action.amount ?? action.condition ?? action.phase ?? action.encounterName ?? 'Apply'}
+                  </span>
+                  <button
+                    className="fw-btn fw-btn--secondary"
+                    disabled={!onConfirmAction || appliedActions.has(`${message.id}:${action.id}`)}
+                    onClick={async () => {
+                      try {
+                        await onConfirmAction?.(action, message);
+                        markActionApplied?.(`${message.id}:${action.id}`);
+                      } catch (error) {
+                        onMessagesChange?.((current) =>
+                          addUniqueMessage(current, {
+                            id: crypto.randomUUID(),
+                            speaker: 'system',
+                            author: 'Table',
+                            body: error instanceof Error ? error.message : 'Could not apply AI action.',
+                            createdAt: new Intl.DateTimeFormat('en', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              hour12: false,
+                            }).format(new Date()),
+                          }),
+                        );
+                      }
+                    }}
+                    type="button"
+                  >
+                    {appliedActions.has(`${message.id}:${action.id}`) ? 'Applied' : 'Apply'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </>
+    );
+  }
+
+  const actions = getConfirmActions(message);
+  const choices = getAiChoices(message);
+  const suggestedRoll = getSuggestedRoll(message);
+  if (actions.length || choices.length || suggestedRoll) {
+    const rollKey = `${message.id}:suggested-roll`;
+    return (
+      <>
+        {suggestedRoll ? (
+          <button
+            className="fw-roll"
+            disabled={choicesDisabled || completedRolls.has(rollKey) || typeof suggestedRoll === 'string'}
+            onClick={() => onSuggestedRoll?.(suggestedRoll, message)}
+            type="button"
+          >
+            <div>
+              <div className="fw-roll__formula">Suggested roll</div>
+              <div className="fw-roll__break">
+                {formatSuggestedRoll(suggestedRoll)}
+                {typeof suggestedRoll !== 'string' && suggestedRoll.reason ? ` · ${suggestedRoll.reason}` : ''}
+              </div>
+            </div>
+            <span className="fw-roll__total">?</span>
+          </button>
+        ) : null}
+        {choices.length ? (
+          message.metadata?.partyMode === true ? (
+            <div className="fw-choices">
+              <div className="fw-choices__prompt">Party Decision</div>
+              <p className="fw-body-sm">การตัดสินใจนี้เปิดโหวตทั้งปาร์ตี้ก่อนเดินเรื่องต่อ</p>
+              <button
+                className="fw-btn fw-btn--secondary"
+                disabled={choicesDisabled || !activeSession || !currentUserId || !dispatchGameEvent}
+                onClick={async () => {
+                  if (!activeSession || !currentUserId || !dispatchGameEvent || !eventMetaBuilder) return;
+                  const base = createPartyChoice(
+                    activeSession.id,
+                    message.id,
+                    message.body,
+                    choices.filter((choice) => !choice.isCustom),
+                    'majority',
+                  );
+                  const choice = {
+                    ...base,
+                    status: 'voting' as const,
+                  };
+                  await createPartyChoiceInDb(choice);
+                  const meta = eventMetaBuilder(currentUserId);
+                  dispatchGameEvent({
+                    ...meta,
+                    type: 'PARTY_CHOICE_CREATED',
+                    sessionId: activeSession.id,
+                    choice,
+                  });
+                }}
+                type="button"
+              >
+                Open Party Vote
+              </button>
+            </div>
+          ) : (
+            <div className="fw-choices" aria-label="AI suggested choices">
+              <div className="fw-choices__prompt">เลือกการกระทำ</div>
+              {choices.map((choice) => {
+                const selectedKey = `${message.id}:${choice.number}`;
+                return (
+                  <button
+                    className="fw-choice"
+                    data-selected={selectedChoices.has(selectedKey) ? 'true' : undefined}
+                    disabled={choicesDisabled || selectedChoices.has(selectedKey)}
+                    key={selectedKey}
+                    onClick={() => onChoiceSelect?.(choice, message)}
+                    type="button"
+                  >
+                    <span className="fw-choice__letter">{choice.number}</span>
+                    {choice.label}
+                    {choice.suggestedRoll ? (
+                      <span className="fw-choice__votes">{formatChoiceRoll(choice.suggestedRoll)}</span>
+                    ) : null}
                   </button>
                 );
               })}
@@ -478,39 +504,45 @@ function renderMetadata(
           )
         ) : null}
         {actions.length ? (
-          <div className="confirm-action-list">
+          <div className="fw-choices">
             {actions.map((action) => (
-              <div className="event-card confirm-event" key={action.id}>
-                <span>{action.type.replaceAll('_', ' ')}</span>
-                <strong>{action.amount ?? action.condition ?? action.phase ?? action.encounterName ?? 'Apply'}</strong>
-                <small>{action.label}</small>
-                <button
-                  className="secondary-button"
-                  disabled={!onConfirmAction || appliedActions.has(`${message.id}:${action.id}`)}
-                  onClick={async () => {
-                    try {
-                      await onConfirmAction?.(action, message);
-                      markActionApplied?.(`${message.id}:${action.id}`);
-                    } catch (error) {
-                      onMessagesChange?.((current) =>
-                        addUniqueMessage(current, {
-                          id: crypto.randomUUID(),
-                          speaker: 'system',
-                          author: 'Table',
-                          body: error instanceof Error ? error.message : 'Could not apply AI action.',
-                          createdAt: new Intl.DateTimeFormat('en', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            hour12: false,
-                          }).format(new Date()),
-                        }),
-                      );
-                    }
-                  }}
-                  type="button"
-                >
-                  {appliedActions.has(`${message.id}:${action.id}`) ? 'Applied' : 'Apply'}
-                </button>
+              <div className="fw-roll" key={action.id}>
+                <div>
+                  <div className="fw-roll__formula">{action.type.replaceAll('_', ' ')}</div>
+                  <div className="fw-roll__break">{action.label}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
+                  <span className="fw-roll__total" style={{ fontSize: '1.25rem' }}>
+                    {action.amount ?? action.condition ?? action.phase ?? action.encounterName ?? 'Apply'}
+                  </span>
+                  <button
+                    className="fw-btn fw-btn--secondary"
+                    disabled={!onConfirmAction || appliedActions.has(`${message.id}:${action.id}`)}
+                    onClick={async () => {
+                      try {
+                        await onConfirmAction?.(action, message);
+                        markActionApplied?.(`${message.id}:${action.id}`);
+                      } catch (error) {
+                        onMessagesChange?.((current) =>
+                          addUniqueMessage(current, {
+                            id: crypto.randomUUID(),
+                            speaker: 'system',
+                            author: 'Table',
+                            body: error instanceof Error ? error.message : 'Could not apply AI action.',
+                            createdAt: new Intl.DateTimeFormat('en', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              hour12: false,
+                            }).format(new Date()),
+                          }),
+                        );
+                      }
+                    }}
+                    type="button"
+                  >
+                    {appliedActions.has(`${message.id}:${action.id}`) ? 'Applied' : 'Apply'}
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -522,10 +554,12 @@ function renderMetadata(
   if (message.metadata?.kind === 'phase_event') {
     const phase = getGamePhaseDefinition(message.metadata.phase);
     return (
-      <div className="event-card phase-event">
-        <span>Phase changed</span>
-        <strong>{phase.shortLabel}</strong>
-        <small>{phase.description}</small>
+      <div className="fw-roll">
+        <div>
+          <div className="fw-roll__formula">Phase changed</div>
+          <div className="fw-roll__break">{phase.description}</div>
+        </div>
+        <span className="fw-roll__total" style={{ fontSize: '1rem', letterSpacing: '0.06em' }}>{phase.shortLabel}</span>
       </div>
     );
   }
@@ -898,21 +932,21 @@ export function StoryLog({
   ];
 
   return (
-    <section className="panel story-panel">
-      <div className="story-header">
+    <section className="fw-panel">
+      <div className="fw-panel__header">
         <div>
-          <p className="eyebrow">Session</p>
-          <h2>{sessionTitle ?? 'Story Log'}</h2>
-          <span>Shared table timeline</span>
+          <p className="fw-caption">Session</p>
+          <h2 className="fw-h2">{sessionTitle ?? 'Story Log'}</h2>
         </div>
-        <span className="live-dot">
+        <span className="fw-caption">
           <Radio size={13} aria-hidden="true" />
           {status}
         </span>
       </div>
 
-      <div className="messages">
+      <div className="fw-log">
         {visibleMessages.map((message) => {
+          const kind = getMessageKind(message);
           const isLong = message.body.length > 260;
           const expanded = expandedMessages.has(message.id);
           const body = isLong && !expanded ? `${message.body.slice(0, 260).trim()}...` : message.body;
@@ -920,56 +954,60 @@ export function StoryLog({
             typeof message.metadata?.retryPrompt === 'string' ? message.metadata.retryPrompt : '';
 
           return (
-            <article className={`message ${message.speaker} ${getMessageKind(message)}`} key={message.id}>
-              <div className="message-marker" aria-hidden="true">
-                {message.author.slice(0, 1).toUpperCase()}
+            <article className={`fw-msg ${getMsgVariant(kind, message.speaker)}`} key={message.id}>
+              <div className="fw-msg__meta">
+                <span className="fw-msg__who">{message.author}</span>
+                <span className="fw-msg__tag">{kind.toString().replace('_', ' ')}</span>
+                <time>{message.createdAt}</time>
               </div>
-              <div className="message-content">
-                <div className="message-meta">
-                  <span className="message-author">{message.author}</span>
-                  <span className="message-badge">{getMessageKind(message).toString().replace('_', ' ')}</span>
-                  <time>{message.createdAt}</time>
-                </div>
-                <p className={isLong && !expanded ? 'message-body collapsed' : 'message-body'}>{body}</p>
-                {isLong ? (
-                  <button className="message-expand" onClick={() => toggleExpanded(message.id)} type="button">
-                    {expanded ? 'Show less' : 'Show more'}
-                  </button>
-                ) : null}
-                {renderMetadata(
-                  message,
-                  activeSession,
-                  user?.id ?? null,
-                  dispatchGameEvent,
-                  eventMetaBuilder,
-                  onConfirmAction,
-                  appliedActions,
-                  markActionApplied,
-                  onMessagesChange,
-                  chooseAiOption,
-                  rollSuggestedAction,
-                  selectedChoices,
-                  completedRolls,
-                  busy,
-                )}
-                {message.metadata?.kind === 'ai_error' && retryPrompt ? (
-                  <button className="secondary-button ai-retry-button" disabled={busy} onClick={() => retryAiReply(retryPrompt)} type="button">
-                    Try again
-                  </button>
-                ) : null}
-              </div>
+              {kind === 'ai_pending' ? (
+                <span className="fw-thinking">
+                  <span className="fw-thinking__dot" />
+                  <span className="fw-thinking__dot" style={{ animationDelay: '0.3s' }} />
+                  <span className="fw-thinking__dot" style={{ animationDelay: '0.6s' }} />
+                  AI DM กำลังคิด
+                </span>
+              ) : (
+                <p className="fw-msg__body">{body}</p>
+              )}
+              {isLong ? (
+                <button className="fw-btn fw-btn--ghost" onClick={() => toggleExpanded(message.id)} type="button">
+                  {expanded ? 'Show less' : 'Show more'}
+                </button>
+              ) : null}
+              {renderMetadata(
+                message,
+                activeSession,
+                user?.id ?? null,
+                dispatchGameEvent,
+                eventMetaBuilder,
+                onConfirmAction,
+                appliedActions,
+                markActionApplied,
+                onMessagesChange,
+                chooseAiOption,
+                rollSuggestedAction,
+                selectedChoices,
+                completedRolls,
+                busy,
+              )}
+              {message.metadata?.kind === 'ai_error' && retryPrompt ? (
+                <button className="fw-btn fw-btn--ghost" disabled={busy} onClick={() => retryAiReply(retryPrompt)} type="button">
+                  Try again
+                </button>
+              ) : null}
             </article>
           );
         })}
       </div>
 
-      <div className="composer-shell">
-        <div className="ai-control-row">
+      <div className="fw-composer-shell">
+        <div className="fw-composer-controls">
           <Bot size={16} aria-hidden="true" />
-          <div className="ai-mode-switch" aria-label="AI DM mode">
+          <div className="fw-ai-mode-switch" aria-label="AI DM mode">
             {(['auto', 'assist', 'off'] as AiDmMode[]).map((mode) => (
               <button
-                className={aiMode === mode ? 'active' : ''}
+                className={`fw-btn fw-btn--ghost${aiMode === mode ? ' fw-btn--primary' : ''}`}
                 disabled={!activeSession || busy}
                 key={mode}
                 onClick={() => setAiMode(mode)}
@@ -979,7 +1017,7 @@ export function StoryLog({
               </button>
             ))}
           </div>
-          <span className="ai-mode-hint">
+          <span className="fw-caption">
             {aiMode === 'auto'
               ? 'AI replies after each message'
               : aiMode === 'assist'
@@ -988,8 +1026,9 @@ export function StoryLog({
           </span>
         </div>
 
-        <form className="message-form" onSubmit={submitMessage}>
+        <form className="fw-composer-form" onSubmit={submitMessage}>
           <input
+            className="fw-input"
             aria-label="Player action"
             disabled={busy}
             onChange={(event) => setDraft(event.target.value)}
@@ -1003,7 +1042,7 @@ export function StoryLog({
           {aiMode === 'assist' ? (
             <button
               aria-label="Ask AI DM"
-              className="ai-assist-button"
+              className="fw-btn fw-btn--ghost"
               disabled={busy || (!activeSession && hasSupabaseConfig) || !draft.trim()}
               onClick={() => void sendMessage(true)}
               type="button"
@@ -1011,12 +1050,13 @@ export function StoryLog({
               <Bot size={18} aria-hidden="true" />
             </button>
           ) : null}
-          <button aria-label="Send message" disabled={busy || (!activeSession && hasSupabaseConfig)} type="submit">
+          <button className="fw-btn fw-btn--primary" aria-label="Send message" disabled={busy || (!activeSession && hasSupabaseConfig)} type="submit">
             <Send size={18} aria-hidden="true" />
           </button>
         </form>
         <form className="custom-choice-form" onSubmit={submitCustomChoice}>
           <input
+            className="fw-input"
             aria-label="Custom action"
             disabled={busy || (!activeSession && hasSupabaseConfig)}
             ref={customChoiceInputRef}
@@ -1024,7 +1064,7 @@ export function StoryLog({
             placeholder="ทำอย่างอื่น... พิมพ์สิ่งที่อยากทำเอง"
             value={customChoicePrompt}
           />
-          <button disabled={busy || !customChoicePrompt.trim() || (!activeSession && hasSupabaseConfig)} type="submit">
+          <button className="fw-btn" disabled={busy || !customChoicePrompt.trim() || (!activeSession && hasSupabaseConfig)} type="submit">
             ส่ง
           </button>
         </form>

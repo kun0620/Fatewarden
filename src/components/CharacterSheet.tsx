@@ -76,27 +76,29 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
   }
 
   return (
-    <form className="panel character-panel" onSubmit={submit}>
-      <div className="panel-heading">
+    <form className="fw-panel" onSubmit={submit}>
+      <div className="fw-panel__header">
         <div>
-          <p className="eyebrow">Character</p>
-          <h2>{draft.name}</h2>
+          <p className="fw-caption">Character</p>
+          <h2 className="fw-h2">{draft.name}</h2>
         </div>
-        <span className="level-pill">Lv {draft.level}</span>
+        <span className="fw-caption">Lv {draft.level}</span>
       </div>
 
-      <div className="character-editor-grid">
-        <label>
-          Name
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-3)' }}>
+        <div className="fw-field">
+          <label className="fw-field__label">Name</label>
           <input
+            className="fw-input"
             disabled={disabled || saving}
             onChange={(event) => updateField('name', event.target.value)}
             value={draft.name}
           />
-        </label>
-        <label>
-          Level
+        </div>
+        <div className="fw-field">
+          <label className="fw-field__label">Level</label>
           <input
+            className="fw-input fw-input--mono"
             disabled={disabled || saving}
             max={20}
             min={1}
@@ -104,31 +106,36 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
             type="number"
             value={draft.level}
           />
-        </label>
-        <label>
-          Ancestry
+        </div>
+        <div className="fw-field">
+          <label className="fw-field__label">Ancestry</label>
           <input
+            className="fw-input"
             disabled={disabled || saving}
             onChange={(event) => updateField('ancestry', event.target.value)}
             value={draft.ancestry}
           />
-        </label>
-        <label>
-          Class
+        </div>
+        <div className="fw-field">
+          <label className="fw-field__label">Class</label>
           <input
+            className="fw-input"
             disabled={disabled || saving}
             onChange={(event) => updateField('className', event.target.value)}
             value={draft.className}
           />
-        </label>
+        </div>
       </div>
 
-      <div className="vitals-grid">
-        <div className="vital">
-          <Shield size={18} aria-hidden="true" />
-          <span>AC</span>
+      <div style={{ display: 'flex', gap: 'var(--sp-4)' }}>
+        <div className="fw-field" style={{ flex: 1 }}>
+          <label className="fw-field__label">
+            <Shield size={13} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} />
+            AC
+          </label>
           <input
             aria-label="Armor class"
+            className="fw-input fw-input--mono"
             disabled={disabled || saving}
             max={30}
             min={1}
@@ -137,26 +144,32 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
             value={draft.armorClass}
           />
         </div>
-        <div className="vital">
-          <Sparkles size={18} aria-hidden="true" />
-          <span>HP</span>
-          <div className="hp-inputs">
+        <div className="fw-field" style={{ flex: 2 }}>
+          <label className="fw-field__label">
+            <Sparkles size={13} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} />
+            HP
+          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
             <input
               aria-label="Hit points"
+              className="fw-input fw-input--mono"
               disabled={disabled || saving}
               max={999}
               min={0}
               onChange={updateNumber('hitPoints', 0, 999)}
+              style={{ flex: 1 }}
               type="number"
               value={draft.hitPoints}
             />
-            <span>/</span>
+            <span className="fw-caption">/</span>
             <input
               aria-label="Max hit points"
+              className="fw-input fw-input--mono"
               disabled={disabled || saving}
               max={999}
               min={1}
               onChange={updateNumber('maxHitPoints', 1, 999)}
+              style={{ flex: 1 }}
               type="number"
               value={draft.maxHitPoints}
             />
@@ -164,27 +177,30 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
         </div>
       </div>
 
-      <div className="ability-grid">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'var(--sp-2)' }}>
         {Object.entries(draft.abilities).map(([key, score]) => (
-          <div className="ability" key={key}>
-            <span>{abilityLabels[key as AbilityKey]}</span>
+          <div className="fw-field" key={key} style={{ alignItems: 'center', textAlign: 'center' }}>
+            <label className="fw-field__label" style={{ textAlign: 'center' }}>{abilityLabels[key as AbilityKey]}</label>
             <input
               aria-label={abilityLabels[key as AbilityKey]}
+              className="fw-input fw-input--mono"
               disabled={disabled || saving}
               max={30}
               min={1}
               onChange={updateAbility(key as AbilityKey)}
+              style={{ textAlign: 'center' }}
               type="number"
               value={score}
             />
-            <small>{modifier(score)}</small>
+            <small className="fw-caption">{modifier(score)}</small>
           </div>
         ))}
       </div>
 
-      <label className="skills-editor">
-        Skills
+      <div className="fw-field">
+        <label className="fw-field__label">Skills</label>
         <input
+          className="fw-input"
           disabled={disabled || saving}
           onChange={(event) =>
             updateField(
@@ -195,7 +211,7 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
           placeholder="Perception, Survival, Stealth"
           value={draft.skills.join(', ')}
         />
-      </label>
+      </div>
 
       <InventoryPanel
         character={draft}
@@ -203,21 +219,21 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
         onUpdateCharacter={(updatedCharacter) => setDraft(updatedCharacter)}
       />
 
-      <div className="character-actions">
-        {status ? <p className="form-message">{status}</p> : null}
+      <div style={{ display: 'flex', gap: 'var(--sp-3)', alignItems: 'center', flexWrap: 'wrap' }}>
+        {status ? <p className="fw-caption" style={{ flex: 1 }}>{status}</p> : null}
         <button
-          className="secondary-button"
+          className="fw-btn fw-btn--ghost"
           disabled={disabled || saving || !onSave || !canLevelUp(draft)}
           onClick={() => setLevelUpOpen(true)}
           type="button"
         >
           Level Up
         </button>
-        <button className="secondary-button" onClick={onOpenFullSheet} type="button">
+        <button className="fw-btn fw-btn--ghost" onClick={onOpenFullSheet} type="button">
           <Maximize2 size={17} aria-hidden="true" />
           Open Sheet
         </button>
-        <button className="secondary-button" disabled={disabled || saving || !onSave} type="submit">
+        <button className="fw-btn fw-btn--primary" disabled={disabled || saving || !onSave} type="submit">
           <Save size={17} aria-hidden="true" />
           {saving ? 'Saving...' : 'Save'}
         </button>

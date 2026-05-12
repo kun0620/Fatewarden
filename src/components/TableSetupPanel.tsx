@@ -74,11 +74,11 @@ export function TableSetupPanel({
   }
 
   return (
-    <section className="panel table-setup-panel">
-      <div className="panel-heading">
+    <section className="fw-panel table-setup-panel">
+      <div className="fw-panel__header">
         <div>
-          <p className="eyebrow">Table Setup</p>
-          <h2>{phaseDefinition.label}</h2>
+          <p className="fw-caption">Table Setup</p>
+          <h2 className="fw-h2">{phaseDefinition.label}</h2>
         </div>
         {phase === 'combat' ? <Swords size={22} aria-hidden="true" /> : <Compass size={22} aria-hidden="true" />}
       </div>
@@ -93,7 +93,7 @@ export function TableSetupPanel({
                 : 'AI จะเปิดฉากตามธีมห้อง สร้าง objective, danger และตัวเลือกตามสถานการณ์'}
             </span>
           </div>
-          <button className="primary-button" disabled={!canStartExploration} onClick={() => onStartExploration(premise)} type="button">
+          <button className="fw-btn fw-btn--primary" disabled={!canStartExploration} onClick={() => onStartExploration(premise)} type="button">
             <Compass size={17} aria-hidden="true" />
             เริ่มการผจญภัย
           </button>
@@ -113,17 +113,18 @@ export function TableSetupPanel({
 
       {phase === 'setup' ? (
         <form className="opening-scene-form" onSubmit={submitOpeningScene}>
-          <label>
-            Opening Premise
+          <div className="fw-field">
+            <label className="fw-field__label">Opening Premise</label>
             <textarea
+              className="fw-input"
               disabled={!canOpenScene}
               onChange={(event) => setPremise(event.target.value)}
               placeholder="เช่น เมืองชายแดนหลังฝนตก, งานว่าจ้างหายตัว, โทนลึกลับ/กดดัน..."
               rows={2}
               value={premise}
             />
-          </label>
-          <button className="secondary-button" disabled={!canOpenScene} type="submit">
+          </div>
+          <button className="fw-btn fw-btn--ghost" disabled={!canOpenScene} type="submit">
             <Sparkles size={17} aria-hidden="true" />
             ให้ AI เปิดฉากก่อน
           </button>
@@ -154,7 +155,7 @@ export function TableSetupPanel({
             onShortRest={(hitDiceSpent) => onApplyShortRest?.(hitDiceSpent)}
           />
           <div className="rest-summary-actions">
-            <button className="secondary-button" disabled={disabled || busy || !activeSession} onClick={onAskRestSummary} type="button">
+            <button className="fw-btn fw-btn--ghost" disabled={disabled || busy || !activeSession} onClick={onAskRestSummary} type="button">
               <Sparkles size={17} aria-hidden="true" />
               Ask AI for Recap
             </button>

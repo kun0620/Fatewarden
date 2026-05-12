@@ -25,18 +25,20 @@ type RoomModalShellProps = {
 
 function RoomModalShell({ children, eyebrow, onClose, title }: RoomModalShellProps) {
   return (
-    <div className="modal-backdrop" role="presentation">
-      <section aria-modal="true" className="character-setup-modal room-modal" role="dialog">
-        <div className="modal-heading">
+    <div className="fw-backdrop" role="presentation">
+      <section aria-modal="true" className="fw-modal" role="dialog" style={{ width: 'min(480px, 95vw)', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div className="fw-modal__header">
           <div>
-            <p className="eyebrow">{eyebrow}</p>
-            <h2>{title}</h2>
+            <p className="fw-caption">{eyebrow}</p>
+            <h2 className="fw-h2">{title}</h2>
           </div>
-          <button aria-label="Close room menu" className="icon-button" onClick={onClose} type="button">
+          <button aria-label="Close room menu" className="fw-btn fw-btn--icon" onClick={onClose} type="button">
             <X size={18} aria-hidden="true" />
           </button>
         </div>
-        {children}
+        <div style={{ padding: 'var(--sp-5)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
+          {children}
+        </div>
       </section>
     </div>
   );
@@ -147,47 +149,73 @@ export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignO
 
   return (
     <>
-      <section className="panel room-menu-panel">
-        <div className="panel-heading">
+      <section className="fw-panel fw-card--framed">
+        <div className="fw-panel__header">
           <div>
-            <p className="eyebrow">Main Menu</p>
-            <h2>{user ? 'Choose your next move' : 'Sign in to play'}</h2>
+            <p className="fw-caption">Main Menu</p>
+            <h2 className="fw-h2">{user ? 'Choose your next move' : 'Sign in to play'}</h2>
           </div>
           <ScrollText size={24} aria-hidden="true" />
         </div>
 
-        <div className="room-menu-actions">
-          <button className="primary-button room-menu-button" disabled={!user || busy} onClick={() => onRoomModalChange('create')} type="button">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
+          <button
+            className="fw-btn fw-btn--primary fw-btn--lg"
+            disabled={!user || busy}
+            onClick={() => onRoomModalChange('create')}
+            style={{ justifyContent: 'flex-start', gap: 'var(--sp-4)' }}
+            type="button"
+          >
             <Plus size={18} aria-hidden="true" />
-            <span>
+            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }}>
               <strong>Create Room</strong>
-              <small>Start a new table</small>
+              <small className="fw-caption" style={{ color: 'inherit', opacity: 0.75 }}>Start a new table</small>
             </span>
           </button>
-          <button className="secondary-button room-menu-button" disabled={!user || busy} onClick={() => onRoomModalChange('join')} type="button">
+          <button
+            className="fw-btn fw-btn--ghost fw-btn--lg"
+            disabled={!user || busy}
+            onClick={() => onRoomModalChange('join')}
+            style={{ justifyContent: 'flex-start', gap: 'var(--sp-4)' }}
+            type="button"
+          >
             <DoorOpen size={18} aria-hidden="true" />
-            <span>
+            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }}>
               <strong>Join Room</strong>
-              <small>Use an invite code</small>
+              <small className="fw-caption" style={{ opacity: 0.75 }}>Use an invite code</small>
             </span>
           </button>
-          <button className="secondary-button room-menu-button" disabled={!user || busy} onClick={() => onRoomModalChange('continue')} type="button">
+          <button
+            className="fw-btn fw-btn--ghost fw-btn--lg"
+            disabled={!user || busy}
+            onClick={() => onRoomModalChange('continue')}
+            style={{ justifyContent: 'flex-start', gap: 'var(--sp-4)' }}
+            type="button"
+          >
             <ScrollText size={18} aria-hidden="true" />
-            <span>
+            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }}>
               <strong>Continue Room</strong>
-              <small>{sessions.length ? `${sessions.length} saved table${sessions.length > 1 ? 's' : ''}` : 'No tables yet'}</small>
+              <small className="fw-caption" style={{ opacity: 0.75 }}>
+                {sessions.length ? `${sessions.length} saved table${sessions.length > 1 ? 's' : ''}` : 'No tables yet'}
+              </small>
             </span>
           </button>
-          <button className="secondary-button room-menu-button" disabled={!user || busy} onClick={onSignOut} type="button">
+          <button
+            className="fw-btn fw-btn--ghost fw-btn--lg"
+            disabled={!user || busy}
+            onClick={onSignOut}
+            style={{ justifyContent: 'flex-start', gap: 'var(--sp-4)' }}
+            type="button"
+          >
             <LogOut size={18} aria-hidden="true" />
-            <span>
+            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }}>
               <strong>Sign Out</strong>
-              <small>Leave this device</small>
+              <small className="fw-caption" style={{ opacity: 0.75 }}>Leave this device</small>
             </span>
           </button>
         </div>
 
-        <p className="form-message">
+        <p className="fw-caption">
           {user
             ? 'Create, join, or continue a room. Character setup appears after the table is selected.'
             : 'Login first. Room tools unlock after authentication.'}
@@ -196,60 +224,67 @@ export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignO
 
       {roomModal === 'create' ? (
         <RoomModalShell eyebrow="New Table" onClose={closeModal} title="Create room">
-          <form className="stack-form create-table-form" onSubmit={createSession}>
-            <label>
-              Adventure name
+          <form style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }} onSubmit={createSession}>
+            <div className="fw-field">
+              <label className="fw-field__label">Adventure name</label>
               <input
+                className="fw-input"
                 disabled={!user || busy}
                 onChange={(event) => setTitle(event.target.value)}
                 placeholder="Session title"
                 value={title}
               />
-            </label>
-            <div className="play-mode-picker" aria-label="Play mode">
-              <span>Play mode</span>
-              <div className="play-mode-options">
+            </div>
+
+            <div>
+              <p className="fw-caption" style={{ marginBottom: 'var(--sp-2)' }}>Play mode</p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-2)' }} aria-label="Play mode">
                 {playModes.map((mode) => (
                   <button
-                    className={playMode === mode.id ? 'active' : ''}
+                    className={`fw-btn fw-btn--sm ${playMode === mode.id ? 'fw-btn--primary' : 'fw-btn--ghost'}`}
                     disabled={!user || busy}
                     key={mode.id}
                     onClick={() => setPlayMode(mode.id)}
                     type="button"
                   >
                     <strong>{mode.shortLabel}</strong>
-                    <small>{mode.label}</small>
+                    <small style={{ marginLeft: 'var(--sp-1)' }}>{mode.label}</small>
                   </button>
                 ))}
               </div>
             </div>
-            <div className="rules-strip">
-              <span>SRD 5.1</span>
-              <span>core</span>
-              <span>combat</span>
-              <span>conditions</span>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-2)' }}>
+              {['SRD 5.1', 'core', 'combat', 'conditions'].map((rule) => (
+                <span className="fw-cond fw-cond--minor" key={rule}>
+                  <span className="fw-cond__dot" />{rule}
+                </span>
+              ))}
             </div>
-            <p className="mode-helper">{getPlayModeDefinition(playMode).description}</p>
-            <div className="play-mode-picker" aria-label="Room theme">
-              <span>Theme</span>
-              <div className="theme-options">
+
+            <p className="fw-caption">{getPlayModeDefinition(playMode).description}</p>
+
+            <div>
+              <p className="fw-caption" style={{ marginBottom: 'var(--sp-2)' }}>Theme</p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-2)' }} aria-label="Room theme">
                 {sessionThemePresets.map((theme) => (
                   <button
-                    className={themeKey === theme.key ? 'active' : ''}
+                    className={`fw-btn fw-btn--sm ${themeKey === theme.key ? 'fw-btn--primary' : 'fw-btn--ghost'}`}
                     disabled={!user || busy}
                     key={theme.key}
                     onClick={() => setThemeKey(theme.key)}
                     type="button"
                   >
                     <strong>{theme.label}</strong>
-                    <small>{theme.description}</small>
                   </button>
                 ))}
               </div>
             </div>
-            <label>
-              Tone
+
+            <div className="fw-field">
+              <label className="fw-field__label">Tone</label>
               <select
+                className="fw-select"
                 disabled={!user || busy}
                 onChange={(event) => setThemeTone(event.target.value as SessionThemeTone)}
                 value={themeTone}
@@ -260,73 +295,85 @@ export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignO
                   </option>
                 ))}
               </select>
-            </label>
-            <label>
-              Theme notes
+            </div>
+
+            <div className="fw-field">
+              <label className="fw-field__label">Theme notes</label>
               <input
+                className="fw-input"
                 disabled={!user || busy}
                 onChange={(event) => setThemeNotes(event.target.value)}
                 placeholder="เช่น เมืองฝนตก, วิญญาณ, สืบคดีฆาตกรรม"
                 value={themeNotes}
               />
-            </label>
-            <label>
-              House rules
+            </div>
+
+            <div className="fw-field">
+              <label className="fw-field__label">House rules</label>
               <input
+                className="fw-input"
                 disabled={!user || busy}
                 onChange={(event) => setHouseRules(event.target.value)}
                 placeholder="Optional note"
                 value={houseRules}
               />
-            </label>
-            <button className="primary-button" disabled={!user || busy} type="submit">
+            </div>
+
+            <button className="fw-btn fw-btn--primary" disabled={!user || busy} type="submit">
               <Plus size={17} aria-hidden="true" />
               {busy ? 'Creating...' : 'Create Room'}
             </button>
           </form>
-          {message ? <p className="form-message">{message}</p> : null}
+          {message ? <p className="fw-caption">{message}</p> : null}
         </RoomModalShell>
       ) : null}
 
       {roomModal === 'join' ? (
         <RoomModalShell eyebrow="Invitation" onClose={closeModal} title="Join room">
-          <form className="stack-form join-table-form" onSubmit={joinSession}>
-            <label>
-              Join code
+          <form style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }} onSubmit={joinSession}>
+            <div className="fw-field">
+              <label className="fw-field__label">Join code</label>
               <input
+                className="fw-input fw-input--mono"
                 disabled={!user || busy}
                 maxLength={8}
                 onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
                 placeholder="AB12"
                 value={joinCode}
               />
-            </label>
-            <button className="primary-button" disabled={!user || busy || !joinCode.trim()} type="submit">
+            </div>
+            <button className="fw-btn fw-btn--primary" disabled={!user || busy || !joinCode.trim()} type="submit">
               <DoorOpen size={17} aria-hidden="true" />
               {busy ? 'Joining...' : 'Join Room'}
             </button>
           </form>
-          {message ? <p className="form-message">{message}</p> : null}
+          {message ? <p className="fw-caption">{message}</p> : null}
         </RoomModalShell>
       ) : null}
 
       {roomModal === 'continue' ? (
         <RoomModalShell eyebrow="Saved Tables" onClose={closeModal} title="Continue room">
-          {message ? <p className="form-message">{message}</p> : null}
+          {message ? <p className="fw-caption">{message}</p> : null}
           {sessions.length ? (
-            <div className="session-list room-session-list">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
               {sessions.map((session) => (
-                <div className="session-row" key={session.id}>
-                  <button disabled={busy || !user} onClick={() => enterSession(session)} type="button">
-                    <span>{session.title}</span>
-                    <strong>
+                <div key={session.id} style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center' }}>
+                  <button
+                    className="fw-btn fw-btn--ghost"
+                    disabled={busy || !user}
+                    onClick={() => enterSession(session)}
+                    style={{ flex: 1, justifyContent: 'flex-start', flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }}
+                    type="button"
+                  >
+                    <span className="fw-body-sm">{session.title}</span>
+                    <strong className="fw-caption">
                       {getPlayModeDefinition(session.playMode).shortLabel} / {getSessionThemeDefinition(session.theme.key).label} / Enter
                     </strong>
                   </button>
                   {session.createdBy === user?.id ? (
                     <button
                       aria-label={`Delete ${session.title}`}
-                      className="icon-button danger-icon"
+                      className="fw-btn fw-btn--danger fw-btn--icon"
                       disabled={busy}
                       onClick={() => void deleteSession(session)}
                       type="button"
@@ -338,7 +385,7 @@ export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignO
               ))}
             </div>
           ) : (
-            <p className="empty-state">No saved tables yet. Create or join a room first.</p>
+            <p className="fw-caption">No saved tables yet. Create or join a room first.</p>
           )}
         </RoomModalShell>
       ) : null}

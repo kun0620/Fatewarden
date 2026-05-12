@@ -21,11 +21,11 @@ export function GamePhasePanel({ busy = false, disabled = false, phase, onChange
   const CurrentIcon = phaseIcons[current.id];
 
   return (
-    <section className="panel phase-panel">
-      <div className="panel-heading">
+    <section className="fw-panel phase-panel">
+      <div className="fw-panel__header">
         <div>
-          <p className="eyebrow">Game Flow</p>
-          <h2>{current.label}</h2>
+          <p className="fw-caption">Game Flow</p>
+          <h2 className="fw-h2">{current.label}</h2>
         </div>
         <CurrentIcon size={22} aria-hidden="true" />
       </div>

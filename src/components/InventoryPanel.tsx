@@ -132,72 +132,88 @@ export function InventoryPanel({ character, onUpdateCharacter, disabled = false 
   }
 
   return (
-    <section className="panel inventory-panel">
-      <div className="panel-heading">
+    <section className="fw-panel">
+      <div className="fw-panel__header">
         <div>
-          <p className="eyebrow">Inventory</p>
-          <h2>Pack & Equipment</h2>
+          <p className="fw-caption">Inventory</p>
+          <h2 className="fw-h2">Pack &amp; Equipment</h2>
         </div>
       </div>
 
-      <div className="segmented-control compact" role="tablist" aria-label="Inventory tabs">
-        <button type="button" className={activeTab === 'equipment' ? 'active' : ''} onClick={() => setActiveTab('equipment')}>
+      <div role="tablist" aria-label="Inventory tabs" style={{ display: 'flex', gap: 'var(--sp-2)' }}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'equipment'}
+          className={`fw-btn fw-btn--sm ${activeTab === 'equipment' ? 'fw-btn--primary' : 'fw-btn--ghost'}`}
+          onClick={() => setActiveTab('equipment')}
+        >
           Equipment
         </button>
-        <button type="button" className={activeTab === 'backpack' ? 'active' : ''} onClick={() => setActiveTab('backpack')}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'backpack'}
+          className={`fw-btn fw-btn--sm ${activeTab === 'backpack' ? 'fw-btn--primary' : 'fw-btn--ghost'}`}
+          onClick={() => setActiveTab('backpack')}
+        >
           Backpack
         </button>
-        <button type="button" className={activeTab === 'currency' ? 'active' : ''} onClick={() => setActiveTab('currency')}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'currency'}
+          className={`fw-btn fw-btn--sm ${activeTab === 'currency' ? 'fw-btn--primary' : 'fw-btn--ghost'}`}
+          onClick={() => setActiveTab('currency')}
+        >
           Currency
         </button>
       </div>
 
       {activeTab === 'equipment' ? (
-        <div className="stack-form">
-          <div className="status">
+        <div className="fw-card" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
+          <p className="fw-body-sm">
             AC (equipped): <strong>{computedAc}</strong>
-          </div>
-          <div className="status">
+          </p>
+          <p className="fw-body-sm">
             Weapon:{' '}
             <strong>
               {equippedWeapon ? `${equippedWeapon.name} (${equippedWeapon.weapon?.damageDice ?? '-'} ${equippedWeapon.weapon?.damageType ?? ''})` : 'None'}
             </strong>
-          </div>
-          <div className="status">
+          </p>
+          <p className="fw-body-sm">
             Armor: <strong>{equippedArmor ? `${equippedArmor.name} (AC ${equippedArmor.armor?.baseAC ?? '-'})` : 'None'}</strong>
-          </div>
+          </p>
         </div>
       ) : null}
 
       {activeTab === 'backpack' ? (
-        <div className="party-list">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
           {inventory.items.length ? (
             inventory.items.map((item) => {
               const Icon = categoryIcon[item.category] ?? Backpack;
               return (
-                <article className="party-card" key={item.id}>
-                  <div className="party-avatar">
+                <article className="fw-card" key={item.id} style={{ display: 'flex', gap: 'var(--sp-3)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '2rem', flexShrink: 0, color: 'var(--ink-300)' }}>
                     <Icon size={16} aria-hidden="true" />
                   </div>
-                  <div className="party-info">
-                    <div className="party-header">
-                      <strong>{item.name}</strong>
-                      <small>{formatWeight(item.weight * item.quantity)}</small>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                      <strong className="fw-body-sm">{item.name}</strong>
+                      <small className="fw-caption">{formatWeight(item.weight * item.quantity)}</small>
                     </div>
-                    <small>
-                      {item.category} · qty {item.quantity}
-                    </small>
-                    <div className="character-actions">
-                      <button type="button" className="secondary-button" disabled={disabled} onClick={() => toggleEquip(item)}>
+                    <p className="fw-caption">{item.category} · qty {item.quantity}</p>
+                    <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+                      <button type="button" className="fw-btn fw-btn--ghost fw-btn--sm" disabled={disabled} onClick={() => toggleEquip(item)}>
                         {item.equipped ? 'Unequip' : 'Equip'}
                       </button>
-                      <button type="button" className="secondary-button" disabled={disabled} onClick={() => changeQuantity(item, -1)}>
+                      <button type="button" className="fw-btn fw-btn--ghost fw-btn--sm" disabled={disabled} onClick={() => changeQuantity(item, -1)}>
                         -
                       </button>
-                      <button type="button" className="secondary-button" disabled={disabled} onClick={() => changeQuantity(item, 1)}>
+                      <button type="button" className="fw-btn fw-btn--ghost fw-btn--sm" disabled={disabled} onClick={() => changeQuantity(item, 1)}>
                         +
                       </button>
-                      <button type="button" className="secondary-button" disabled={disabled} onClick={() => removeBackpackItem(item)}>
+                      <button type="button" className="fw-btn fw-btn--danger fw-btn--sm" disabled={disabled} onClick={() => removeBackpackItem(item)}>
                         <Trash2 size={14} aria-hidden="true" />
                       </button>
                     </div>
@@ -206,45 +222,51 @@ export function InventoryPanel({ character, onUpdateCharacter, disabled = false 
               );
             })
           ) : (
-            <p className="form-message">No items in backpack.</p>
+            <p className="fw-caption">No items in backpack.</p>
           )}
         </div>
       ) : null}
 
       {activeTab === 'currency' ? (
-        <div className="character-editor-grid">
-          {(Object.keys(inventory.currency) as CurrencyKey[]).map((coin) => (
-            <label key={coin}>
-              {coin.toUpperCase()}
-              <input
-                type="number"
-                min={0}
-                step={1}
-                value={inventory.currency[coin]}
-                disabled={disabled}
-                onChange={(event) => updateCurrency(coin, event.target.value)}
-              />
-            </label>
-          ))}
-          <div className="character-actions">
-            <button type="button" className="secondary-button" disabled={disabled} onClick={() => quickConvert('pp', 'gp')}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--sp-2)' }}>
+            {(Object.keys(inventory.currency) as CurrencyKey[]).map((coin) => (
+              <div className="fw-field" key={coin} style={{ alignItems: 'center', textAlign: 'center' }}>
+                <label className="fw-field__label" style={{ textAlign: 'center' }}>{coin.toUpperCase()}</label>
+                <input
+                  className="fw-input fw-input--mono"
+                  type="number"
+                  min={0}
+                  step={1}
+                  style={{ textAlign: 'center' }}
+                  value={inventory.currency[coin]}
+                  disabled={disabled}
+                  onChange={(event) => updateCurrency(coin, event.target.value)}
+                />
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+            <button type="button" className="fw-btn fw-btn--ghost fw-btn--sm" disabled={disabled} onClick={() => quickConvert('pp', 'gp')}>
               PP→GP
             </button>
-            <button type="button" className="secondary-button" disabled={disabled} onClick={() => quickConvert('gp', 'sp')}>
+            <button type="button" className="fw-btn fw-btn--ghost fw-btn--sm" disabled={disabled} onClick={() => quickConvert('gp', 'sp')}>
               GP→SP
             </button>
-            <button type="button" className="secondary-button" disabled={disabled} onClick={() => quickConvert('sp', 'cp')}>
+            <button type="button" className="fw-btn fw-btn--ghost fw-btn--sm" disabled={disabled} onClick={() => quickConvert('sp', 'cp')}>
               SP→CP
             </button>
           </div>
         </div>
       ) : null}
 
-      <div className="status">
-        Carry weight: <strong>{formatWeight(totalWeight)}</strong> / <strong>{formatWeight(inventory.maxCarryWeight)}</strong>
-      </div>
-      <div className="weight-bar" aria-label="Carry weight usage">
-        <div className="weight-bar-fill" style={{ width: `${carryRatio}%` }} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
+        <p className="fw-caption">
+          Carry weight: <strong>{formatWeight(totalWeight)}</strong> / <strong>{formatWeight(inventory.maxCarryWeight)}</strong>
+        </p>
+        <div className="fw-hp" aria-label="Carry weight usage" data-state={carryRatio > 90 ? 'bleed' : carryRatio > 65 ? 'low' : 'full'}>
+          <div className="fw-hp__fill" style={{ width: `${carryRatio}%` }} />
+        </div>
       </div>
     </section>
   );

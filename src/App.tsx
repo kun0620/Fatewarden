@@ -1,4 +1,4 @@
-import { BookOpen, Copy, DoorOpen, Dices, LogOut, ScrollText, Shield, Swords } from 'lucide-react';
+import { BookOpen, Copy, DoorOpen, Dices, LogOut, MapPin, ScrollText, Shield, Swords, Users } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { AuthPanel } from './components/AuthPanel';
@@ -12,6 +12,7 @@ import { HexHeroBuilder } from './components/HexHeroBuilder';
 import { PartyPanel } from './components/PartyPanel';
 import { CompanionPanel } from './components/CompanionPanel';
 import { SessionLobby, type RoomModal } from './components/SessionLobby';
+import { ScenePanel } from './components/ScenePanel';
 import { addUniqueMessage, StoryLog } from './components/StoryLog';
 import { TableSetupPanel } from './components/TableSetupPanel';
 import { demoCharacter, demoMessages } from './data/demo';
@@ -38,7 +39,7 @@ import type {
 } from './types';
 
 type CockpitMode = 'dm' | 'player';
-type MobilePanel = 'story' | 'character' | 'dice' | 'combat';
+type MobilePanel = 'story' | 'scene' | 'party' | 'sheet';
 
 function formatLocalTime() {
   return new Intl.DateTimeFormat('en', {
@@ -819,46 +820,50 @@ export function App() {
 
   if (hasSupabaseConfig && (!user || !activeSession)) {
     return (
-      <main className="app-shell gate-shell">
-        <section className="gate-hero">
-          <div className="gate-copy">
-            <div className="gate-brand-mark" aria-hidden="true">
+      <main className="fw-gate-shell">
+        <section className="fw-gate-hero">
+          <div className="fw-gate-copy">
+            <div className="fw-gate-brand-mark" aria-hidden="true">
               <span>FW</span>
             </div>
-            <p className="eyebrow">Fatewarden Web Table</p>
+            <p className="fw-caption">Fatewarden Web Table</p>
             <h1>Gather the party before the veil opens.</h1>
-            <p>
+            <p className="fw-body">
               Create or join a room first. Fatewarden will ask each player to choose or create a character before
               entering the live DnD cockpit.
             </p>
-            <div className="gate-flow" aria-label="Entry flow">
-              <span className={user ? 'complete' : 'active'}>1. Sign in</span>
-              <span className={user ? 'active' : ''}>2. Table</span>
-              <span>3. Character</span>
-              <span>4. Play</span>
+            <div className="fw-gate-flow" aria-label="Entry flow">
+              <span className={user ? 'complete' : 'active'}>
+                <span className="fw-caption">1. Sign in</span>
+              </span>
+              <span className={user ? 'active' : ''}>
+                <span className="fw-caption">2. Table</span>
+              </span>
+              <span><span className="fw-caption">3. Character</span></span>
+              <span><span className="fw-caption">4. Play</span></span>
             </div>
           </div>
-          <div className="gate-status">
-            <div className="gate-status-card primary">
-              <span>Access</span>
-              <strong>{user ? 'Signed in' : 'Auth required'}</strong>
-              <small>{user?.email ?? 'Use your table account'}</small>
+          <div className="fw-gate-status">
+            <div className="fw-gate-status-card primary">
+              <span className="fw-caption">Access</span>
+              <strong className="fw-body-sm">{user ? 'Signed in' : 'Auth required'}</strong>
+              <small className="fw-caption">{user?.email ?? 'Use your table account'}</small>
             </div>
-            <div className="gate-status-card">
-              <span>Ruleset</span>
-              <strong>SRD 5.1</strong>
-              <small>Core / Combat / Conditions</small>
+            <div className="fw-gate-status-card">
+              <span className="fw-caption">Ruleset</span>
+              <strong className="fw-body-sm">SRD 5.1</strong>
+              <small className="fw-caption">Core / Combat / Conditions</small>
             </div>
-            <div className="gate-status-card">
-              <span>Modes</span>
-              <strong>DnD first</strong>
-              <small>HEXplore parked for later</small>
+            <div className="fw-gate-status-card">
+              <span className="fw-caption">Modes</span>
+              <strong className="fw-body-sm">DnD first</strong>
+              <small className="fw-caption">HEXplore parked for later</small>
             </div>
           </div>
         </section>
 
-        <section className={`gate-grid table-first-gate ${user ? '' : 'auth-only-gate'}`}>
-          <div className="gate-column auth-column">
+        <section className={`fw-gate-grid ${user ? '' : 'auth-only'}`}>
+          <div>
             <AuthPanel loading={authLoading} user={user} />
           </div>
           {user ? (
@@ -884,18 +889,16 @@ export function App() {
     );
   }
 
+  const isSessionHost = Boolean(activeSession?.createdBy && user?.id && activeSession.createdBy === user.id);
+
   return (
-    <main className={`app-shell mode-${cockpitMode} phase-${currentPhase}`}>
-      <header className="command-bar">
-        <div className="brand-lockup">
-          <p className="eyebrow">Fatewarden</p>
+    <main className={`fw-app-shell mode-${cockpitMode} phase-${currentPhase}`}>
+      <header className="fw-command-bar">
+        <div className="fw-brand-lockup">
+          <p className="fw-caption">Fatewarden</p>
           <h1>{activeSession?.title ?? 'Adventuring Table'}</h1>
-          <span>
-            {cockpitMode === 'dm' ? 'DM Cockpit' : 'Player Focus'} · {playModeDefinition.label} ·{' '}
-            {phaseDefinition.label}
-          </span>
         </div>
-        <div className="mode-switch" aria-label="Cockpit mode">
+        <div className="fw-mode-switch" aria-label="Cockpit mode">
           <button
             className={cockpitMode === 'dm' ? 'active' : ''}
             onClick={() => setCockpitMode('dm')}
@@ -911,16 +914,14 @@ export function App() {
             Player
           </button>
         </div>
-        <div className="command-status" aria-label="Table status">
-          <span className={hasSupabaseConfig ? 'status connected' : 'status'}>
-            {hasSupabaseConfig ? 'Live Supabase' : 'Local demo'}
+        <div className="fw-command-status" aria-label="Table status">
+          <span className={`fw-caption ${hasSupabaseConfig ? 'connected' : ''}`}>
+            {hasSupabaseConfig ? 'Live' : 'Local'}
           </span>
-          <span className="status mode-chip">{playModeDefinition.shortLabel}</span>
-          <span className="status theme-chip">{themeDefinition.label}</span>
-          <span className="status phase-chip">{phaseDefinition.label}</span>
-          <span className="status">{activeSession?.joinCode ? `Code ${activeSession.joinCode}` : 'No table'}</span>
-          <span className="status character-status-chip">{user?.email?.split('@')[0] ?? character.name}</span>
-          <div className="game-menu" aria-label="Table menu">
+          <span className="fw-caption">{playModeDefinition.shortLabel}</span>
+          <span className="fw-caption">{phaseDefinition.label}</span>
+          <span className="fw-caption">{user?.email?.split('@')[0] ?? character.name}</span>
+          <div className="fw-game-menu" aria-label="Table menu">
             <button disabled={!activeSession} onClick={copyJoinCode} type="button">
               <Copy size={15} aria-hidden="true" />
               Copy
@@ -941,43 +942,44 @@ export function App() {
         </div>
       </header>
 
-      <nav className="mobile-dock" aria-label="Mobile cockpit panels">
+      <nav className="fw-mobile-dock" aria-label="Mobile cockpit panels">
         <button
           className={mobilePanel === 'story' ? 'active' : ''}
           onClick={() => setMobilePanel('story')}
           type="button"
         >
-          <ScrollText size={16} aria-hidden="true" />
+          <ScrollText size={18} aria-hidden="true" />
           Story
         </button>
         <button
-          className={mobilePanel === 'character' ? 'active' : ''}
-          onClick={() => setMobilePanel('character')}
+          className={mobilePanel === 'scene' ? 'active' : ''}
+          onClick={() => setMobilePanel('scene')}
           type="button"
         >
-          <Shield size={16} aria-hidden="true" />
+          <MapPin size={18} aria-hidden="true" />
+          Scene
+        </button>
+        <button
+          className={mobilePanel === 'party' ? 'active' : ''}
+          onClick={() => setMobilePanel('party')}
+          type="button"
+        >
+          <Users size={18} aria-hidden="true" />
+          Party
+        </button>
+        <button
+          className={mobilePanel === 'sheet' ? 'active' : ''}
+          onClick={() => setMobilePanel('sheet')}
+          type="button"
+        >
+          <Shield size={18} aria-hidden="true" />
           {isHexploreMode ? 'Hero' : 'Sheet'}
-        </button>
-        <button
-          className={mobilePanel === 'dice' ? 'active' : ''}
-          onClick={() => setMobilePanel('dice')}
-          type="button"
-        >
-          <Dices size={16} aria-hidden="true" />
-          Dice
-        </button>
-        <button
-          className={mobilePanel === 'combat' ? 'active' : ''}
-          onClick={() => setMobilePanel('combat')}
-          type="button"
-        >
-          <Swords size={16} aria-hidden="true" />
-          Combat
         </button>
       </nav>
 
-      <section className="cockpit-layout">
-        <aside className="table-rail">
+      <section className="fw-cockpit">
+        {/* ── Left rail (desktop) ─────────────────────────── */}
+        <aside className="fw-rail">
           {currentPhase === 'setup' || currentPhase === 'rest' ? (
             <TableSetupPanel
               activeSession={activeSession}
@@ -1001,40 +1003,43 @@ export function App() {
             onChangePhase={changeGamePhase}
             phase={currentPhase}
           />
+          <ScenePanel isSessionHost={isSessionHost} />
           <PartyPanel activeSession={activeSession} currentCharacter={character} />
           <CompanionPanel
             currentUserId={user?.id ?? null}
-            isHost={Boolean(activeSession?.createdBy && user?.id && activeSession.createdBy === user.id)}
+            isHost={isSessionHost}
             sessionId={activeSession?.id ?? null}
           />
-          <section className="panel rules-panel">
-            <div className="panel-heading">
+          <section className="fw-panel">
+            <div className="fw-panel__header">
               <div>
-                <p className="eyebrow">Rules</p>
-                <h2>Reference</h2>
+                <p className="fw-caption">Rules</p>
+                <h2 className="fw-h2">Reference</h2>
               </div>
               <BookOpen size={22} aria-hidden="true" />
             </div>
-            <div className="rules-grid">
-              <span>{playModeDefinition.shortLabel}</span>
-              <span>{themeDefinition.label}</span>
-              <span>SRD 5.1</span>
-              {(activeSession?.rules.enabledModules ?? ['core', 'combat', 'conditions']).map((module) => (
-                <span key={module}>{module}</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-2)', padding: 'var(--sp-3) var(--sp-4)' }}>
+              {[playModeDefinition.shortLabel, themeDefinition.label, 'SRD 5.1',
+                ...(activeSession?.rules.enabledModules ?? ['core', 'combat', 'conditions'])
+              ].map((label) => (
+                <span className="fw-cond fw-cond--minor" key={label}>
+                  <span className="fw-cond__dot" />{label}
+                </span>
               ))}
             </div>
-            <p className="rules-note">
+            <p className="fw-body" style={{ padding: '0 var(--sp-4) var(--sp-4)', fontSize: 'var(--fs-caption)', color: 'var(--ink-300)' }}>
               {activeSession?.theme.notes
                 ? `${themeDefinition.label}: ${activeSession.theme.notes}`
                 : activeSession?.rules.houseRules ||
                 (activeSession?.playMode === 'hexplore'
-                  ? 'HEXplore mode is ready as a table mode. Expedition tools will be added as the next gameplay layer.'
+                  ? 'HEXplore mode is ready as a table mode.'
                   : 'Core formulas only. Longer rules text stays outside the app.')}
             </p>
           </section>
         </aside>
 
-        <section className={`story-zone mobile-panel ${mobilePanel === 'story' ? 'active' : ''}`}>
+        {/* ── Story log (center / mobile story tab) ───────── */}
+        <section className={`fw-story ${mobilePanel === 'story' ? 'active' : ''}`}>
           <StoryLog
             activeSession={activeSession}
             character={character}
@@ -1050,38 +1055,71 @@ export function App() {
           />
         </section>
 
-        <aside className="tool-dock">
-          <div className={`mobile-panel ${mobilePanel === 'character' ? 'active' : ''}`}>
-            {isHexploreMode ? (
-              <HexHeroBuilder
-                character={character}
-                disabled={hasSupabaseConfig && (!activeSession || !user)}
-                onSave={hasSupabaseConfig ? persistCharacter : saveLocalCharacter}
-                status={characterStatus}
-              />
-            ) : (
-              <CharacterSheet
-                character={character}
-                disabled={hasSupabaseConfig && (!activeSession || !user)}
-                onOpenFullSheet={() => setIsSheetOpen(true)}
-                onSave={hasSupabaseConfig ? persistCharacter : saveLocalCharacter}
-                status={characterStatus}
-              />
-            )}
-          </div>
-          <div className={`mobile-panel ${mobilePanel === 'dice' ? 'active' : ''}`}>
-            <DiceRoller character={character} onRoll={postDiceRoll} />
-          </div>
-          <div className={`mobile-panel ${mobilePanel === 'combat' ? 'active' : ''}`}>
-            <CombatTracker
+        {/* ── Right dock (desktop) / Sheet tab (mobile) ───── */}
+        <aside className={`fw-dock ${mobilePanel === 'sheet' ? 'active' : ''}`}>
+          {isHexploreMode ? (
+            <HexHeroBuilder
               character={character}
-              encounter={encounter}
-              onCombatEvent={postCombatEvent}
-              onEncounterChange={changeEncounter}
-              onRequestPhaseChange={changeGamePhase}
+              disabled={hasSupabaseConfig && (!activeSession || !user)}
+              onSave={hasSupabaseConfig ? persistCharacter : saveLocalCharacter}
+              status={characterStatus}
             />
-          </div>
+          ) : (
+            <CharacterSheet
+              character={character}
+              disabled={hasSupabaseConfig && (!activeSession || !user)}
+              onOpenFullSheet={() => setIsSheetOpen(true)}
+              onSave={hasSupabaseConfig ? persistCharacter : saveLocalCharacter}
+              status={characterStatus}
+            />
+          )}
+          <DiceRoller character={character} onRoll={postDiceRoll} />
+          <CombatTracker
+            character={character}
+            encounter={encounter}
+            onCombatEvent={postCombatEvent}
+            onEncounterChange={changeEncounter}
+            onRequestPhaseChange={changeGamePhase}
+          />
         </aside>
+
+        {/* ── Scene tab (mobile only) ──────────────────────── */}
+        <div className={`fw-dock__scene ${mobilePanel === 'scene' ? 'active' : ''}`}>
+          {currentPhase === 'setup' || currentPhase === 'rest' ? (
+            <TableSetupPanel
+              activeSession={activeSession}
+              busy={phaseBusy || openingSceneBusy}
+              character={character}
+              characterStatus={characterStatus}
+              disabled={hasSupabaseConfig && (!activeSession || !user)}
+              encounter={encounter}
+              hasOpeningScene={hasOpeningScene}
+              onAskOpeningScene={askAiToOpenScene}
+              onAskRestSummary={askAiForRestSummary}
+              onApplyLongRest={handleLongRest}
+              onApplyShortRest={handleShortRest}
+              onStartExploration={startAdventure}
+              phase={currentPhase}
+            />
+          ) : null}
+          <GamePhasePanel
+            busy={phaseBusy}
+            disabled={hasSupabaseConfig && (!activeSession || !user)}
+            onChangePhase={changeGamePhase}
+            phase={currentPhase}
+          />
+          <ScenePanel isSessionHost={isSessionHost} />
+        </div>
+
+        {/* ── Party tab (mobile only) ──────────────────────── */}
+        <div className={`fw-dock__party ${mobilePanel === 'party' ? 'active' : ''}`}>
+          <PartyPanel activeSession={activeSession} currentCharacter={character} />
+          <CompanionPanel
+            currentUserId={user?.id ?? null}
+            isHost={isSessionHost}
+            sessionId={activeSession?.id ?? null}
+          />
+        </div>
       </section>
 
       {isSheetOpen && !isHexploreMode ? (

@@ -97,16 +97,16 @@ export function PartyChoicePanel({ sessionId, currentPlayerId, currentCharacterN
   }
 
   return (
-    <div className="modal-overlay party-choice-overlay" role="dialog" aria-modal="true">
-      <section className="modal-card party-choice-modal">
-        <header className="party-choice-header">
-          <span className="phase-chip">Policy: {choice.resolutionPolicy}</span>
-          {msLeft !== null ? <span className="phase-chip">Time left: {formatCountdown(msLeft)}</span> : null}
-        </header>
+    <div className="fw-backdrop" role="dialog" aria-modal="true">
+      <section className="fw-modal">
+        <div className="fw-modal__header">
+          <span className="fw-caption">Policy: {choice.resolutionPolicy}</span>
+          {msLeft !== null ? <span className="fw-caption">Time left: {formatCountdown(msLeft)}</span> : null}
+        </div>
 
-        <h2 className="party-choice-prompt">{choice.prompt}</h2>
+        <h2 className="fw-h2">{choice.prompt}</h2>
 
-        <div className="party-choice-summary-bar" aria-label="Vote summary">
+        <div aria-label="Vote summary">
           {choice.options.map((option, index) => {
             const choiceId = option.number.toString();
             const count = summaryByChoice.get(choiceId)?.count ?? 0;
@@ -114,7 +114,6 @@ export function PartyChoicePanel({ sessionId, currentPlayerId, currentCharacterN
             return (
               <span
                 key={choiceId}
-                className="party-choice-summary-segment"
                 style={{ width, background: optionColors[index % optionColors.length] }}
                 title={`${option.label}: ${count}`}
               />
@@ -122,44 +121,48 @@ export function PartyChoicePanel({ sessionId, currentPlayerId, currentCharacterN
           })}
         </div>
 
-        <div className="party-choice-options">
-          {choice.options.map((option, index) => {
+        <div className="fw-choices">
+          {choice.options.map((option) => {
             const choiceId = option.number.toString();
             const group = summaryByChoice.get(choiceId);
             const isCurrentVote = currentVote?.choiceId === choiceId;
             return (
               <button
-                key={choiceId}
-                type="button"
-                className={isCurrentVote ? 'party-choice-option active' : 'party-choice-option'}
+                className="fw-choice"
+                data-selected={isCurrentVote ? 'true' : undefined}
                 disabled={Boolean(currentVote) || choice.status === 'resolved'}
+                key={choiceId}
                 onClick={() => handleVote(choiceId)}
+                type="button"
               >
-                <div className="party-choice-option-top">
-                  <strong>{option.number}. {option.label}</strong>
-                  <span>{group?.count ?? 0} vote(s)</span>
-                </div>
-                {group?.voters?.length ? <small>{group.voters.join(', ')}</small> : <small>No votes yet</small>}
+                <span className="fw-choice__letter">{option.number}</span>
+                {option.label}
+                <span className="fw-choice__votes">
+                  {Array.from({ length: group?.count ?? 0 }, (_, i) => (
+                    <span className="dot" key={i} />
+                  ))}
+                  {!group?.count ? '—' : null}
+                </span>
               </button>
             );
           })}
         </div>
 
         {currentVote && choice.status !== 'resolved' ? (
-          <p className="form-message">Waiting for others...</p>
+          <p className="fw-caption">Waiting for others...</p>
         ) : null}
 
         {showResolvedFanfare && winnerOption ? (
-          <div className="party-choice-fanfare">
+          <div className="fw-toast fw-toast--success">
             <strong>Resolved: {winnerOption.label}</strong>
           </div>
         ) : null}
 
         {isHost ? (
-          <footer className="modal-actions">
-            <button type="button" onClick={handleForceResolve}>Force Resolve</button>
-            <button type="button" onClick={clearActivePartyChoice}>Cancel Choice</button>
-          </footer>
+          <div className="fw-modal__footer">
+            <button className="fw-btn fw-btn--secondary" type="button" onClick={handleForceResolve}>Force Resolve</button>
+            <button className="fw-btn fw-btn--ghost" type="button" onClick={clearActivePartyChoice}>Cancel Choice</button>
+          </div>
         ) : null}
       </section>
     </div>

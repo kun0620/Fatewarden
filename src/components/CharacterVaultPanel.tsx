@@ -234,76 +234,77 @@ export function CharacterVaultPanel({ onSelectCharacter, selectedCharacter, user
   }
 
   return (
-    <section className="panel vault-panel">
-      <div className="panel-heading">
+    <section className="fw-panel vault-panel">
+      <div className="fw-panel__header">
         <div>
-          <p className="eyebrow">Character Vault</p>
-          <h2>{selectedCharacter ? selectedCharacter.name : 'Choose Hero'}</h2>
+          <p className="fw-caption">Character Vault</p>
+          <h2 className="fw-h2">{selectedCharacter ? selectedCharacter.name : 'Choose Hero'}</h2>
         </div>
-        <span className={selectedCharacter ? 'status connected' : 'status'}>
+        <span className={selectedCharacter ? 'fw-caption connected' : 'fw-caption'}>
           {selectedCharacter ? 'Ready' : 'Required'}
         </span>
       </div>
 
-      <div className="vault-selected-card">
-        <div>
-          <span>Selected</span>
+      <div className="fw-card fw-card--elevated" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--sp-3)', gap: 'var(--sp-3)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
+          <span className="fw-caption">Selected</span>
           <strong>{selectedCharacter?.name ?? 'No character selected'}</strong>
-          <small>
+          <small className="fw-caption">
             {selectedCharacter
               ? `Lv ${selectedCharacter.level} ${selectedCharacter.ancestry} ${selectedCharacter.className}`
               : 'Pick a saved hero or use a quick preset.'}
           </small>
         </div>
-        <button className="secondary-button" disabled={!user || busy} onClick={() => setIsVaultOpen(true)} type="button">
+        <button className="fw-btn fw-btn--ghost" disabled={!user || busy} onClick={() => setIsVaultOpen(true)} type="button">
           <Users size={16} aria-hidden="true" />
           Open Vault
         </button>
       </div>
 
-      <div className="character-actions">
-        <button className="secondary-button" disabled={!user || busy} onClick={() => setIsVaultOpen(true)} type="button">
+      <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
+        <button className="fw-btn fw-btn--ghost" disabled={!user || busy} onClick={() => setIsVaultOpen(true)} type="button">
           <Users size={17} aria-hidden="true" />
           Choose
         </button>
-        <button className="secondary-button" disabled={!user || busy} onClick={newCharacter} type="button">
+        <button className="fw-btn fw-btn--ghost" disabled={!user || busy} onClick={newCharacter} type="button">
           <UserPlus size={17} aria-hidden="true" />
           Custom
         </button>
-        <button className="primary-button" disabled={!user || busy || !selectedCharacter} onClick={editCharacter} type="button">
+        <button className="fw-btn fw-btn--primary" disabled={!user || busy || !selectedCharacter} onClick={editCharacter} type="button">
           <Pencil size={17} aria-hidden="true" />
           Adjust
         </button>
       </div>
 
-      {message ? <p className="form-message">{message}</p> : null}
+      {message ? <p className="fw-caption">{message}</p> : null}
 
       {isVaultOpen ? (
-        <div className="modal-backdrop" role="presentation">
-          <section aria-modal="true" className="character-setup-modal vault-picker-modal" role="dialog">
-            <div className="modal-heading">
+        <div className="fw-backdrop" role="presentation">
+          <section aria-modal="true" className="fw-modal" role="dialog">
+            <div className="fw-modal__header">
               <div>
-                <p className="eyebrow">Character Vault</p>
-                <h2>Choose before table</h2>
+                <p className="fw-caption">Character Vault</p>
+                <h2 className="fw-h2">Choose before table</h2>
               </div>
-              <button aria-label="Close character vault" className="icon-button" onClick={() => setIsVaultOpen(false)} type="button">
+              <button aria-label="Close character vault" className="fw-btn fw-btn--icon" onClick={() => setIsVaultOpen(false)} type="button">
                 <X size={18} aria-hidden="true" />
               </button>
             </div>
 
             {characters.length ? (
-              <div className="vault-list">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
                 {characters.map((character) => (
                   <button
-                    className={selectedCharacter?.id === character.id ? 'active' : ''}
+                    className={selectedCharacter?.id === character.id ? 'fw-btn fw-btn--ghost active' : 'fw-btn fw-btn--ghost'}
                     key={character.id}
                     onClick={() => selectCharacter(character)}
+                    style={{ justifyContent: 'flex-start', gap: 'var(--sp-2)' }}
                     type="button"
                   >
                     <Users size={16} aria-hidden="true" />
-                    <span>
+                    <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                       <strong>{character.name}</strong>
-                      <small>
+                      <small className="fw-caption">
                         Lv {character.level} {character.ancestry} {character.className}
                       </small>
                     </span>
@@ -311,16 +312,23 @@ export function CharacterVaultPanel({ onSelectCharacter, selectedCharacter, user
                 ))}
               </div>
             ) : (
-              <p className="empty-state">No saved characters yet. Use a quick hero below or create a custom one.</p>
+              <p className="fw-caption">No saved characters yet. Use a quick hero below or create a custom one.</p>
             )}
 
-            <div className="vault-template-grid">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--sp-2)', marginTop: 'var(--sp-3)' }}>
               {characterTemplates.map((template) => (
-                <button disabled={!user || busy} key={template.id} onClick={() => void useTemplate(template)} type="button">
+                <button
+                  className="fw-btn fw-btn--ghost"
+                  disabled={!user || busy}
+                  key={template.id}
+                  onClick={() => void useTemplate(template)}
+                  style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 'var(--sp-1)' }}
+                  type="button"
+                >
                   <Users size={16} aria-hidden="true" />
-                  <span>
+                  <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                     <strong>{template.name}</strong>
-                    <small>
+                    <small className="fw-caption">
                       Lv {template.level} {template.ancestry} {template.className}
                     </small>
                   </span>
@@ -328,12 +336,12 @@ export function CharacterVaultPanel({ onSelectCharacter, selectedCharacter, user
               ))}
             </div>
 
-            <div className="character-actions">
-              <button className="secondary-button" disabled={!user || busy} onClick={newCharacter} type="button">
+            <div style={{ display: 'flex', gap: 'var(--sp-2)', marginTop: 'var(--sp-3)' }}>
+              <button className="fw-btn fw-btn--ghost" disabled={!user || busy} onClick={newCharacter} type="button">
                 <UserPlus size={17} aria-hidden="true" />
                 Custom Character
               </button>
-              <button className="primary-button" disabled={!user || busy || !selectedCharacter} onClick={editCharacter} type="button">
+              <button className="fw-btn fw-btn--primary" disabled={!user || busy || !selectedCharacter} onClick={editCharacter} type="button">
                 <Pencil size={17} aria-hidden="true" />
                 Adjust Selected
               </button>
@@ -343,143 +351,154 @@ export function CharacterVaultPanel({ onSelectCharacter, selectedCharacter, user
       ) : null}
 
       {isSetupOpen ? (
-        <div className="modal-backdrop" role="presentation">
-          <section aria-modal="true" className="character-setup-modal" role="dialog">
-            <div className="modal-heading">
+        <div className="fw-backdrop" role="presentation">
+          <section aria-modal="true" className="fw-modal" role="dialog">
+            <div className="fw-modal__header">
               <div>
-                <p className="eyebrow">Character Setup</p>
-                <h2>{draft.name.trim() || 'Custom Hero'}</h2>
+                <p className="fw-caption">Character Setup</p>
+                <h2 className="fw-h2">{draft.name.trim() || 'Custom Hero'}</h2>
               </div>
-              <button aria-label="Close character setup" className="icon-button" onClick={() => setIsSetupOpen(false)} type="button">
+              <button aria-label="Close character setup" className="fw-btn fw-btn--icon" onClick={() => setIsSetupOpen(false)} type="button">
                 <X size={18} aria-hidden="true" />
               </button>
             </div>
 
-            <form className="stack-form vault-form" onSubmit={submit}>
-        <div className="character-editor-grid">
-          <label>
-            Name
-            <input
-              disabled={!user || busy}
-              onChange={(event) => updateField('name', event.target.value)}
-              placeholder="Character name"
-              value={draft.name}
-            />
-          </label>
-          <label>
-            Level
-            <input
-              disabled={!user || busy}
-              max={20}
-              min={1}
-              onChange={updateNumber('level', 1, 20)}
-              type="number"
-              value={draft.level}
-            />
-          </label>
-          <label>
-            Ancestry
-            <input
-              disabled={!user || busy}
-              onChange={(event) => updateField('ancestry', event.target.value)}
-              placeholder="Human, Elf, Dwarf"
-              value={draft.ancestry}
-            />
-          </label>
-          <label>
-            Class
-            <input
-              disabled={!user || busy}
-              onChange={(event) => updateField('className', event.target.value)}
-              placeholder="Fighter, Wizard, Rogue"
-              value={draft.className}
-            />
-          </label>
-        </div>
+            <form style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }} onSubmit={submit}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--sp-3)' }}>
+                <div className="fw-field">
+                  <label className="fw-field__label">Name</label>
+                  <input
+                    className="fw-input"
+                    disabled={!user || busy}
+                    onChange={(event) => updateField('name', event.target.value)}
+                    placeholder="Character name"
+                    value={draft.name}
+                  />
+                </div>
+                <div className="fw-field">
+                  <label className="fw-field__label">Level</label>
+                  <input
+                    className="fw-input"
+                    disabled={!user || busy}
+                    max={20}
+                    min={1}
+                    onChange={updateNumber('level', 1, 20)}
+                    type="number"
+                    value={draft.level}
+                  />
+                </div>
+                <div className="fw-field">
+                  <label className="fw-field__label">Ancestry</label>
+                  <input
+                    className="fw-input"
+                    disabled={!user || busy}
+                    onChange={(event) => updateField('ancestry', event.target.value)}
+                    placeholder="Human, Elf, Dwarf"
+                    value={draft.ancestry}
+                  />
+                </div>
+                <div className="fw-field">
+                  <label className="fw-field__label">Class</label>
+                  <input
+                    className="fw-input"
+                    disabled={!user || busy}
+                    onChange={(event) => updateField('className', event.target.value)}
+                    placeholder="Fighter, Wizard, Rogue"
+                    value={draft.className}
+                  />
+                </div>
+              </div>
 
-        <div className="vitals-grid">
-          <div className="vital">
-            <Shield size={18} aria-hidden="true" />
-            <span>AC</span>
-            <input
-              aria-label="Vault armor class"
-              disabled={!user || busy}
-              max={30}
-              min={1}
-              onChange={updateNumber('armorClass', 1, 30)}
-              type="number"
-              value={draft.armorClass}
-            />
-          </div>
-          <div className="vital">
-            <Sparkles size={18} aria-hidden="true" />
-            <span>HP</span>
-            <div className="hp-inputs">
-              <input
-                aria-label="Vault hit points"
-                disabled={!user || busy}
-                max={999}
-                min={0}
-                onChange={updateNumber('hitPoints', 0, 999)}
-                type="number"
-                value={draft.hitPoints}
-              />
-              <span>/</span>
-              <input
-                aria-label="Vault max hit points"
-                disabled={!user || busy}
-                max={999}
-                min={1}
-                onChange={updateNumber('maxHitPoints', 1, 999)}
-                type="number"
-                value={draft.maxHitPoints}
-              />
-            </div>
-          </div>
-        </div>
+              <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+                  <Shield size={18} aria-hidden="true" />
+                  <span>AC</span>
+                  <input
+                    className="fw-input"
+                    aria-label="Vault armor class"
+                    disabled={!user || busy}
+                    max={30}
+                    min={1}
+                    onChange={updateNumber('armorClass', 1, 30)}
+                    style={{ width: 64 }}
+                    type="number"
+                    value={draft.armorClass}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+                  <Sparkles size={18} aria-hidden="true" />
+                  <span>HP</span>
+                  <input
+                    className="fw-input"
+                    aria-label="Vault hit points"
+                    disabled={!user || busy}
+                    max={999}
+                    min={0}
+                    onChange={updateNumber('hitPoints', 0, 999)}
+                    style={{ width: 64 }}
+                    type="number"
+                    value={draft.hitPoints}
+                  />
+                  <span>/</span>
+                  <input
+                    className="fw-input"
+                    aria-label="Vault max hit points"
+                    disabled={!user || busy}
+                    max={999}
+                    min={1}
+                    onChange={updateNumber('maxHitPoints', 1, 999)}
+                    style={{ width: 64 }}
+                    type="number"
+                    value={draft.maxHitPoints}
+                  />
+                </div>
+              </div>
 
-        <div className="ability-grid">
-          {Object.entries(draft.abilities).map(([key, score]) => (
-            <div className="ability" key={key}>
-              <span>{abilityLabels[key as AbilityKey]}</span>
-              <input
-                aria-label={`Vault ${abilityLabels[key as AbilityKey]}`}
-                disabled={!user || busy}
-                max={30}
-                min={1}
-                onChange={updateAbility(key as AbilityKey)}
-                type="number"
-                value={score}
-              />
-            </div>
-          ))}
-        </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)' }}>
+                {Object.entries(draft.abilities).map(([key, score]) => (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--sp-1)' }} key={key}>
+                    <span className="fw-caption">{abilityLabels[key as AbilityKey]}</span>
+                    <input
+                      className="fw-input"
+                      aria-label={`Vault ${abilityLabels[key as AbilityKey]}`}
+                      disabled={!user || busy}
+                      max={30}
+                      min={1}
+                      onChange={updateAbility(key as AbilityKey)}
+                      style={{ textAlign: 'center', width: '100%' }}
+                      type="number"
+                      value={score}
+                    />
+                  </div>
+                ))}
+              </div>
 
-        <label className="skills-editor">
-          Skills
-          <input
-            disabled={!user || busy}
-            onChange={(event) =>
-              updateField(
-                'skills',
-                event.target.value.split(',').map((skill) => skill.trim()),
-              )
-            }
-            placeholder="Perception, Survival, Stealth"
-            value={draft.skills.join(', ')}
-          />
-        </label>
+              <div className="fw-field">
+                <label className="fw-field__label">Skills</label>
+                <input
+                  className="fw-input"
+                  disabled={!user || busy}
+                  onChange={(event) =>
+                    updateField(
+                      'skills',
+                      event.target.value.split(',').map((skill) => skill.trim()),
+                    )
+                  }
+                  placeholder="Perception, Survival, Stealth"
+                  value={draft.skills.join(', ')}
+                />
+              </div>
 
-        <div className="character-actions">
-          <button className="secondary-button" disabled={!user || busy} onClick={newCharacter} type="button">
-            <UserPlus size={17} aria-hidden="true" />
-            New
-          </button>
-          <button className="primary-button" disabled={!user || busy || !hasUsableDraft} type="submit">
-            <Save size={17} aria-hidden="true" />
-            {busy ? 'Saving...' : 'Save Character'}
-          </button>
-        </div>
+              <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
+                <button className="fw-btn fw-btn--ghost" disabled={!user || busy} onClick={newCharacter} type="button">
+                  <UserPlus size={17} aria-hidden="true" />
+                  New
+                </button>
+                <button className="fw-btn fw-btn--primary" disabled={!user || busy || !hasUsableDraft} type="submit">
+                  <Save size={17} aria-hidden="true" />
+                  {busy ? 'Saving...' : 'Save Character'}
+                </button>
+              </div>
             </form>
           </section>
         </div>

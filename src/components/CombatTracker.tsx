@@ -1,4 +1,4 @@
-import { HeartPulse, Minus, Plus, RotateCcw, SkipBack, SkipForward, Swords, XCircle } from 'lucide-react';
+import { Minus, Plus, RotateCcw, SkipBack, SkipForward, Swords, XCircle } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 import { addParticipant, advanceTurn, createCombat, endCombat, sortInitiativeOrder, startCombat } from '../engine/combat';
 import type { CombatState as EngineCombatState } from '../engine/combat';
@@ -175,6 +175,15 @@ function toEncounterState(combat: EngineCombatState): EncounterState {
     isActive: combat.phase === 'active',
     combatants: orderedCombatants,
   };
+}
+
+function hpState(hp: number, maxHp: number): 'full' | 'mid' | 'low' | 'bleed' {
+  if (maxHp <= 0) return 'full';
+  const pct = hp / maxHp;
+  if (pct > 0.6) return 'full';
+  if (pct > 0.3) return 'mid';
+  if (pct > 0.1) return 'low';
+  return 'bleed';
 }
 
 export function CombatTracker({
@@ -504,20 +513,20 @@ export function CombatTracker({
 
   if (!encounter) {
     return (
-      <section className="panel combat-panel">
-        <div className="panel-heading">
+      <section className="fw-panel">
+        <div className="fw-panel__header">
           <div>
-            <p className="eyebrow">Combat</p>
-            <h2>Tracker</h2>
+            <p className="fw-caption">Combat</p>
+            <h2 className="fw-h2">Tracker</h2>
           </div>
           <Swords size={24} aria-hidden="true" />
         </div>
-        <form className="stack-form" onSubmit={createEncounter}>
-          <label>
-            Encounter name
-            <input value={name} onChange={(event) => setName(event.target.value)} />
-          </label>
-          <button className="primary-button" type="submit">
+        <form onSubmit={createEncounter}>
+          <div className="fw-field">
+            <label className="fw-field__label">Encounter name</label>
+            <input className="fw-input" value={name} onChange={(event) => setName(event.target.value)} />
+          </div>
+          <button className="fw-btn fw-btn--primary" type="submit">
             <Swords size={17} aria-hidden="true" />
             Create Encounter
           </button>
@@ -527,68 +536,79 @@ export function CombatTracker({
   }
 
   return (
-    <section className="panel combat-panel">
-      <div className="panel-heading">
+    <section className="fw-panel">
+      <div className="fw-panel__header">
         <div>
-          <p className="eyebrow">Combat</p>
-          <h2>{encounter.name}</h2>
+          <p className="fw-caption">Combat</p>
+          <h2 className="fw-h2">{encounter.name}</h2>
         </div>
-        <span className="round-chip">Round {encounter.round}</span>
+        <span className="fw-caption">Round {encounter.round}</span>
       </div>
 
-      <div className="combat-toolbar">
-        <button className="secondary-button" onClick={() => moveTurn(-1)} type="button">
+      <div>
+        <button className="fw-btn fw-btn--ghost" onClick={() => moveTurn(-1)} type="button">
           <SkipBack size={16} aria-hidden="true" />
           Previous
         </button>
-        <button className="primary-button" onClick={() => moveTurn(1)} type="button">
+        <button className="fw-btn fw-btn--primary" onClick={() => moveTurn(1)} type="button">
           <SkipForward size={16} aria-hidden="true" />
           Next Turn
         </button>
-        <button className="secondary-button" onClick={sortInitiative} type="button">
+        <button className="fw-btn fw-btn--ghost" onClick={sortInitiative} type="button">
           <RotateCcw size={16} aria-hidden="true" />
           Sort
         </button>
-        <button className="danger-button" onClick={endEncounter} type="button">
+        <button className="fw-btn fw-btn--danger" onClick={endEncounter} type="button">
           <XCircle size={16} aria-hidden="true" />
           End
         </button>
       </div>
 
-      <p className="active-turn">
+      <p className="fw-caption">
         Active: <strong>{activeCombatant?.name ?? 'No combatants'}</strong>
       </p>
 
-      <div className="combatants-list">
+      <div>
         {encounter.combatants.map((combatant, index) => (
-          <article className={`combatant-card ${index === encounter.activeIndex ? 'active' : ''}`} key={combatant.id}>
-            <div className="combatant-topline">
+          <article
+            className={index === encounter.activeIndex ? 'fw-card fw-card--elevated' : 'fw-card'}
+            key={combatant.id}
+          >
+            <div>
               <div>
-                <strong>{combatant.name}</strong>
-                <span>
+                <span className="fw-h3">{combatant.name}</span>
+                <span className="fw-caption">
                   {combatant.type === 'player' ? 'Player' : 'Enemy'} · AC {combatant.armorClass}
                 </span>
               </div>
-              <label>
-                Init
+              <div className="fw-field">
+                <label className="fw-field__label">Init</label>
                 <input
+                  className="fw-input"
                   type="number"
                   value={combatant.initiative}
                   onChange={(event) => setInitiative(combatant.id, Number(event.target.value))}
                 />
-              </label>
+              </div>
             </div>
 
-            <div className="hp-row">
-              <HeartPulse size={16} aria-hidden="true" />
-              <span>
-                HP {combatant.hitPoints}/{combatant.maxHitPoints}
-                {combatant.tempHitPoints ? ` +${combatant.tempHitPoints} temp` : ''}
+            <div
+              className="fw-hp fw-hp--lg"
+              data-state={hpState(combatant.hitPoints, combatant.maxHitPoints)}
+            >
+              <div
+                className="fw-hp__fill"
+                style={{ width: `${Math.max(0, Math.min(100, combatant.maxHitPoints > 0 ? (combatant.hitPoints / combatant.maxHitPoints) * 100 : 0))}%` }}
+              />
+              <span className="fw-hp__text">
+                {combatant.hitPoints}/{combatant.maxHitPoints}
+                {combatant.tempHitPoints ? ` +${combatant.tempHitPoints}` : ''}
               </span>
             </div>
 
-            <div className="combat-action-grid">
+            <div>
               <input
+                className="fw-input"
                 aria-label={`Amount for ${combatant.name}`}
                 min={0}
                 type="number"
@@ -597,26 +617,28 @@ export function CombatTracker({
                   setAmounts((current) => ({ ...current, [combatant.id]: Number(event.target.value) }))
                 }
               />
-              <button className="secondary-button" onClick={() => applyHp(combatant.id, 'damage')} type="button">
+              <button className="fw-btn fw-btn--ghost" onClick={() => applyHp(combatant.id, 'damage')} type="button">
                 Damage
               </button>
-              <button className="secondary-button" onClick={() => applyHp(combatant.id, 'healing')} type="button">
+              <button className="fw-btn fw-btn--ghost" onClick={() => applyHp(combatant.id, 'healing')} type="button">
                 Heal
               </button>
             </div>
 
-            <label className="temp-hp-label">
-              Temp HP
+            <div className="fw-field">
+              <label className="fw-field__label">Temp HP</label>
               <input
+                className="fw-input"
                 min={0}
                 type="number"
                 value={combatant.tempHitPoints}
                 onChange={(event) => setTempHp(combatant.id, Number(event.target.value))}
               />
-            </label>
+            </div>
 
-            <div className="condition-row">
+            <div>
               <select
+                className="fw-select"
                 value={conditionDrafts[combatant.id] ?? ''}
                 onChange={(event) =>
                   setConditionDrafts((current) => ({ ...current, [combatant.id]: event.target.value }))
@@ -629,36 +651,42 @@ export function CombatTracker({
                   </option>
                 ))}
               </select>
-              <button className="secondary-button" onClick={() => addCondition(combatant.id)} type="button">
+              <button className="fw-btn fw-btn--ghost" onClick={() => addCondition(combatant.id)} type="button">
                 <Plus size={15} aria-hidden="true" />
               </button>
             </div>
 
             {combatant.conditions.length ? (
-              <div className="condition-pills">
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-2)' }}>
                 {combatant.conditions.map((condition) => (
-                  <button key={condition} onClick={() => removeCondition(combatant.id, condition)} type="button">
-                    {condition} x
+                  <button
+                    className="fw-cond fw-cond--minor"
+                    key={condition}
+                    onClick={() => removeCondition(combatant.id, condition)}
+                    type="button"
+                  >
+                    <span className="fw-cond__dot" />
+                    {condition}
                   </button>
                 ))}
               </div>
             ) : null}
 
             {combatant.hitPoints === 0 ? (
-              <div className="death-save-row">
+              <div>
                 <span>Death saves</span>
-                <button onClick={() => setDeathSave(combatant.id, 'successes', -1)} type="button">
+                <button className="fw-btn fw-btn--ghost" onClick={() => setDeathSave(combatant.id, 'successes', -1)} type="button">
                   <Minus size={14} aria-hidden="true" />
                 </button>
-                <strong>S {combatant.deathSaves.successes}</strong>
-                <button onClick={() => setDeathSave(combatant.id, 'successes', 1)} type="button">
+                <span className="fw-caption">S {combatant.deathSaves.successes}</span>
+                <button className="fw-btn fw-btn--ghost" onClick={() => setDeathSave(combatant.id, 'successes', 1)} type="button">
                   <Plus size={14} aria-hidden="true" />
                 </button>
-                <button onClick={() => setDeathSave(combatant.id, 'failures', -1)} type="button">
+                <button className="fw-btn fw-btn--ghost" onClick={() => setDeathSave(combatant.id, 'failures', -1)} type="button">
                   <Minus size={14} aria-hidden="true" />
                 </button>
-                <strong>F {combatant.deathSaves.failures}</strong>
-                <button onClick={() => setDeathSave(combatant.id, 'failures', 1)} type="button">
+                <span className="fw-caption">F {combatant.deathSaves.failures}</span>
+                <button className="fw-btn fw-btn--ghost" onClick={() => setDeathSave(combatant.id, 'failures', 1)} type="button">
                   <Plus size={14} aria-hidden="true" />
                 </button>
               </div>
@@ -667,22 +695,23 @@ export function CombatTracker({
         ))}
       </div>
 
-      <form className="enemy-form" onSubmit={addEnemy}>
-        <input value={enemyName} onChange={(event) => setEnemyName(event.target.value)} />
-        <input type="number" value={enemyAc} onChange={(event) => setEnemyAc(Number(event.target.value))} />
-        <input type="number" value={enemyHp} onChange={(event) => setEnemyHp(Number(event.target.value))} />
+      <form onSubmit={addEnemy}>
+        <input className="fw-input" value={enemyName} onChange={(event) => setEnemyName(event.target.value)} />
+        <input className="fw-input" type="number" value={enemyAc} onChange={(event) => setEnemyAc(Number(event.target.value))} />
+        <input className="fw-input" type="number" value={enemyHp} onChange={(event) => setEnemyHp(Number(event.target.value))} />
         <input
+          className="fw-input"
           type="number"
           value={enemyInitiative}
           onChange={(event) => setEnemyInitiative(Number(event.target.value))}
         />
-        <button className="secondary-button" type="submit">
+        <button className="fw-btn fw-btn--ghost" type="submit">
           <Plus size={15} aria-hidden="true" />
           Enemy
         </button>
       </form>
 
-      <button className="text-button" onClick={addPlayer} type="button">
+      <button className="fw-btn fw-btn--ghost" onClick={addPlayer} type="button">
         Add current player
       </button>
     </section>
