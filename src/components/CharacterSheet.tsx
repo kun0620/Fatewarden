@@ -1,6 +1,7 @@
 import { Maximize2, Save, Shield, Sparkles } from 'lucide-react';
 import { ChangeEvent, FormEvent, useEffect, useState } from 'react';
 import { canLevelUp } from '../lib/characterProgression';
+import { proficiencyBonus } from '../lib/rules';
 import { InventoryPanel } from './InventoryPanel';
 import { LevelUpModal } from './LevelUpModal';
 import { Tooltip } from './ui/Tooltip';
@@ -36,6 +37,11 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
   const [draft, setDraft] = useState(character);
   const [saving, setSaving] = useState(false);
   const [levelUpOpen, setLevelUpOpen] = useState(false);
+  const initiative = Math.floor((draft.abilities.dex - 10) / 2);
+  const passivePerception =
+    10 +
+    Math.floor((draft.abilities.wis - 10) / 2) +
+    (draft.skills.some((skill) => skill.toLowerCase() === 'perception') ? proficiencyBonus(draft.level) : 0);
 
   useEffect(() => {
     setDraft(character);
@@ -177,6 +183,20 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
           </div>
         </div>
       </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)' }}>
+        <p className="fw-caption" style={{ margin: 0 }}>
+          <span style={{ textDecoration: 'underline' }}>AC</span> {draft.armorClass}
+        </p>
+        <p className="fw-caption" style={{ margin: 0 }}>
+          <span style={{ textDecoration: 'underline' }}>Initiative</span> {initiative >= 0 ? `+${initiative}` : initiative}
+        </p>
+        <p className="fw-caption" style={{ margin: 0 }}>
+          <span style={{ textDecoration: 'underline' }}>Passive Perception</span> {passivePerception}
+        </p>
+      </div>
+      <p className="fw-caption" style={{ margin: 0 }}>
+        ค่าที่ขีดเส้นใต้คำนวณอัตโนมัติ — ค่าอื่นกรอกเอง
+      </p>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'var(--sp-2)' }}>
         {Object.entries(draft.abilities).map(([key, score]) => (
