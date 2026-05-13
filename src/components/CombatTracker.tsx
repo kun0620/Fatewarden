@@ -186,6 +186,13 @@ function hpState(hp: number, maxHp: number): 'full' | 'mid' | 'low' | 'bleed' {
   return 'bleed';
 }
 
+function isInitiativeSorted(combatants: Combatant[]) {
+  for (let index = 1; index < combatants.length; index += 1) {
+    if (combatants[index - 1].initiative < combatants[index].initiative) return false;
+  }
+  return true;
+}
+
 export function CombatTracker({
   character,
   encounter,
@@ -205,6 +212,18 @@ export function CombatTracker({
   const activeCombatant = useMemo(() => {
     if (!encounter?.combatants.length) return null;
     return encounter.combatants[encounter.activeIndex] ?? encounter.combatants[0];
+  }, [encounter]);
+  const quickStep = useMemo(() => {
+    if (!encounter) return null;
+    if (encounter.combatants.length < 2) return 1;
+    if (encounter.combatants.some((combatant) => combatant.initiative === 0)) return 2;
+    if (!isInitiativeSorted(encounter.combatants)) return 3;
+    return 4;
+  }, [encounter]);
+  const shouldShowQuickSteps = useMemo(() => {
+    if (!encounter) return false;
+    if (!encounter.isActive) return true;
+    return encounter.round <= 1 && encounter.activeIndex === 0;
   }, [encounter]);
 
   function updateEncounter(updater: (current: EncounterState) => EncounterState, event?: string, metadata = {}) {
@@ -544,6 +563,34 @@ export function CombatTracker({
         </div>
         <span className="fw-caption">Round {encounter.round}</span>
       </div>
+
+      {shouldShowQuickSteps ? (
+        <article className="fw-card fw-card--elevated" style={{ margin: 'var(--sp-3) var(--sp-4)', padding: 'var(--sp-3)' }}>
+          <p className="fw-caption" style={{ marginBottom: 'var(--sp-2)' }}>Quick Steps</p>
+          <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+            {[
+              'Step 1: Add participants',
+              'Step 2: Set initiative',
+              'Step 3: Sort',
+              'Step 4: Next Turn',
+            ].map((label, index) => {
+              const step = index + 1;
+              const isActiveStep = quickStep === step;
+              return (
+                <span
+                  className="fw-cond fw-cond--minor"
+                  data-selected={isActiveStep ? 'true' : undefined}
+                  key={label}
+                  style={isActiveStep ? { borderColor: 'var(--accent)', color: 'var(--ink-100)' } : undefined}
+                >
+                  <span className="fw-cond__dot" />
+                  {label}
+                </span>
+              );
+            })}
+          </div>
+        </article>
+      ) : null}
 
       <div>
         <button className="fw-btn fw-btn--ghost" onClick={() => moveTurn(-1)} type="button">
