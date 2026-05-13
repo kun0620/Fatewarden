@@ -44,6 +44,7 @@ function findEquippedArmor(items: Item[]) {
 
 export function InventoryPanel({ character, onUpdateCharacter, disabled = false }: InventoryPanelProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('equipment');
+  const [equipToast, setEquipToast] = useState('');
   const { dispatch, eventMeta, setActiveCharacter } = useGameStore();
   const inventory = character.inventory;
 
@@ -58,6 +59,7 @@ export function InventoryPanel({ character, onUpdateCharacter, disabled = false 
   const carryRatio = Math.max(0, Math.min(100, (totalWeight / Math.max(1, inventory.maxCarryWeight)) * 100));
 
   function toggleEquip(item: Item) {
+    const wasEquipped = item.equipped;
     const event = item.equipped
       ? {
           ...eventMeta(character.id),
@@ -73,6 +75,8 @@ export function InventoryPanel({ character, onUpdateCharacter, disabled = false 
     const result = dispatch(event);
     if (result.character) {
       void onUpdateCharacter(result.character);
+      setEquipToast(`${wasEquipped ? 'Unequipped' : 'Equipped'}: ${item.name}`);
+      globalThis.setTimeout(() => setEquipToast(''), 2000);
     }
   }
 
@@ -269,6 +273,11 @@ export function InventoryPanel({ character, onUpdateCharacter, disabled = false 
           <div className="fw-hp__fill" style={{ width: `${carryRatio}%` }} />
         </div>
       </div>
+      {equipToast ? (
+        <div className="fw-toast fw-toast--success">
+          <strong>{equipToast}</strong>
+        </div>
+      ) : null}
     </section>
   );
 }
