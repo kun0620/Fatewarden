@@ -31,6 +31,7 @@ export function PartyChoicePanel({ sessionId, currentPlayerId, currentCharacterN
   const activeChoice = partyChoiceState.activeChoice;
   const [now, setNow] = useState(Date.now());
   const [showResolvedFanfare, setShowResolvedFanfare] = useState(false);
+  const [voteStatus, setVoteStatus] = useState<'idle' | 'sent' | 'failed'>('idle');
 
   useEffect(() => {
     if (!activeChoice?.expiresAt) return;
@@ -68,6 +69,7 @@ export function PartyChoicePanel({ sessionId, currentPlayerId, currentCharacterN
     : null;
 
   async function handleVote(selectedOptionId: string) {
+    setVoteStatus('idle');
     const result = dispatch({
       ...baseMeta,
       type: 'PARTY_VOTE_CAST',
@@ -79,7 +81,13 @@ export function PartyChoicePanel({ sessionId, currentPlayerId, currentCharacterN
     });
 
     if (result.failed.length) return;
-    await castVoteInDb(choice.sessionId, choice.id, currentPlayerId, currentCharacterName, selectedOptionId);
+    try {
+      await castVoteInDb(choice.sessionId, choice.id, currentPlayerId, currentCharacterName, selectedOptionId);
+      setVoteStatus('sent');
+      globalThis.setTimeout(() => setVoteStatus('idle'), 1000);
+    } catch {
+      setVoteStatus('failed');
+    }
   }
 
   function handleForceResolve() {
@@ -149,7 +157,13 @@ export function PartyChoicePanel({ sessionId, currentPlayerId, currentCharacterN
         </div>
 
         {currentVote && choice.status !== 'resolved' ? (
-          <p className="fw-caption">Waiting for others...</p>
+          voteStatus === 'failed' ? (
+            <p className="fw-caption" style={{ color: 'var(--hp-low)' }}>Sync failed — retrying...</p>
+          ) : voteStatus === 'sent' ? (
+            <p className="fw-caption">Vote sent</p>
+          ) : (
+            <p className="fw-caption">Waiting for others...</p>
+          )
         ) : null}
 
         {showResolvedFanfare && winnerOption ? (
