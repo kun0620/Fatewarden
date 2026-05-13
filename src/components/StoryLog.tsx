@@ -959,18 +959,31 @@ export function StoryLog({
     ...(pendingAiMessage ? [pendingAiMessage] : []),
     ...(aiErrorMessage ? [aiErrorMessage] : []),
   ];
+  const latestScene = getLatestSceneFlow(visibleMessages);
+  const sceneTitle = latestScene?.title || latestScene?.location || sessionTitle || 'Untitled Scene';
+  const sceneObjective = latestScene?.objective || latestScene?.hook || 'Shared table timeline';
 
   return (
-    <section className="fw-panel">
-      <div className="fw-panel__header">
-        <div>
-          <p className="fw-caption">Session</p>
-          <h2 className="fw-h2">{sessionTitle ?? 'Story Log'}</h2>
-        </div>
-        <span className="fw-caption">
+    <section className="fw-storylog-shell">
+      <div className="fw-storylog-topbar">
+        <div className="fw-storylog-brand">✦ FATEWARDEN ✦</div>
+        <nav className="fw-storylog-nav" aria-label="Story navigation">
+          <button className="fw-storylog-nav__item fw-storylog-nav__item--active" type="button">Journal</button>
+          <button className="fw-storylog-nav__item" type="button">Bestiary</button>
+          <button className="fw-storylog-nav__item" type="button">Grimoire</button>
+          <button className="fw-storylog-nav__item" type="button">Rituals</button>
+          <button className="fw-storylog-nav__item" type="button">Vault</button>
+        </nav>
+        <span className="fw-storylog-status">
           <Radio size={13} aria-hidden="true" />
           {status}
         </span>
+      </div>
+
+      <div className="fw-storylog-scene">
+        <p>Scene</p>
+        <h2>{sceneTitle}</h2>
+        <p className="fw-storylog-scene__objective">{sceneObjective}</p>
       </div>
 
       <div className="fw-log">
@@ -1015,18 +1028,16 @@ export function StoryLog({
             typeof message.metadata?.retryPrompt === 'string' ? message.metadata.retryPrompt : '';
 
           return (
-            <article className={`fw-msg ${getMsgVariant(kind, message.speaker)}`} key={message.id}>
+            <article className={`fw-msg ${getMsgVariant(kind, message.speaker)} fw-msg--${kind}`} key={message.id}>
               <div className="fw-msg__meta">
                 <span className="fw-msg__who">{message.author}</span>
                 <span className="fw-msg__tag">{kind.toString().replace('_', ' ')}</span>
                 <time>{message.createdAt}</time>
               </div>
               {kind === 'ai_pending' ? (
-                <span className="fw-thinking">
-                  <span className="fw-thinking__dot" />
-                  <span className="fw-thinking__dot" style={{ animationDelay: '0.3s' }} />
-                  <span className="fw-thinking__dot" style={{ animationDelay: '0.6s' }} />
-                  AI DM กำลังคิด
+                <span className="fw-storylog-thinking">
+                  <span className="fw-storylog-thinking__orb" />
+                  The world holds its breath...
                 </span>
               ) : (
                 <p className="fw-msg__body">{body}</p>
@@ -1062,7 +1073,7 @@ export function StoryLog({
         })}
       </div>
 
-      <div className="fw-composer-shell">
+      <div className="fw-composer-shell fw-storylog-composer">
         <div className="fw-composer-controls">
           <Bot size={16} aria-hidden="true" />
           <div className="fw-ai-mode-switch" aria-label="AI DM mode">
@@ -1117,7 +1128,7 @@ export function StoryLog({
               <Bot size={18} aria-hidden="true" />
             </button>
           ) : null}
-          <button className="fw-btn fw-btn--primary" aria-label="Send message" disabled={busy || (!activeSession && hasSupabaseConfig)} type="submit">
+          <button className="fw-sigil-send" aria-label="Send message" disabled={busy || (!activeSession && hasSupabaseConfig)} type="submit">
             <Send size={18} aria-hidden="true" />
           </button>
         </form>
