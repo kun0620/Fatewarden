@@ -106,7 +106,7 @@ export function ScenePanel({ isSessionHost }: ScenePanelProps) {
 
   if (!sceneState) {
     return (
-      <section className="fw-panel">
+      <section className="fw-panel fw-scene-panel">
         <div className="fw-panel__header">
           <div>
             <p className="fw-caption">Scene</p>
@@ -120,92 +120,106 @@ export function ScenePanel({ isSessionHost }: ScenePanelProps) {
   }
 
   return (
-    <section className="fw-panel">
-      <div className="fw-panel__header">
-        <div>
-          <p className="fw-caption">Scene</p>
-          <h2 className="fw-h2">{sceneState.location}</h2>
+    <section className="fw-panel fw-scene-panel">
+      <div className="fw-scene-panel__mode-badge">
+        <span className="fw-scene-panel__mode">{modeLabel[sceneState.mode]}</span>
+      </div>
+      <div className="fw-scene-panel__header">
+        <h2>{sceneState.location}</h2>
+      </div>
+
+      <div className="fw-panel__body fw-scene-panel__body">
+        <div className="fw-scene-panel__flags">
+          <article className="fw-scene-panel__flag-card">
+            <p className="fw-caption">Danger</p>
+            <div className="fw-danger-meter" data-level={sceneState.flags.dangerLevel}>
+              {Array.from({ length: 5 }).map((_, index) => {
+                const levelOrder: SceneState['flags']['dangerLevel'][] = ['none', 'low', 'medium', 'high', 'extreme'];
+                const activeIndex = levelOrder.indexOf(sceneState.flags.dangerLevel);
+                return <span key={index} className="fw-danger-meter__seg" data-active={index <= activeIndex ? 'true' : undefined} />;
+              })}
+            </div>
+            <span className={`fw-caption ${dangerClassByLevel[sceneState.flags.dangerLevel]}`}>
+              <ShieldAlert size={14} aria-hidden="true" />
+              {sceneState.flags.dangerLevel}
+            </span>
+          </article>
+          <article className="fw-scene-panel__flag-card">
+            <p className="fw-caption">Reality</p>
+            <span className="fw-caption fw-scene-panel__reality">
+              <TriangleAlert size={14} aria-hidden="true" />
+              {sceneState.flags.realityStability}
+            </span>
+          </article>
         </div>
-        <span className="fw-caption">{modeLabel[sceneState.mode]}</span>
-      </div>
 
-      <div>
-        <span className={`fw-caption ${dangerClassByLevel[sceneState.flags.dangerLevel]}`}>
-          <ShieldAlert size={14} aria-hidden="true" />
-          Danger: {sceneState.flags.dangerLevel}
-        </span>
-        <span className="fw-caption">
-          <TriangleAlert size={14} aria-hidden="true" />
-          Reality: {sceneState.flags.realityStability}
-        </span>
-      </div>
+        <div className="fw-scene-panel__section">
+          <p className="fw-caption">Objectives</p>
+          {sceneState.objectives.length ? (
+            <ul className="fw-scene-panel__objectives">
+              {sceneState.objectives.map((objective) => (
+                <li key={objective.id}>
+                  {objective.status === 'completed' ? <CheckCircle2 size={14} className="completed" aria-hidden="true" /> : null}
+                  {objective.status === 'failed' ? <XCircle size={14} className="failed" aria-hidden="true" /> : null}
+                  {objective.status === 'active' ? <Circle size={14} className="active" aria-hidden="true" /> : null}
+                  <span>{objective.description}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="fw-body">No objectives yet.</p>
+          )}
+        </div>
 
-      <div>
-        <p className="fw-caption">Objectives</p>
-        {sceneState.objectives.length ? (
-          <ul>
-            {sceneState.objectives.map((objective) => (
-              <li key={objective.id}>
-                {objective.status === 'completed' ? <CheckCircle2 size={14} aria-hidden="true" /> : null}
-                {objective.status === 'failed' ? <XCircle size={14} aria-hidden="true" /> : null}
-                {objective.status === 'active' ? <Circle size={14} aria-hidden="true" /> : null}
-                <span>{objective.description}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="fw-body">No objectives yet.</p>
-        )}
-      </div>
+        <div className="fw-scene-panel__section">
+          <p className="fw-caption">Threat Clocks</p>
+          {sceneState.threatClocks.length ? (
+            <div className="fw-scene-panel__clocks">
+              {sceneState.threatClocks.map((clock) => {
+                const percent = clampClockPercent(clock.current, clock.max);
+                return (
+                  <article key={clock.id} className="fw-scene-panel__clock-card">
+                    <div className="fw-scene-panel__clock-head">
+                      <strong>{clock.name}</strong>
+                      <span>
+                        {clock.current}/{clock.max}
+                      </span>
+                    </div>
+                    <div
+                      className="fw-hp"
+                      data-state={hpState(percent)}
+                      aria-label={`${clock.name} ${clock.current}/${clock.max}`}
+                    >
+                      <div className="fw-hp__fill" style={{ width: `${percent}%` }} />
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="fw-body">No threat clocks yet.</p>
+          )}
+        </div>
 
-      <div>
-        <p className="fw-caption">Threat Clocks</p>
-        {sceneState.threatClocks.length ? (
-          <div>
-            {sceneState.threatClocks.map((clock) => {
-              const percent = clampClockPercent(clock.current, clock.max);
-              return (
-                <article key={clock.id}>
-                  <div>
-                    <strong>{clock.name}</strong>
-                    <span>
-                      {clock.current}/{clock.max}
-                    </span>
-                  </div>
-                  <div
-                    className="fw-hp"
-                    data-state={hpState(percent)}
-                    aria-label={`${clock.name} ${clock.current}/${clock.max}`}
-                  >
-                    <div className="fw-hp__fill" style={{ width: `${percent}%` }} />
-                  </div>
-                </article>
-              );
-            })}
+        {isSessionHost ? (
+          <div className="fw-scene-panel__actions">
+            <button className="fw-btn fw-btn--ghost" type="button" onClick={() => setShowTransitionModal(true)}>Transition Scene</button>
+            <button
+              className="fw-btn fw-btn--ghost"
+              disabled
+              title="Coming soon"
+              type="button"
+            >
+              Add Objective
+            </button>
+            <button className="fw-btn fw-btn--ghost" type="button" onClick={() => setShowClockModal(true)} disabled={!sceneState.threatClocks.length}>
+              Advance Clock
+            </button>
           </div>
-        ) : (
-          <p className="fw-body">No threat clocks yet.</p>
-        )}
+        ) : null}
+
+        {errorMessage ? <p className="fw-caption">{errorMessage}</p> : null}
       </div>
-
-      {isSessionHost ? (
-        <div>
-          <button className="fw-btn fw-btn--ghost" type="button" onClick={() => setShowTransitionModal(true)}>Transition Scene</button>
-          <button
-            className="fw-btn fw-btn--ghost"
-            disabled
-            title="Coming soon"
-            type="button"
-          >
-            Add Objective
-          </button>
-          <button className="fw-btn fw-btn--ghost" type="button" onClick={() => setShowClockModal(true)} disabled={!sceneState.threatClocks.length}>
-            Advance Clock
-          </button>
-        </div>
-      ) : null}
-
-      {errorMessage ? <p className="fw-caption">{errorMessage}</p> : null}
 
       {showTransitionModal ? (
         <div className="fw-backdrop" role="dialog" aria-modal="true">
