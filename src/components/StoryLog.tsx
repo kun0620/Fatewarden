@@ -616,6 +616,7 @@ export function StoryLog({
   const [selectedChoices, setSelectedChoices] = useState<Set<string>>(new Set());
   const [completedRolls, setCompletedRolls] = useState<Set<string>>(new Set());
   const customChoiceInputRef = useRef<HTMLInputElement>(null);
+  const composerInputRef = useRef<HTMLInputElement>(null);
 
   function markActionApplied(key: string) {
     setAppliedActions((current) => new Set(current).add(key));
@@ -925,6 +926,33 @@ export function StoryLog({
     }
   }
 
+  async function openSceneFromEmptyState() {
+    if (busy) return;
+    const prompt = 'เริ่มการผจญภัย: เปิดฉากแรกให้สั้น กระชับ มีบรรยากาศ เป้าหมายแรก และทางเลือกถัดไป';
+    if (!activeSession || !user || !supabase) {
+      onMessagesChange((current) =>
+        addUniqueMessage(current, {
+          id: crypto.randomUUID(),
+          speaker: 'system',
+          author: 'Table',
+          body: 'เชื่อมต่อโต๊ะก่อน แล้วกด Ask AI to Open Scene อีกครั้ง',
+          createdAt: new Intl.DateTimeFormat('en', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          }).format(new Date()),
+        }),
+      );
+      return;
+    }
+    setBusy(true);
+    try {
+      await askAiForMessage(prompt, messages);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const visibleMessages = [
     ...messages,
     ...(pendingAiMessage ? [pendingAiMessage] : []),
@@ -945,7 +973,39 @@ export function StoryLog({
       </div>
 
       <div className="fw-log">
-        {visibleMessages.map((message) => {
+        {visibleMessages.length === 0 ? (
+          <article className="fw-msg fw-msg--system" style={{ margin: 'auto', maxWidth: '640px' }}>
+            <div className="fw-msg__meta">
+              <span className="fw-msg__who">Guide</span>
+            </div>
+            <h3 className="fw-h3" style={{ margin: 0 }}>เริ่มต้นการผจญภัย</h3>
+            <p className="fw-msg__body">เลือกจุดเริ่มต้นอย่างใดอย่างหนึ่ง แล้วระบบจะพาคุณเข้าสู่ฉากแรกทันที</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
+              <button
+                className="fw-btn fw-btn--primary fw-btn--lg"
+                disabled={busy}
+                onClick={() => void openSceneFromEmptyState()}
+                type="button"
+              >
+                Ask AI to Open Scene
+              </button>
+              <button
+                className="fw-btn fw-btn--ghost"
+                disabled={Boolean(character.name.trim() && character.className.trim() && character.ancestry.trim())}
+                type="button"
+              >
+                เลือกตัวละครก่อน
+              </button>
+              <button
+                className="fw-btn fw-btn--ghost"
+                onClick={() => composerInputRef.current?.focus()}
+                type="button"
+              >
+                พิมพ์ action เองด้านล่าง
+              </button>
+            </div>
+          </article>
+        ) : visibleMessages.map((message) => {
           const kind = getMessageKind(message);
           const isLong = message.body.length > 260;
           const expanded = expandedMessages.has(message.id);
@@ -1031,6 +1091,7 @@ export function StoryLog({
             className="fw-input"
             aria-label="Player action"
             disabled={busy}
+            ref={composerInputRef}
             onChange={(event) => setDraft(event.target.value)}
             placeholder={
               activeSession || !hasSupabaseConfig
