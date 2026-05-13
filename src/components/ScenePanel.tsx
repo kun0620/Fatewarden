@@ -43,13 +43,11 @@ export function ScenePanel({ isSessionHost }: ScenePanelProps) {
   const dispatch = useGameStore((state) => state.dispatch);
 
   const [showTransitionModal, setShowTransitionModal] = useState(false);
-  const [showObjectiveModal, setShowObjectiveModal] = useState(false);
   const [showClockModal, setShowClockModal] = useState(false);
 
   const [transitionMode, setTransitionMode] = useState<SceneMode>('exploration');
   const [transitionLocation, setTransitionLocation] = useState('');
   const [transitionDescription, setTransitionDescription] = useState('');
-  const [objectiveText, setObjectiveText] = useState('');
   const [selectedClockId, setSelectedClockId] = useState('');
   const [clockAmount, setClockAmount] = useState(1);
   const [errorMessage, setErrorMessage] = useState('');
@@ -88,31 +86,6 @@ export function ScenePanel({ isSessionHost }: ScenePanelProps) {
       setTransitionDescription('');
       setTransitionLocation('');
     }
-  }
-
-  function submitAddObjective(event: FormEvent) {
-    event.preventDefault();
-    if (!sceneState) return;
-    const text = objectiveText.trim();
-    if (!text) return;
-
-    const objectiveId = crypto.randomUUID();
-    const okTransition = runDispatch({
-      ...meta,
-      type: 'SCENE_TRANSITION',
-      sessionId,
-      newMode: sceneState.mode,
-      newLocation: sceneState.location,
-      newDescription: sceneState.description,
-    });
-    if (!okTransition) return;
-
-    // temporary objective add via scene transition metadata pattern is not supported in event union yet.
-    // keep objective creation as no-op until explicit SCENE_OBJECTIVE_ADD event exists.
-    setErrorMessage('Objective add event is pending schema support (SCENE_OBJECTIVE_ADD).');
-    setObjectiveText('');
-    setShowObjectiveModal(false);
-    void objectiveId;
   }
 
   function submitAdvanceClock(event: FormEvent) {
@@ -218,7 +191,14 @@ export function ScenePanel({ isSessionHost }: ScenePanelProps) {
       {isSessionHost ? (
         <div>
           <button className="fw-btn fw-btn--ghost" type="button" onClick={() => setShowTransitionModal(true)}>Transition Scene</button>
-          <button className="fw-btn fw-btn--ghost" type="button" onClick={() => setShowObjectiveModal(true)}>Add Objective</button>
+          <button
+            className="fw-btn fw-btn--ghost"
+            disabled
+            title="Coming soon"
+            type="button"
+          >
+            Add Objective
+          </button>
           <button className="fw-btn fw-btn--ghost" type="button" onClick={() => setShowClockModal(true)} disabled={!sceneState.threatClocks.length}>
             Advance Clock
           </button>
@@ -252,24 +232,6 @@ export function ScenePanel({ isSessionHost }: ScenePanelProps) {
             <div className="fw-modal__footer">
               <button className="fw-btn fw-btn--ghost" type="button" onClick={() => setShowTransitionModal(false)}>Cancel</button>
               <button className="fw-btn fw-btn--primary" type="submit">Apply</button>
-            </div>
-          </form>
-        </div>
-      ) : null}
-
-      {showObjectiveModal ? (
-        <div className="fw-backdrop" role="dialog" aria-modal="true">
-          <form className="fw-modal" onSubmit={submitAddObjective}>
-            <div className="fw-modal__header">
-              <h2 className="fw-modal__title">Add Objective</h2>
-            </div>
-            <div className="fw-field">
-              <label className="fw-field__label">Objective text</label>
-              <input className="fw-input" value={objectiveText} onChange={(event) => setObjectiveText(event.target.value)} />
-            </div>
-            <div className="fw-modal__footer">
-              <button className="fw-btn fw-btn--ghost" type="button" onClick={() => setShowObjectiveModal(false)}>Cancel</button>
-              <button className="fw-btn fw-btn--primary" type="submit">Add</button>
             </div>
           </form>
         </div>
