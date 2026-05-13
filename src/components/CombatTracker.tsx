@@ -1,5 +1,6 @@
 import { Minus, Plus, RotateCcw, SkipBack, SkipForward, Swords, XCircle } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
+import { Tooltip } from './ui/Tooltip';
 import { addParticipant, advanceTurn, createCombat, endCombat, sortInitiativeOrder, startCombat } from '../engine/combat';
 import type { CombatState as EngineCombatState } from '../engine/combat';
 import { createEventQueueState, processEventQueue, type EventRuntimeState } from '../engine/events/eventQueue';
@@ -603,7 +604,7 @@ export function CombatTracker({
         </button>
         <button className="fw-btn fw-btn--ghost" onClick={sortInitiative} type="button">
           <RotateCcw size={16} aria-hidden="true" />
-          Sort
+          <Tooltip label="ลำดับการตี — ทอย d20 + DEX">Initiative</Tooltip>
         </button>
         <button className="fw-btn fw-btn--danger" onClick={endEncounter} type="button">
           <XCircle size={16} aria-hidden="true" />
@@ -625,11 +626,13 @@ export function CombatTracker({
               <div>
                 <span className="fw-h3">{combatant.name}</span>
                 <span className="fw-caption">
-                  {combatant.type === 'player' ? 'Player' : 'Enemy'} · AC {combatant.armorClass}
+                  {combatant.type === 'player' ? 'Player' : 'Enemy'} · <Tooltip label="Armor Class — ค่าที่คนตียากให้ถึง">AC</Tooltip> {combatant.armorClass}
                 </span>
               </div>
               <div className="fw-field">
-                <label className="fw-field__label">Init</label>
+                <label className="fw-field__label">
+                  <Tooltip label="ลำดับการตี — ทอย d20 + DEX">Initiative</Tooltip>
+                </label>
                 <input
                   className="fw-input"
                   type="number"
@@ -673,7 +676,9 @@ export function CombatTracker({
             </div>
 
             <div className="fw-field">
-              <label className="fw-field__label">Temp HP</label>
+              <label className="fw-field__label">
+                <Tooltip label="HP ชั่วคราว — ลดก่อน HP จริง">Temp HP</Tooltip>
+              </label>
               <input
                 className="fw-input"
                 min={0}
@@ -721,7 +726,9 @@ export function CombatTracker({
 
             {combatant.hitPoints === 0 ? (
               <div>
-                <span>Death saves</span>
+                <span>
+                  <Tooltip label="ทอย d20 — สูง 10 ได้, ต่ำ 10 เสีย">Death Save</Tooltip>
+                </span>
                 <button className="fw-btn fw-btn--ghost" onClick={() => setDeathSave(combatant.id, 'successes', -1)} type="button">
                   <Minus size={14} aria-hidden="true" />
                 </button>

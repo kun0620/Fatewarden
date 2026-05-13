@@ -23,6 +23,7 @@ import {
 import { createPartyChoiceInDb } from '../lib/partyChoices';
 import { createPartyChoice } from '../engine/party/partyChoiceEngine';
 import { useGameStore } from '../store/useGameStore';
+import { Tooltip } from './ui/Tooltip';
 import type {
   AbilityKey,
   AiChoice,
@@ -1084,6 +1085,11 @@ export function StoryLog({
                 ? 'Use Ask AI when you want guidance'
                 : 'AI will stay silent'}
           </span>
+          <div className="fw-caption" style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+            <Tooltip label="Difficulty Class — ค่าที่ต้องทอยให้ถึง">DC</Tooltip>
+            <Tooltip label="ลำดับการตี — ทอย d20 + DEX">Initiative</Tooltip>
+            <Tooltip label="ความชำนาญ — เพิ่มโบนัสตามเลเวล">Proficiency</Tooltip>
+          </div>
         </div>
 
         <form className="fw-composer-form" onSubmit={submitMessage}>

@@ -2,6 +2,7 @@ import { Save, X } from 'lucide-react';
 import { ChangeEvent, FormEvent, useEffect, useState } from 'react';
 import { inventoryFromNames, inventoryToNames } from '../lib/inventory';
 import { abilityLabels, abilityModifier, formatModifier, proficiencyBonus } from '../lib/rules';
+import { Tooltip } from './ui/Tooltip';
 import type { AbilityKey, Character } from '../types';
 
 const shortAbilityLabels: Record<AbilityKey, string> = {
@@ -315,7 +316,9 @@ export function CharacterSheetView({
                   </div>
                 </div>
                 <div className="fw-field">
-                  <label className="fw-field__label">AC</label>
+                  <label className="fw-field__label">
+                    <Tooltip label="Armor Class — ค่าที่คนตียากให้ถึง">AC</Tooltip>
+                  </label>
                   <input
                     className="fw-input fw-input--mono"
                     disabled={disabled || saving}
@@ -351,7 +354,9 @@ export function CharacterSheetView({
                   />
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
-                  <span className="fw-caption">Proficiency</span>
+                  <span className="fw-caption">
+                    <Tooltip label="ความชำนาญ — เพิ่มโบนัสตามเลเวล">Proficiency</Tooltip>
+                  </span>
                   <strong className="fw-body-sm">{formatModifier(proficiencyBonus(draft.level))}</strong>
                 </div>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', cursor: 'pointer' }}>

@@ -5,6 +5,7 @@ import {
   calcCarryWeight,
 } from '../lib/inventory';
 import { useGameStore } from '../store/useGameStore';
+import { Tooltip } from './ui/Tooltip';
 import type { Character, Inventory, Item, ItemCategory } from '../types';
 
 type InventoryPanelProps = {
@@ -173,7 +174,7 @@ export function InventoryPanel({ character, onUpdateCharacter, disabled = false 
       {activeTab === 'equipment' ? (
         <div className="fw-card" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
           <p className="fw-body-sm">
-            AC (equipped): <strong>{computedAc}</strong>
+            <Tooltip label="Armor Class — ค่าที่คนตียากให้ถึง">AC</Tooltip> (equipped): <strong>{computedAc}</strong>
           </p>
           <p className="fw-body-sm">
             Weapon:{' '}

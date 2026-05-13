@@ -3,6 +3,7 @@ import { ChangeEvent, FormEvent, useEffect, useState } from 'react';
 import { canLevelUp } from '../lib/characterProgression';
 import { InventoryPanel } from './InventoryPanel';
 import { LevelUpModal } from './LevelUpModal';
+import { Tooltip } from './ui/Tooltip';
 import type { AbilityKey, Character } from '../types';
 
 const abilityLabels: Record<AbilityKey, string> = {
@@ -131,7 +132,7 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
         <div className="fw-field" style={{ flex: 1 }}>
           <label className="fw-field__label">
             <Shield size={13} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} />
-            AC
+            <Tooltip label="Armor Class — ค่าที่คนตียากให้ถึง">AC</Tooltip>
           </label>
           <input
             aria-label="Armor class"
