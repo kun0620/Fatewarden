@@ -1,5 +1,5 @@
 import { Backpack, BookOpen, Copy, DoorOpen, Dices, LogOut, MapPin, ScrollText, Shield, Swords, Users } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { AuthPanel } from './components/AuthPanel';
 import { CharacterEntryModal } from './components/CharacterEntryModal';
@@ -156,6 +156,33 @@ export function App() {
 
   const partyChoiceState = useGameStore((state) => state.partyChoiceState);
   const dispatchGameEvent = useGameStore((state) => state.dispatch);
+  const sceneState = useGameStore((state) => state.sceneState);
+  const setSceneState = useGameStore((state) => state.setSceneState);
+
+  // Initialize default sceneState when entering a session (GameSession has no sceneState field)
+  useEffect(() => {
+    if (!activeSession || sceneState) return;
+    const now = Date.now();
+    setSceneState({
+      id: crypto.randomUUID(),
+      sessionId: activeSession.id,
+      mode: 'exploration',
+      location: activeSession.title,
+      description: '',
+      flags: {
+        dangerLevel: 'none',
+        realityStability: 'stable',
+        isLit: true,
+        isSilent: false,
+        hasEscape: true,
+      },
+      objectives: [],
+      threatClocks: [],
+      turnNumber: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }, [activeSession, sceneState, setSceneState]);
 
   usePartyChoiceSync(activeSession?.id ?? null);
 

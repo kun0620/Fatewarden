@@ -2929,6 +2929,638 @@ textarea.fw-composer-input {
 }
 
 /* ═══════════════════════════════════════════════════════════════ */
+/* APP SHELL — LAYOUT */
+/* ═══════════════════════════════════════════════════════════════ */
+
+.fw-app-shell {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--bg-sunken);
+  overflow: hidden;
+}
+
+/* Command Bar */
+.fw-command-bar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-raised);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: 0 var(--sp-5);
+  height: 52px;
+  background: var(--bg-deep);
+  border-bottom: 1px solid var(--border-subtle);
+  position: relative;
+}
+
+.fw-command-bar::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: var(--sp-8);
+  right: var(--sp-8);
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(155, 93, 229, 0.35) 30%, rgba(155, 93, 229, 0.35) 70%, transparent);
+  pointer-events: none;
+}
+
+/* Brand Lockup */
+.fw-brand-lockup {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex-shrink: 0;
+}
+
+.fw-brand-lockup p {
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  letter-spacing: var(--ls-caption);
+  text-transform: uppercase;
+  color: var(--ink-300);
+  margin: 0;
+}
+
+.fw-brand-lockup h1 {
+  font-family: var(--font-serif);
+  font-size: var(--fs-h3);
+  font-weight: 700;
+  color: var(--ink-100);
+  letter-spacing: 0.08em;
+  margin: 0;
+  line-height: 1;
+}
+
+/* Mode Switch DM / Player */
+.fw-mode-switch {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+
+.fw-mode-switch button {
+  padding: var(--sp-1) var(--sp-3);
+  background: transparent;
+  border: none;
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  letter-spacing: var(--ls-caption);
+  text-transform: uppercase;
+  color: var(--ink-400);
+  cursor: pointer;
+  transition: all var(--t-base);
+}
+
+.fw-mode-switch button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: inset 0 0 8px rgba(155, 93, 229, 0.3);
+}
+
+/* Command Status */
+.fw-command-status {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-left: auto;
+  flex-wrap: wrap;
+  overflow: hidden;
+}
+
+.fw-command-status > span {
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  letter-spacing: var(--ls-caption);
+  text-transform: uppercase;
+  color: var(--ink-400);
+  white-space: nowrap;
+}
+
+.fw-command-status > span.connected {
+  color: var(--hp-full);
+}
+
+/* Game Menu */
+.fw-game-menu {
+  display: flex;
+  gap: var(--sp-2);
+  flex-shrink: 0;
+}
+
+.fw-game-menu button {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-2);
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-sm);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  letter-spacing: var(--ls-caption);
+  color: var(--ink-300);
+  cursor: pointer;
+  transition: all var(--t-base);
+  white-space: nowrap;
+}
+
+.fw-game-menu button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.fw-game-menu button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Cockpit 3-Column Layout */
+.fw-cockpit {
+  display: grid;
+  grid-template-columns: 272px 1fr 300px;
+  overflow: hidden;
+  height: calc(100vh - 52px);
+  height: calc(100dvh - 52px);
+}
+
+/* Rail — Left Sidebar */
+.fw-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  overflow-y: auto;
+  background: var(--bg-base);
+  border-right: 1px solid var(--border-subtle);
+}
+
+.fw-rail::-webkit-scrollbar { width: 4px; }
+.fw-rail::-webkit-scrollbar-track { background: transparent; }
+.fw-rail::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 2px; }
+
+/* Story — Center */
+.fw-story {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-sunken);
+}
+
+/* Dock — Right Sidebar */
+.fw-dock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  overflow-y: auto;
+  background: var(--bg-base);
+  border-left: 1px solid var(--border-subtle);
+}
+
+.fw-dock::-webkit-scrollbar { width: 4px; }
+.fw-dock::-webkit-scrollbar-track { background: transparent; }
+.fw-dock::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 2px; }
+
+/* Mobile Bottom Nav */
+.fw-mobile-dock {
+  display: none;
+}
+
+/* Tablet: hide dock */
+@media (max-width: 1199px) {
+  .fw-cockpit {
+    grid-template-columns: 260px 1fr;
+  }
+  .fw-dock {
+    display: none;
+  }
+}
+
+/* Mobile: single column + bottom nav */
+@media (max-width: 767px) {
+  .fw-cockpit {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+  }
+  .fw-rail {
+    display: none;
+  }
+  .fw-story {
+    display: flex;
+  }
+  .fw-command-status {
+    display: none;
+  }
+  .fw-mobile-dock {
+    display: flex;
+    align-items: stretch;
+    justify-content: space-around;
+    height: 60px;
+    background: var(--bg-deep);
+    border-top: 1px solid var(--border-subtle);
+    overflow: hidden;
+  }
+  .fw-mobile-dock button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    flex: 1;
+    background: transparent;
+    border: none;
+    border-top: 2px solid transparent;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: var(--ls-caption);
+    text-transform: uppercase;
+    color: var(--ink-400);
+    cursor: pointer;
+    transition: all var(--t-base);
+    padding: 0;
+  }
+  .fw-mobile-dock button.active {
+    color: var(--accent);
+    border-top-color: var(--accent);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════ */
+/* GATE (LANDING PAGE) — GRIMOIRE AESTHETIC */
+/* ═══════════════════════════════════════════════════════════════ */
+
+.fw-gate-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--bg-sunken);
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+}
+
+/* Hero Section */
+.fw-gate-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--sp-10) var(--sp-6) var(--sp-8);
+  gap: var(--sp-8);
+  position: relative;
+}
+
+.fw-gate-hero::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 600px;
+  height: 400px;
+  background: radial-gradient(ellipse at center, rgba(155, 93, 229, 0.12) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* Gate Copy */
+.fw-gate-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-4);
+  text-align: center;
+  max-width: 640px;
+  position: relative;
+  z-index: 1;
+}
+
+/* Brand Mark — FW sigil */
+.fw-gate-brand-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  box-shadow: var(--shadow-glow);
+  margin-bottom: var(--sp-2);
+}
+
+.fw-gate-brand-mark span {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+}
+
+.fw-gate-copy > .fw-caption {
+  letter-spacing: 0.14em;
+  color: var(--ink-300);
+}
+
+.fw-gate-copy h1 {
+  font-family: var(--font-serif);
+  font-size: clamp(1.6rem, 4vw, 2.6rem);
+  font-weight: 700;
+  color: var(--ink-100);
+  margin: 0;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+}
+
+.fw-gate-copy .fw-body {
+  max-width: 520px;
+  color: var(--ink-300);
+  line-height: 1.65;
+  font-family: var(--font-serif);
+}
+
+/* Step Flow Indicator */
+.fw-gate-flow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4);
+  border: 1px solid var(--border-subtle);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.fw-gate-flow > span {
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  letter-spacing: var(--ls-caption);
+  text-transform: uppercase;
+  color: var(--ink-500);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.fw-gate-flow > span:not(:last-child)::after {
+  content: '›';
+  color: var(--border-strong);
+  margin-left: var(--sp-2);
+}
+
+.fw-gate-flow > span.active > .fw-caption {
+  color: var(--accent);
+}
+
+.fw-gate-flow > span.complete > .fw-caption {
+  color: var(--ink-300);
+}
+
+/* Status Cards */
+.fw-gate-status {
+  display: flex;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+}
+
+.fw-gate-status-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-subtle);
+  min-width: 130px;
+}
+
+.fw-gate-status-card > .fw-caption {
+  color: var(--ink-400);
+}
+
+.fw-gate-status-card > strong {
+  color: var(--ink-100);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body-sm);
+}
+
+.fw-gate-status-card > small {
+  color: var(--ink-400);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+
+.fw-gate-status-card.primary {
+  border-color: var(--accent);
+  background: var(--bg-overlay);
+  box-shadow: inset 0 0 20px rgba(155, 93, 229, 0.06);
+}
+
+/* Gate Grid (Auth + Lobby side by side) */
+.fw-gate-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  padding: 0 var(--sp-6) var(--sp-10);
+  max-width: 940px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.fw-gate-grid > div {
+  display: flex;
+  flex-direction: column;
+}
+
+@media (min-width: 768px) {
+  .fw-gate-grid {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    align-items: start;
+    gap: var(--sp-6);
+  }
+
+  .fw-gate-grid.auth-only {
+    display: flex;
+    max-width: 380px;
+    margin: 0 auto;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════ */
+/* SESSION LOBBY + AUTH — GRIMOIRE AESTHETIC */
+/* ═══════════════════════════════════════════════════════════════ */
+
+/* Auth Panel */
+.auth-panel {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-subtle);
+  padding: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+/* Room Menu */
+.fw-room-menu {
+  position: relative;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-frame);
+  padding: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.fw-room-menu::before,
+.fw-room-menu::after {
+  content: "✦";
+  position: absolute;
+  font-size: 14px;
+  color: rgba(155, 93, 229, 0.35);
+  pointer-events: none;
+}
+
+.fw-room-menu::before {
+  top: var(--sp-3);
+  left: var(--sp-3);
+}
+
+.fw-room-menu::after {
+  bottom: var(--sp-3);
+  right: var(--sp-3);
+}
+
+/* Three Door Grid */
+.fw-room-menu__doors {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* Room Door Button */
+.fw-room-door {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: all var(--t-base);
+  min-height: 64px;
+}
+
+.fw-room-door:hover {
+  border-color: var(--accent);
+  background: var(--bg-base);
+  box-shadow: 0 0 14px rgba(155, 93, 229, 0.2);
+}
+
+.fw-room-door > svg {
+  flex-shrink: 0;
+  color: var(--ink-400);
+  transition: color var(--t-base);
+}
+
+.fw-room-door:hover > svg {
+  color: var(--accent);
+}
+
+.fw-room-door--primary {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 20px rgba(155, 93, 229, 0.25);
+}
+
+.fw-room-door--primary:hover {
+  box-shadow: 0 0 28px rgba(155, 93, 229, 0.4);
+  background: rgba(155, 93, 229, 0.2);
+}
+
+.fw-room-door--primary > svg {
+  color: var(--accent);
+}
+
+/* Door Copy Text */
+.fw-room-door__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.fw-room-door__copy strong {
+  font-family: var(--font-serif);
+  font-size: var(--fs-h3);
+  font-weight: 600;
+  color: var(--ink-100);
+  letter-spacing: 0.04em;
+}
+
+.fw-room-door__copy small {
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  letter-spacing: var(--ls-caption);
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+
+/* Room Menu Footer */
+.fw-room-menu__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-top: var(--sp-3);
+  border-top: 1px solid rgba(212, 184, 150, 0.1);
+}
+
+/* Room Modal */
+.fw-room-modal {
+  max-width: 560px;
+  width: 100%;
+}
+
+.fw-room-modal__body {
+  padding: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  max-height: 65vh;
+  overflow-y: auto;
+}
+
+/* Room Form */
+.fw-room-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.fw-room-form__label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  letter-spacing: var(--ls-caption);
+  text-transform: uppercase;
+  color: var(--ink-300);
+  display: block;
+  margin-bottom: var(--sp-1);
+}
+
+.fw-room-form__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+/* ═══════════════════════════════════════════════════════════════ */
 /* INVENTORYPANEL — GRIMOIRE AESTHETIC */
 /* ═══════════════════════════════════════════════════════════════ */
 
