@@ -43,11 +43,16 @@ export function nextRound(combat: CombatState): CombatState {
   };
 }
 
-export function advanceTurn(combat: CombatState, charactersById: Record<string, Character>): CombatState {
-  return advanceTurnWithCompanionActions(combat, charactersById);
+export function advanceTurn(
+  combat: CombatState,
+  charactersById: Record<string, Character>,
+  companionState?: CompanionState | null,
+  dispatchEvent?: EventDispatcher,
+): CombatState {
+  return advanceTurnWithCompanionActions(combat, charactersById, companionState, dispatchEvent);
 }
 
-type EventDispatcher = (event: GameEvent) => void | Promise<void>;
+type EventDispatcher = (event: GameEvent) => void;
 
 function buildCompanionActionTargets(combat: CombatState, companionId: string) {
   return combat.participants
@@ -61,8 +66,12 @@ export function advanceTurnWithCompanionActions(
   charactersById: Record<string, Character>,
   companionState?: CompanionState | null,
   dispatchEvent?: EventDispatcher,
+  remainingAutoSteps = combat.initiativeOrder.length,
 ): CombatState {
   if (combat.phase !== 'active' || combat.initiativeOrder.length === 0) {
+    return combat;
+  }
+  if (remainingAutoSteps <= 0) {
     return combat;
   }
 
@@ -113,6 +122,24 @@ export function advanceTurnWithCompanionActions(
     companionId: companion.id,
     targets: buildCompanionActionTargets(nextCombat, companion.id),
   };
-  void dispatchEvent(event);
-  return nextCombat;
+
+  dispatchEvent(event);
+
+  // Companion action is handled by store dispatch; turn engine only advances flow.
+  const afterCompanionTurn = {
+    ...nextCombat,
+    turn: {
+      ...nextCombat.turn,
+      turnIndex: nextIndex,
+      activeParticipantId: nextCombat.initiativeOrder[nextIndex] ?? null,
+    },
+  };
+
+  return advanceTurnWithCompanionActions(
+    afterCompanionTurn,
+    charactersById,
+    companionState,
+    dispatchEvent,
+    remainingAutoSteps - 1,
+  );
 }

@@ -26,7 +26,7 @@ type RoomModalShellProps = {
 function RoomModalShell({ children, eyebrow, onClose, title }: RoomModalShellProps) {
   return (
     <div className="fw-backdrop" role="presentation">
-      <section aria-modal="true" className="fw-modal" role="dialog" style={{ width: 'min(480px, 95vw)', maxHeight: '90vh', overflowY: 'auto' }}>
+      <section aria-modal="true" className="fw-modal fw-room-modal" role="dialog">
         <div className="fw-modal__header">
           <div>
             <p className="fw-caption">{eyebrow}</p>
@@ -36,7 +36,7 @@ function RoomModalShell({ children, eyebrow, onClose, title }: RoomModalShellPro
             <X size={18} aria-hidden="true" />
           </button>
         </div>
-        <div style={{ padding: 'var(--sp-5)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
+        <div className="fw-room-modal__body">
           {children}
         </div>
       </section>
@@ -149,7 +149,7 @@ export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignO
 
   return (
     <>
-      <section className="fw-panel fw-card--framed">
+      <section className="fw-panel fw-card--framed fw-room-menu">
         <div className="fw-panel__header">
           <div>
             <p className="fw-caption">Main Menu</p>
@@ -158,73 +158,68 @@ export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignO
           <ScrollText size={24} aria-hidden="true" />
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
+        <div className="fw-room-menu__doors">
           <button
-            className="fw-btn fw-btn--primary fw-btn--lg"
+            className="fw-room-door fw-room-door--primary"
             disabled={!user || busy}
             onClick={() => onRoomModalChange('create')}
-            style={{ justifyContent: 'flex-start', gap: 'var(--sp-4)' }}
             type="button"
           >
             <Plus size={18} aria-hidden="true" />
-            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }}>
-              <strong>Create Room</strong>
-              <small className="fw-caption" style={{ color: 'inherit', opacity: 0.75 }}>Start a new table</small>
+            <span className="fw-room-door__copy">
+              <strong>Forge New Realm</strong>
+              <small className="fw-caption">Create a new table</small>
             </span>
           </button>
           <button
-            className="fw-btn fw-btn--ghost fw-btn--lg"
+            className="fw-room-door"
             disabled={!user || busy}
             onClick={() => onRoomModalChange('join')}
-            style={{ justifyContent: 'flex-start', gap: 'var(--sp-4)' }}
             type="button"
           >
             <DoorOpen size={18} aria-hidden="true" />
-            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }}>
-              <strong>Join Room</strong>
-              <small className="fw-caption" style={{ opacity: 0.75 }}>Use an invite code</small>
+            <span className="fw-room-door__copy">
+              <strong>Cross The Threshold</strong>
+              <small className="fw-caption">Join with a code</small>
             </span>
           </button>
           <button
-            className="fw-btn fw-btn--ghost fw-btn--lg"
+            className="fw-room-door"
             disabled={!user || busy}
             onClick={() => onRoomModalChange('continue')}
-            style={{ justifyContent: 'flex-start', gap: 'var(--sp-4)' }}
             type="button"
           >
             <ScrollText size={18} aria-hidden="true" />
-            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }}>
-              <strong>Continue Room</strong>
-              <small className="fw-caption" style={{ opacity: 0.75 }}>
+            <span className="fw-room-door__copy">
+              <strong>Return To Vigil</strong>
+              <small className="fw-caption">
                 {sessions.length ? `${sessions.length} saved table${sessions.length > 1 ? 's' : ''}` : 'No tables yet'}
               </small>
             </span>
           </button>
+        </div>
+
+        <div className="fw-room-menu__footer">
           <button
-            className="fw-btn fw-btn--ghost fw-btn--lg"
+            className="fw-btn fw-btn--ghost"
             disabled={!user || busy}
             onClick={onSignOut}
-            style={{ justifyContent: 'flex-start', gap: 'var(--sp-4)' }}
             type="button"
           >
             <LogOut size={18} aria-hidden="true" />
-            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }}>
-              <strong>Sign Out</strong>
-              <small className="fw-caption" style={{ opacity: 0.75 }}>Leave this device</small>
-            </span>
+            <strong>Sign Out</strong>
           </button>
+          <p className="fw-caption">
+            {user
+              ? 'Create, join, or continue a room. Character setup appears after the table is selected.'
+              : 'Login first. Room tools unlock after authentication.'}
+          </p>
         </div>
-
-        <p className="fw-caption">
-          {user
-            ? 'Create, join, or continue a room. Character setup appears after the table is selected.'
-            : 'Login first. Room tools unlock after authentication.'}
-        </p>
       </section>
 
       {roomModal === 'create' ? (
         <RoomModalShell eyebrow="New Table" onClose={closeModal} title="Create room">
-          <form style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }} onSubmit={createSession}>
+          <form className="fw-room-form" onSubmit={createSession}>
             <div className="fw-field">
               <label className="fw-field__label">Adventure name</label>
               <input
@@ -237,8 +232,8 @@ export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignO
             </div>
 
             <div>
-              <p className="fw-caption" style={{ marginBottom: 'var(--sp-2)' }}>Play mode</p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-2)' }} aria-label="Play mode">
+              <p className="fw-caption fw-room-form__label">Play mode</p>
+              <div className="fw-room-form__chips" aria-label="Play mode">
                 {playModes.map((mode) => (
                   <button
                     className={`fw-btn fw-btn--sm ${playMode === mode.id ? 'fw-btn--primary' : 'fw-btn--ghost'}`}
@@ -254,7 +249,7 @@ export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignO
               </div>
             </div>
 
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-2)' }}>
+            <div className="fw-room-form__chips">
               {['SRD 5.1', 'core', 'combat', 'conditions'].map((rule) => (
                 <span className="fw-cond fw-cond--minor" key={rule}>
                   <span className="fw-cond__dot" />{rule}
@@ -265,8 +260,8 @@ export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignO
             <p className="fw-caption">{getPlayModeDefinition(playMode).description}</p>
 
             <div>
-              <p className="fw-caption" style={{ marginBottom: 'var(--sp-2)' }}>Theme</p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-2)' }} aria-label="Room theme">
+              <p className="fw-caption fw-room-form__label">Theme</p>
+              <div className="fw-room-form__chips" aria-label="Room theme">
                 {sessionThemePresets.map((theme) => (
                   <button
                     className={`fw-btn fw-btn--sm ${themeKey === theme.key ? 'fw-btn--primary' : 'fw-btn--ghost'}`}
@@ -330,7 +325,7 @@ export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignO
 
       {roomModal === 'join' ? (
         <RoomModalShell eyebrow="Invitation" onClose={closeModal} title="Join room">
-          <form style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }} onSubmit={joinSession}>
+          <form className="fw-room-form" onSubmit={joinSession}>
             <div className="fw-field">
               <label className="fw-field__label">Join code</label>
               <input
@@ -355,9 +350,9 @@ export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignO
         <RoomModalShell eyebrow="Saved Tables" onClose={closeModal} title="Continue room">
           {message ? <p className="fw-caption">{message}</p> : null}
           {sessions.length ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
+            <div className="fw-room-continue-list">
               {sessions.map((session) => (
-                <div key={session.id} style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center' }}>
+                <div className="fw-room-continue-item" key={session.id}>
                   <button
                     className="fw-btn fw-btn--ghost"
                     disabled={busy || !user}

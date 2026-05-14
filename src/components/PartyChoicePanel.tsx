@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { castVoteInDb } from '../lib/partyChoices';
-import { usePartyChoiceSync } from '../hooks/usePartyChoiceSync';
 import { useGameStore } from '../store/useGameStore';
 import { getVoteSummary } from '../engine/party/partyChoiceEngine';
 
@@ -12,6 +11,7 @@ type PartyChoicePanelProps = {
 };
 
 const optionColors = ['#7c3aed', '#2563eb', '#16a34a', '#f59e0b', '#ef4444', '#06b6d4'];
+const optionIcons = ['🜂', '🜄', '🜁', '🜃', '✦', '☽'];
 
 function formatCountdown(msLeft: number) {
   const totalSec = Math.max(0, Math.floor(msLeft / 1000));
@@ -21,8 +21,6 @@ function formatCountdown(msLeft: number) {
 }
 
 export function PartyChoicePanel({ sessionId, currentPlayerId, currentCharacterName, isHost }: PartyChoicePanelProps) {
-  usePartyChoiceSync(sessionId);
-
   const partyChoiceState = useGameStore((state) => state.partyChoiceState);
   const eventMeta = useGameStore((state) => state.eventMeta);
   const dispatch = useGameStore((state) => state.dispatch);
@@ -106,74 +104,83 @@ export function PartyChoicePanel({ sessionId, currentPlayerId, currentCharacterN
 
   return (
     <div className="fw-backdrop" role="dialog" aria-modal="true">
-      <section className="fw-modal">
-        <div className="fw-modal__header">
-          <span className="fw-caption">Policy: {choice.resolutionPolicy}</span>
-          {msLeft !== null ? <span className="fw-caption">Time left: {formatCountdown(msLeft)}</span> : null}
+      <section className="fw-modal fw-party-vote">
+        <div className="fw-modal__header fw-party-vote__header">
+          <h2 className="fw-party-vote__title">Fatewarden</h2>
+          <p className="fw-party-vote__subtitle">A choice that will echo through history...</p>
+          <h3 className="fw-h2 fw-party-vote__prompt">{choice.prompt}</h3>
+          <div className="fw-divider--ornamental">
+            <span className="fw-divider--ornamental__glyph" />
+          </div>
         </div>
 
-        <h2 className="fw-h2">{choice.prompt}</h2>
-
-        <div aria-label="Vote summary">
-          {choice.options.map((option, index) => {
-            const choiceId = option.number.toString();
-            const count = summaryByChoice.get(choiceId)?.count ?? 0;
-            const width = totalVotes > 0 ? `${(count / totalVotes) * 100}%` : '0%';
-            return (
-              <span
-                key={choiceId}
-                style={{ width, background: optionColors[index % optionColors.length] }}
-                title={`${option.label}: ${count}`}
-              />
-            );
-          })}
-        </div>
-
-        <div className="fw-choices">
+        <div className="fw-choices fw-party-vote__choices">
           {choice.options.map((option) => {
             const choiceId = option.number.toString();
             const group = summaryByChoice.get(choiceId);
             const isCurrentVote = currentVote?.choiceId === choiceId;
+            const count = group?.count ?? 0;
+            const width = totalVotes > 0 ? `${(count / totalVotes) * 100}%` : '0%';
             return (
               <button
-                className="fw-choice"
+                className="fw-choice fw-party-vote__choice"
                 data-selected={isCurrentVote ? 'true' : undefined}
                 disabled={Boolean(currentVote) || choice.status === 'resolved'}
                 key={choiceId}
                 onClick={() => handleVote(choiceId)}
                 type="button"
               >
-                <span className="fw-choice__letter">{option.number}</span>
-                {option.label}
-                <span className="fw-choice__votes">
-                  {Array.from({ length: group?.count ?? 0 }, (_, i) => (
-                    <span className="dot" key={i} />
-                  ))}
-                  {!group?.count ? '—' : null}
+                <span className="fw-choice__letter">{String.fromCharCode(64 + option.number)}</span>
+                <span className="fw-party-vote__choice-main">
+                  <span className="fw-party-vote__choice-title">{option.label}</span>
+                  <span className="fw-party-vote__choice-meter">
+                    <span
+                      className="fw-party-vote__choice-fill"
+                      style={{ width, background: optionColors[(option.number - 1) % optionColors.length] }}
+                    />
+                  </span>
+                  <span className="fw-party-vote__choice-voters">
+                    <span className="fw-party-vote__choice-icon">{optionIcons[(option.number - 1) % optionIcons.length]}</span>
+                    <span>{count} vote{count === 1 ? '' : 's'}</span>
+                    {group?.voters.length ? <span>· {group.voters.join(', ')}</span> : null}
+                  </span>
                 </span>
               </button>
             );
           })}
         </div>
 
-        {currentVote && choice.status !== 'resolved' ? (
-          voteStatus === 'failed' ? (
-            <p className="fw-caption" style={{ color: 'var(--hp-low)' }}>Sync failed — retrying...</p>
-          ) : voteStatus === 'sent' ? (
-            <p className="fw-caption">Vote sent</p>
-          ) : (
-            <p className="fw-caption">Waiting for others...</p>
-          )
-        ) : null}
+        <footer className="fw-party-vote__footer">
+          <div className="fw-party-vote__policy">
+            <span className="fw-caption">Policy</span>
+            <span className="fw-cond fw-cond--minor">{choice.resolutionPolicy}</span>
+          </div>
+          <div className="fw-party-vote__status">
+            {msLeft !== null ? <span className="fw-party-vote__countdown">{formatCountdown(msLeft)}</span> : null}
+            {currentVote && choice.status !== 'resolved' ? (
+              voteStatus === 'failed' ? (
+                <p className="fw-caption fw-party-vote__error">Sync failed — retrying...</p>
+              ) : voteStatus === 'sent' ? (
+                <p className="fw-caption">Vote sent</p>
+              ) : (
+                <p className="fw-caption">Waiting for others...</p>
+              )
+            ) : (
+              <p className="fw-caption">
+                {choice.status === 'resolved' ? 'Choice resolved' : 'Awaiting votes'}
+              </p>
+            )}
+          </div>
+        </footer>
 
         {showResolvedFanfare && winnerOption ? (
-          <div className="fw-toast fw-toast--success">
+          <div className="fw-toast fw-toast--success fw-party-vote__fanfare">
             <strong>Resolved: {winnerOption.label}</strong>
           </div>
         ) : null}
 
         {isHost ? (
-          <div className="fw-modal__footer">
+          <div className="fw-modal__footer fw-party-vote__controls">
             <button className="fw-btn fw-btn--secondary" type="button" onClick={handleForceResolve}>Force Resolve</button>
             <button className="fw-btn fw-btn--ghost" type="button" onClick={clearActivePartyChoice}>Cancel Choice</button>
           </div>

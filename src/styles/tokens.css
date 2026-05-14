@@ -1,127 +1,106 @@
-/* ============================================================
-   FATEWARDEN · tokens.css
-   Production tokens. Apply theme via [data-theme="vigil"] on :root.
-   Other themes preserved for reference / future toggle.
-   ============================================================ */
+:root,
+[data-theme='vigil'] {
+  /* COLOR TOKENS — semantic naming */
+  --bg-sunken: #0f0b13;
+  --bg-deep: #17101f;
+  --bg-base: #1c1425;
+  --bg-raised: #221a2d;
+  --bg-overlay: #2a2036;
 
-:root {
-  /* Type families — Thai-safe stacks */
-  --font-serif: "Cormorant Garamond", "EB Garamond", "Noto Serif Thai", "Sarabun", Georgia, serif;
-  --font-mono:  "IBM Plex Mono", "Noto Sans Thai Looped", ui-monospace, Menlo, monospace;
-  --font-sans:  "Inter", "Noto Sans Thai Looped", system-ui, -apple-system, sans-serif;
+  --ink-100: #f0e6fb;
+  --ink-200: #d7cae5;
+  --ink-300: #b49fc7;
+  --ink-400: #8f7ba1;
+  --ink-500: #6b5a78;
 
-  /* Type scale */
-  --fs-display: clamp(2.25rem, 1.4rem + 3vw, 3.75rem);
-  --fs-h1:      clamp(1.75rem, 1.2rem + 1.6vw, 2.5rem);
-  --fs-h2:      1.5rem;
-  --fs-h3:      1.125rem;
-  --fs-body:    1rem;
-  --fs-body-sm: 0.9375rem;
-  --fs-mono:    0.875rem;
-  --fs-caption: 0.75rem;
+  --border-subtle: #3b3148;
+  --border-strong: #57456b;
+  --border-frame: #6b4f8d;
 
-  --lh-display: 1.05;
-  --lh-h:       1.2;
-  --lh-body:    1.65;
-  --lh-tight:   1.35;
-  --lh-mono:    1.5;
+  --accent: #9b5de5;
+  --accent-deep: #6a2cb2;
+  --accent-soft: rgba(155, 93, 229, 0.2);
 
-  --ls-display: -0.01em;
-  --ls-mono:    0.04em;
-  --ls-caption: 0.12em;
+  --hp-full: #5bcf8a;
+  --hp-mid: #d8b35e;
+  --hp-low: #d76f7e;
+  --hp-bleed: #e34c3c;
 
-  /* Spacing — 4px base */
-  --sp-0: 0;
-  --sp-1: 0.25rem;
-  --sp-2: 0.5rem;
-  --sp-3: 0.75rem;
-  --sp-4: 1rem;
-  --sp-5: 1.5rem;
-  --sp-6: 2rem;
-  --sp-7: 3rem;
-  --sp-8: 4rem;
-  --sp-9: 6rem;
+  --mode-rest: #d1aa63;
+  --mode-social: #c99560;
+  --mode-horror: #7bae63;
 
-  /* Radii */
-  --r-xs: 2px;
-  --r-sm: 3px;
-  --r-md: 4px;
-  --r-lg: 6px;
-  --r-pill: 999px;
+  /* SPACING TOKENS */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 28px;
+  --sp-8: 32px;
+  --sp-9: 40px;
+  --sp-10: 48px;
 
-  /* Transitions */
-  --t-instant: 80ms  cubic-bezier(.4,0,.2,1);
-  --t-fast:    140ms cubic-bezier(.4,0,.2,1);
-  --t-base:    220ms cubic-bezier(.32,.08,.24,1);
-  --t-slow:    420ms cubic-bezier(.32,.08,.24,1);
-  --t-ritual:  900ms cubic-bezier(.22,.61,.36,1);
+  /* RADIUS TOKENS */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --r-sm: var(--radius-sm);
+  --r-md: var(--radius-md);
+  --r-lg: var(--radius-lg);
+  --r-pill: 9999px;
 
-  /* Z layers */
+  /* Z-INDEX TOKENS */
   --z-base: 0;
   --z-raised: 10;
   --z-overlay: 100;
   --z-modal: 1000;
   --z-toast: 2000;
+
+  /* SHADOW TOKENS */
+  --shadow-1: 0 8px 22px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 14px 34px rgba(0, 0, 0, 0.45);
+  --shadow-modal: 0 20px 48px rgba(0, 0, 0, 0.55);
+  --shadow-press: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+  --shadow-glow: 0 0 15px #9b5de5;
+
+  /* TYPOGRAPHY TOKENS */
+  --font-serif: 'Cinzel', 'EB Garamond', 'Noto Serif Thai', serif;
+  --font-sans: 'Inter', 'Noto Sans Thai Looped', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+
+  --fs-display: 3rem;
+  --fs-h1: 2.25rem;
+  --fs-h2: 1.5rem;
+  --fs-h3: 1.125rem;
+  --fs-body: 1rem;
+  --fs-body-sm: 0.875rem;
+  --fs-mono: 0.8125rem;
+  --fs-caption: 0.6875rem;
+
+  --lh-display: 1.1;
+  --lh-h: 1.25;
+  --lh-tight: 1.2;
+  --lh-body: 1.6;
+  --lh-mono: 1.35;
+
+  --ls-display: 0.03em;
+  --ls-mono: 0.04em;
+  --ls-caption: 0.08em;
+
+  /* TRANSITION TOKENS */
+  --t-fast: 120ms ease;
+  --t-base: 200ms ease;
 }
 
-/* ============================================================
-   THEME · BLACK SEA VIGIL (default)
-   Drowned teal, tarnished brass, lightless water.
-   ============================================================ */
-:root,
-[data-theme="vigil"] {
-  --bg-sunken:  #03060A;
-  --bg-deep:    #06090C;
-  --bg-base:    #0B1014;
-  --bg-raised:  #11181F;
-  --bg-overlay: #18222C;
-
-  --ink-100: #E2EAEA;
-  --ink-200: #A6B5B7;
-  --ink-300: #6F7F82;
-  --ink-400: #43504F;
-  --ink-500: #1F2A2C;
-
-  --border-subtle: #18222B;
-  --border-strong: #253339;
-  --border-frame:  #324249;
-
-  --accent:      #5DA3A0;
-  --accent-soft: rgba(93,163,160,0.20);
-  --accent-deep: #316664;
-
-  --mode-exploration: #6EAFB3;
-  --mode-combat:      #B85950;
-  --mode-social:      #C99560;
-  --mode-horror:      #7BAE63;
-  --mode-rest:        #B89A60;
-
-  --hp-full:  #6F9682;
-  --hp-mid:   #C09254;
-  --hp-low:   #B85950;
-  --hp-bleed: #6F1F22;
-  --death:    #1A2528;
-
-  --shadow-1:     0 1px 0 0 rgba(0,0,0,.7), 0 0 0 1px rgba(180,210,212,.02) inset;
-  --shadow-2:     0 4px 28px -10px rgba(0,0,0,.88), 0 0 0 1px rgba(93,163,160,.04) inset;
-  --shadow-modal: 0 28px 90px -16px rgba(0,0,0,.94), 0 0 0 1px rgba(93,163,160,.06) inset;
-  --shadow-glow:  0 0 40px -8px rgba(93,163,160,.22);
-  --shadow-press: 0 1px 0 0 rgba(0,0,0,.7) inset;
-}
-
-/* Base reset / global */
-*, *::before, *::after { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; background: var(--bg-base); color: var(--ink-200); }
+html,
 body {
-  font-family: var(--font-sans);
-  font-size: var(--fs-body-sm);
-  line-height: var(--lh-body);
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-  font-feature-settings: "kern", "liga";
+  background: var(--bg-sunken);
+  color: var(--ink-100);
 }
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: var(--r-xs);
+
+body {
+  margin: 0;
+  font-family: var(--font-serif);
 }

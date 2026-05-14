@@ -36,6 +36,7 @@ type AiRulesContext = {
 };
 
 const AI_DM_TIMEOUT_MS = 45_000;
+const AI_CONTEXT_CHAR_BUDGET = 6_000;
 
 function requireClient() {
   if (!supabase) {
@@ -70,6 +71,47 @@ function formatTime(value: string) {
     minute: '2-digit',
     hour12: false,
   }).format(new Date(value));
+}
+
+function estimateMessageSize(message: StoryMessage) {
+  return (
+    message.author.length +
+    message.body.length +
+    message.speaker.length +
+    JSON.stringify(message.metadata ?? {}).length +
+    24
+  );
+}
+
+function buildAiContext(messages: StoryMessage[], budget = AI_CONTEXT_CHAR_BUDGET) {
+  if (!messages.length) return [];
+
+  const anchors: StoryMessage[] = [];
+  const latestSceneOpening = [...messages]
+    .reverse()
+    .find((message) => (message.metadata?.kind as string | undefined) === 'scene_opening');
+  const latestSceneObjective = [...messages]
+    .reverse()
+    .find((message) => (message.metadata?.kind as string | undefined) === 'scene_objective');
+
+  if (latestSceneOpening) anchors.push(latestSceneOpening);
+  if (latestSceneObjective && latestSceneObjective.id !== latestSceneOpening?.id) anchors.push(latestSceneObjective);
+
+  const selectedById = new Set(anchors.map((message) => message.id));
+  let total = anchors.reduce((sum, message) => sum + estimateMessageSize(message), 0);
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (selectedById.has(message.id)) continue;
+
+    const nextSize = estimateMessageSize(message);
+    if (total + nextSize > budget) continue;
+
+    selectedById.add(message.id);
+    total += nextSize;
+  }
+
+  return messages.filter((message) => selectedById.has(message.id));
 }
 
 export function mapMessage(row: MessageRow): StoryMessage {
@@ -577,6 +619,7 @@ export async function requestAiDmReply(
 ) {
   const client = requireClient();
   const sceneContext = useGameStore.getState().getSceneContext();
+  const aiContextMessages = buildAiContext(recentMessages);
   const { data, error } = await withTimeout(
     client.functions.invoke('ai-dm', {
       body: {
@@ -584,7 +627,7 @@ export async function requestAiDmReply(
         characterName,
         message,
         sceneContext: sceneContext ?? null,
-        recentMessages: recentMessages.slice(-8).map((item) => ({
+        recentMessages: aiContextMessages.map((item) => ({
           author: item.author,
           body: item.body,
           metadata: item.metadata ?? {},
@@ -614,8 +657,7 @@ export async function requestAiDmReply(
               encounter: rulesContext.encounter,
               latestScene: rulesContext.latestScene ?? null,
               partySummary: rulesContext.partySummary,
-              recentMetadata: recentMessages
-                .slice(-8)
+              recentMetadata: aiContextMessages
                 .map((item) => item.metadata)
                 .filter(Boolean),
             }

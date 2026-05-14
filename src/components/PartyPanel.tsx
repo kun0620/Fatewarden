@@ -42,8 +42,9 @@ export function PartyPanel({ activeSession, currentCharacter }: PartyPanelProps)
     if (!activeSession || !supabase) return;
 
     const client = supabase;
+    const channelName = `party:${activeSession.id}:${crypto.randomUUID()}`;
     const channel = client
-      .channel(`party:${activeSession.id}`)
+      .channel(channelName)
       .on(
         'postgres_changes',
         {

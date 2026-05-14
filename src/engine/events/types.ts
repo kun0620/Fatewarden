@@ -55,6 +55,17 @@ export interface ShortRestEvent extends BaseGameEvent {
   readonly notes?: string;
 }
 
+export interface ShortRestRuntimeEvent extends BaseGameEvent {
+  readonly type: 'SHORT_REST';
+  readonly characterId: string;
+  readonly hitDiceSpent: number;
+}
+
+export interface LongRestRuntimeEvent extends BaseGameEvent {
+  readonly type: 'LONG_REST';
+  readonly characterId: string;
+}
+
 export interface SpendResourceEvent extends BaseGameEvent {
   readonly type: 'SPEND_RESOURCE';
   readonly characterId: string;
@@ -222,6 +233,49 @@ export interface CompanionActionEvent extends BaseGameEvent {
   readonly targets: string[];
 }
 
+export interface CombatCreateEncounterEvent extends BaseGameEvent {
+  readonly type: 'COMBAT_CREATE_ENCOUNTER';
+  readonly encounterName: string;
+  readonly playerCharacter: import('../../types').Character;
+}
+
+export interface CombatAddParticipantEvent extends BaseGameEvent {
+  readonly type: 'COMBAT_ADD_PARTICIPANT';
+  readonly participant: import('../../types').Combatant;
+}
+
+export interface CombatSetInitiativeEvent extends BaseGameEvent {
+  readonly type: 'COMBAT_SET_INITIATIVE';
+  readonly combatantId: string;
+  readonly initiative: number;
+}
+
+export interface CombatSortInitiativeEvent extends BaseGameEvent {
+  readonly type: 'COMBAT_SORT_INITIATIVE';
+}
+
+export interface CombatAdvanceTurnEvent extends BaseGameEvent {
+  readonly type: 'COMBAT_ADVANCE_TURN';
+  readonly direction: 1 | -1;
+}
+
+export interface CombatSetTempHpEvent extends BaseGameEvent {
+  readonly type: 'COMBAT_SET_TEMP_HP';
+  readonly combatantId: string;
+  readonly tempHitPoints: number;
+}
+
+export interface CombatAdjustDeathSaveEvent extends BaseGameEvent {
+  readonly type: 'COMBAT_ADJUST_DEATH_SAVE';
+  readonly combatantId: string;
+  readonly key: 'successes' | 'failures';
+  readonly delta: number;
+}
+
+export interface CombatEndEncounterEvent extends BaseGameEvent {
+  readonly type: 'COMBAT_END_ENCOUNTER';
+}
+
 export type GameEvent =
   | ApplyDamageEvent
   | RecoverHpEvent
@@ -229,6 +283,8 @@ export type GameEvent =
   | RemoveConditionEvent
   | LongRestEvent
   | ShortRestEvent
+  | ShortRestRuntimeEvent
+  | LongRestRuntimeEvent
   | SpendResourceEvent
   | RecoverResourceEvent
   | LevelUpEvent
@@ -251,4 +307,12 @@ export type GameEvent =
   | CompanionSummonEvent
   | CompanionDismissEvent
   | CompanionLoyaltyChangeEvent
-  | CompanionActionEvent;
+  | CompanionActionEvent
+  | CombatCreateEncounterEvent
+  | CombatAddParticipantEvent
+  | CombatSetInitiativeEvent
+  | CombatSortInitiativeEvent
+  | CombatAdvanceTurnEvent
+  | CombatSetTempHpEvent
+  | CombatAdjustDeathSaveEvent
+  | CombatEndEncounterEvent;

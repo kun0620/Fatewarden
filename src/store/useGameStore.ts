@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { createEventQueueState, processEventQueue, type EventRuntimeState } from '../engine/events/eventQueue';
 import { addParticipant, type CombatParticipant, type CombatState as EngineCombatState } from '../engine/combat';
+import { applyLongRest, applyShortRest } from '../engine/character/rest';
 import { getSceneContext as buildSceneContext, type SceneState } from '../engine/scene';
 import type { RaceRuntime } from '../engine/races/raceRuntime';
 import type { GameEvent } from '../engine/events/types';
@@ -22,6 +23,16 @@ import {
   processSceneTransition,
   processThreatClockAdvance,
 } from '../engine/events/processors/sceneProcessor';
+import {
+  processCombatAddParticipant,
+  processCombatAdjustDeathSave,
+  processCombatAdvanceTurn,
+  processCombatCreateEncounter,
+  processCombatEndEncounter,
+  processCombatSetInitiative,
+  processCombatSetTempHp,
+  processCombatSortInitiative,
+} from '../engine/events/processors/combatProcessor';
 import type { Character, Combatant, EncounterState, Inventory } from '../types';
 
 type DispatchResult = {
@@ -262,6 +273,207 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     source: 'user',
   }),
   dispatch: (event) => {
+    if (event.type === 'COMBAT_CREATE_ENCOUNTER') {
+      const result = processCombatCreateEncounter(event, {});
+      if (!result.applied) {
+        return { character: get().activeCharacter, appliedCount: 0, failed: [result.error ?? 'Failed to create encounter.'] };
+      }
+      get().setCombatState(result.combatState);
+      return { character: get().activeCharacter, appliedCount: 1, failed: [] };
+    }
+
+    if (event.type === 'COMBAT_ADD_PARTICIPANT') {
+      const activeCharacter = get().activeCharacter;
+      if (!activeCharacter) {
+        return { character: null, appliedCount: 0, failed: ['No active character in runtime store.'] };
+      }
+      const result = processCombatAddParticipant(get().combatState, event, activeCharacter, {});
+      if (!result.applied) {
+        return { character: activeCharacter, appliedCount: 0, failed: [result.error ?? 'Failed to add participant.'] };
+      }
+      get().setCombatState(result.combatState);
+      return { character: activeCharacter, appliedCount: 1, failed: [] };
+    }
+
+    if (event.type === 'COMBAT_SET_INITIATIVE') {
+      const result = processCombatSetInitiative(get().combatState, event);
+      if (!result.applied) {
+        return { character: get().activeCharacter, appliedCount: 0, failed: [result.error ?? 'Failed to set initiative.'] };
+      }
+      get().setCombatState(result.combatState);
+      return { character: get().activeCharacter, appliedCount: 1, failed: [] };
+    }
+
+    if (event.type === 'COMBAT_SORT_INITIATIVE') {
+      const activeCharacter = get().activeCharacter;
+      if (!activeCharacter) {
+        return { character: null, appliedCount: 0, failed: ['No active character in runtime store.'] };
+      }
+      const result = processCombatSortInitiative(get().combatState, activeCharacter);
+      if (!result.applied) {
+        return { character: activeCharacter, appliedCount: 0, failed: [result.error ?? 'Failed to sort initiative.'] };
+      }
+      get().setCombatState(result.combatState);
+      return { character: activeCharacter, appliedCount: 1, failed: [] };
+    }
+
+    if (event.type === 'COMBAT_ADVANCE_TURN') {
+      const activeCharacter = get().activeCharacter;
+      if (!activeCharacter) {
+        return { character: null, appliedCount: 0, failed: ['No active character in runtime store.'] };
+      }
+      const runtimeCharactersById = activeCharacter ? { [activeCharacter.id]: activeCharacter } : {};
+      const result = processCombatAdvanceTurn(
+        get().combatState,
+        event,
+        activeCharacter,
+        runtimeCharactersById,
+        get().companionState,
+        (emittedEvent) => {
+          void get().dispatch(emittedEvent);
+        },
+      );
+      if (!result.applied) {
+        return { character: activeCharacter, appliedCount: 0, failed: [result.error ?? 'Failed to advance turn.'] };
+      }
+      get().setCombatState(result.combatState);
+      return { character: activeCharacter, appliedCount: 1, failed: [] };
+    }
+
+    if (event.type === 'COMBAT_SET_TEMP_HP') {
+      const result = processCombatSetTempHp(get().combatState, event);
+      if (!result.applied) {
+        return { character: get().activeCharacter, appliedCount: 0, failed: [result.error ?? 'Failed to set temp HP.'] };
+      }
+      get().setCombatState(result.combatState);
+      return { character: get().activeCharacter, appliedCount: 1, failed: [] };
+    }
+
+    if (event.type === 'COMBAT_ADJUST_DEATH_SAVE') {
+      const result = processCombatAdjustDeathSave(get().combatState, event);
+      if (!result.applied) {
+        return { character: get().activeCharacter, appliedCount: 0, failed: [result.error ?? 'Failed to adjust death save.'] };
+      }
+      get().setCombatState(result.combatState);
+      return { character: get().activeCharacter, appliedCount: 1, failed: [] };
+    }
+
+    if (event.type === 'COMBAT_END_ENCOUNTER') {
+      const result = processCombatEndEncounter(get().combatState, event);
+      if (!result.applied) {
+        return { character: get().activeCharacter, appliedCount: 0, failed: [result.error ?? 'Failed to end encounter.'] };
+      }
+      get().setCombatState(result.combatState);
+      return { character: get().activeCharacter, appliedCount: 1, failed: [] };
+    }
+
+    if (event.type === 'SHORT_REST') {
+      const currentCharacter = get().activeCharacter;
+      if (!currentCharacter) {
+        return { character: null, appliedCount: 0, failed: ['No active character in runtime store.'] };
+      }
+      if (event.characterId !== currentCharacter.id) {
+        return { character: currentCharacter, appliedCount: 0, failed: ['SHORT_REST characterId does not match active character.'] };
+      }
+
+      const nextCharacter = applyShortRest(currentCharacter, event.hitDiceSpent);
+      set({
+        activeCharacter: nextCharacter,
+        classRuntime: mapClassRuntime(nextCharacter),
+        raceRuntime: mapRaceRuntime(nextCharacter),
+        inventory: mapInventory(nextCharacter),
+      });
+      return { character: nextCharacter, appliedCount: 1, failed: [] };
+    }
+
+    if (event.type === 'LONG_REST') {
+      const currentCharacter = get().activeCharacter;
+      if (!currentCharacter) {
+        return { character: null, appliedCount: 0, failed: ['No active character in runtime store.'] };
+      }
+      if (event.characterId !== currentCharacter.id) {
+        return { character: currentCharacter, appliedCount: 0, failed: ['LONG_REST characterId does not match active character.'] };
+      }
+
+      const nextCharacter = applyLongRest(currentCharacter);
+      set({
+        activeCharacter: nextCharacter,
+        classRuntime: mapClassRuntime(nextCharacter),
+        raceRuntime: mapRaceRuntime(nextCharacter),
+        inventory: mapInventory(nextCharacter),
+      });
+      return { character: nextCharacter, appliedCount: 1, failed: [] };
+    }
+
+    if (event.type === 'apply_damage' || event.type === 'recover_hp' || event.type === 'apply_condition' || event.type === 'remove_condition') {
+      const combatState = get().combatState;
+      if (combatState && event.targetId) {
+        const target = combatState.combatants.find((combatant) => combatant.id === event.targetId);
+        if (target) {
+          const runtimeState: EventRuntimeState = {
+            charactersById: {
+              [target.id]: {
+                id: target.id,
+                name: target.name,
+                ancestry: '',
+                className: '',
+                level: 1,
+                background: '',
+                age: '',
+                alignment: '',
+                languages: [],
+                proficiencies: [],
+                armorClass: target.armorClass,
+                hitPoints: target.hitPoints,
+                maxHitPoints: target.maxHitPoints,
+                speed: 30,
+                darkvision: 0,
+                inspiration: false,
+                abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
+                skills: [],
+                inventory: get().inventory ?? { items: [], maxCarryWeight: 0, currency: { pp: 0, gp: 0, ep: 0, sp: 0, cp: 0 } },
+                features: [],
+                spells: [],
+                backstory: '',
+                personalityTraits: [],
+                portraitUrl: '',
+                activeConditions: [...target.conditions],
+                exhaustionLevel: 0,
+                hitDice: 1,
+                maxHitDice: 1,
+                spellSlots: {},
+                systemData: {},
+              },
+            },
+          };
+          const queue = createEventQueueState([event]);
+          const processed = processEventQueue(runtimeState, queue);
+          if (processed.failedEvents.length > 0) {
+            return { character: get().activeCharacter, appliedCount: 0, failed: processed.failedEvents.map((item) => item.error) };
+          }
+          const nextTarget = processed.state.charactersById[target.id];
+          if (!nextTarget) {
+            return { character: get().activeCharacter, appliedCount: 0, failed: ['Combat target not found after processing.'] };
+          }
+          const nextCombatState: EncounterState = {
+            ...combatState,
+            combatants: combatState.combatants.map((combatant) =>
+              combatant.id === target.id
+                ? {
+                    ...combatant,
+                    hitPoints: nextTarget.hitPoints,
+                    maxHitPoints: nextTarget.maxHitPoints,
+                    conditions: [...nextTarget.activeConditions],
+                  }
+                : combatant,
+            ),
+          };
+          get().setCombatState(nextCombatState);
+          return { character: get().activeCharacter, appliedCount: processed.appliedEvents.length, failed: [] };
+        }
+      }
+    }
+
     if (event.type === 'COMPANION_SUMMON') {
       const currentCompanionState = get().companionState;
       const result = processCompanionSummon(currentCompanionState, event);

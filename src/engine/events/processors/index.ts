@@ -1,6 +1,7 @@
 export * from './conditionProcessor';
 export * from './classProcessor';
 export * from './companionProcessor';
+export * from './combatProcessor';
 export * from './damageProcessor';
 export * from './inventoryProcessor';
 export * from './partyChoiceProcessor';
