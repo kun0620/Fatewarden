@@ -3367,7 +3367,7 @@ textarea.fw-composer-input {
   flex-direction: column;
   gap: var(--sp-5);
   padding: 0 var(--sp-6) var(--sp-10);
-  max-width: 940px;
+  max-width: 1100px;
   width: 100%;
   margin: 0 auto;
 }
@@ -3380,9 +3380,13 @@ textarea.fw-composer-input {
 @media (min-width: 768px) {
   .fw-gate-grid {
     display: grid;
-    grid-template-columns: 320px 1fr;
+    grid-template-columns: 300px 1fr;
     align-items: start;
     gap: var(--sp-6);
+  }
+
+  .fw-gate-grid > div {
+    min-width: 0;
   }
 
   .fw-gate-grid.auth-only {
@@ -3516,10 +3520,43 @@ textarea.fw-composer-input {
 /* Room Menu Footer */
 .fw-room-menu__footer {
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
+  align-items: flex-start;
+  gap: var(--sp-3);
   padding-top: var(--sp-3);
   border-top: 1px solid rgba(212, 184, 150, 0.1);
+  flex-wrap: wrap;
+}
+
+.fw-room-menu__footer .fw-btn {
+  flex-shrink: 0;
+}
+
+.fw-room-menu__footer .fw-caption {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-400);
+  line-height: 1.5;
+}
+
+/* Continue Session List */
+.fw-room-continue-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.fw-room-continue-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-subtle);
+  transition: border-color var(--t-base);
+}
+
+.fw-room-continue-item:hover {
+  border-color: var(--accent);
 }
 
 /* Room Modal */

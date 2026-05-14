@@ -625,13 +625,15 @@ export function App() {
             <AuthPanel loading={authLoading} user={user} />
           </div>
           {user ? (
-            <SessionLobby
-              onRequestEnterSession={(session) => requestEnterSession(session, user)}
-              onRoomModalChange={setRoomModal}
-              onSignOut={signOut}
-              roomModal={roomModal}
-              user={user}
-            />
+            <div>
+              <SessionLobby
+                onRequestEnterSession={(session) => requestEnterSession(session, user)}
+                onRoomModalChange={setRoomModal}
+                onSignOut={signOut}
+                roomModal={roomModal}
+                user={user}
+              />
+            </div>
           ) : null}
         </section>
 
