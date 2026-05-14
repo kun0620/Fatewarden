@@ -393,7 +393,7 @@ Deno.serve(async (request) => {
   if (!apiKey) {
     return errorResponse('GOOGLE_API_KEY is not configured for the AI DM function.', 500);
   }
-  const model = Deno.env.get('GOOGLE_MODEL') ?? 'gemini-2.5-flash';
+  const model = Deno.env.get('GOOGLE_MODEL') ?? 'gemini-2.0-flash';
 
   const body = await parseRequestBody(request);
   if (!body) {
