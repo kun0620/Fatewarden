@@ -14,6 +14,7 @@ type SessionLobbyProps = {
   onSignOut: () => void;
   roomModal: RoomModal;
   user: User | null;
+  modalsOnly?: boolean;
 };
 
 type RoomModalShellProps = {
@@ -44,7 +45,7 @@ function RoomModalShell({ children, eyebrow, onClose, title }: RoomModalShellPro
   );
 }
 
-export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignOut, roomModal, user }: SessionLobbyProps) {
+export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignOut, roomModal, user, modalsOnly }: SessionLobbyProps) {
   const [sessions, setSessions] = useState<GameSession[]>([]);
   const [title, setTitle] = useState('The Witchlight Tower');
   const [playMode, setPlayMode] = useState<SessionPlayMode>('dnd');
@@ -149,7 +150,8 @@ export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignO
 
   return (
     <>
-      <section className="fw-panel fw-card--framed fw-room-menu">
+      {!modalsOnly ? (
+        <section className="fw-panel fw-card--framed fw-room-menu">
         <div className="fw-panel__header">
           <div>
             <p className="fw-caption">Main Menu</p>
@@ -216,6 +218,7 @@ export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignO
           </p>
         </div>
       </section>
+      ) : null}
 
       {roomModal === 'create' ? (
         <RoomModalShell eyebrow="New Table" onClose={closeModal} title="Create room">

@@ -7,6 +7,7 @@ import { CharacterSheet } from './components/CharacterSheet';
 import { CharacterSheetView } from './components/CharacterSheetView';
 import { CombatTracker } from './components/CombatTracker';
 import { DiceRoller } from './components/DiceRoller';
+import { MainMenu } from './components/MainMenu';
 import { GamePhasePanel } from './components/GamePhasePanel';
 import { HexHeroBuilder } from './components/HexHeroBuilder';
 import { InventoryPanel } from './components/InventoryPanel';
@@ -34,6 +35,7 @@ import { getPlayModeDefinition } from './lib/playModes';
 import { getSessionThemeDefinition } from './lib/sessionThemes';
 import { subscribeToSessionUpdates, updateSessionCombatState } from './lib/sessions';
 import { useGameStore } from './store/useGameStore';
+import { computeAppStage, getGateSteps, isGateStage } from './lib/appFlow';
 import { hasSupabaseConfig, supabase } from './lib/supabase';
 import type {
   AiConfirmAction,
@@ -185,6 +187,18 @@ export function App() {
   }, [activeSession, sceneState, setSceneState]);
 
   usePartyChoiceSync(activeSession?.id ?? null);
+
+  // Explicit app-flow state machine: login → menu → character-setup → game
+  const appStage = computeAppStage({ hasSupabaseConfig, user, activeSession, pendingSession });
+  const gateSteps = getGateSteps(appStage);
+
+  // Guard: clear pendingSession when user logs out so we don't keep a stale
+  // character-setup modal queued for a vanished user.
+  useEffect(() => {
+    if (!user && pendingSession) {
+      setPendingSession(null);
+    }
+  }, [user, pendingSession, setPendingSession]);
 
   const { openingSceneBusy, hasOpeningScene, askAiToOpenScene, askAiForRestSummary } = useAiDm(
     activeSession,
@@ -576,9 +590,9 @@ export function App() {
     switchTable();
   }
 
-  if (hasSupabaseConfig && (!user || !activeSession)) {
+  if (isGateStage(appStage)) {
     return (
-      <main className="fw-gate-shell">
+      <main className="fw-gate-shell" data-stage={appStage}>
         <section className="fw-gate-hero">
           <div className="fw-gate-copy">
             <div className="fw-gate-brand-mark" aria-hidden="true">
@@ -591,14 +605,18 @@ export function App() {
               entering the live DnD cockpit.
             </p>
             <div className="fw-gate-flow" aria-label="Entry flow">
-              <span className={user ? 'complete' : 'active'}>
+              <span className={gateSteps.signIn}>
                 <span className="fw-caption">1. Sign in</span>
               </span>
-              <span className={user ? 'active' : ''}>
+              <span className={gateSteps.table}>
                 <span className="fw-caption">2. Table</span>
               </span>
-              <span><span className="fw-caption">3. Character</span></span>
-              <span><span className="fw-caption">4. Play</span></span>
+              <span className={gateSteps.character}>
+                <span className="fw-caption">3. Character</span>
+              </span>
+              <span className={gateSteps.play}>
+                <span className="fw-caption">4. Play</span>
+              </span>
             </div>
           </div>
           <div className="fw-gate-status">
@@ -620,24 +638,24 @@ export function App() {
           </div>
         </section>
 
-        <section className={`fw-gate-grid ${user ? '' : 'auth-only'}`}>
+        <section className={`fw-gate-grid ${appStage === 'login' ? 'auth-only' : ''}`}>
           <div>
             <AuthPanel loading={authLoading} user={user} />
           </div>
-          {user ? (
+          {appStage === 'menu' && user ? (
             <div>
-              <SessionLobby
-                onRequestEnterSession={(session) => requestEnterSession(session, user)}
-                onRoomModalChange={setRoomModal}
-                onSignOut={signOut}
-                roomModal={roomModal}
+              <MainMenu
                 user={user}
+                roomModal={roomModal}
+                onRoomModalChange={setRoomModal}
+                onRequestEnterSession={(session) => requestEnterSession(session, user)}
+                onSignOut={signOut}
               />
             </div>
           ) : null}
         </section>
 
-        {pendingSession && user ? (
+        {appStage === 'character-setup' && pendingSession && user ? (
           <CharacterEntryModal
             onCancel={() => setPendingSession(null)}
             onEnter={completeCharacterEntry}
