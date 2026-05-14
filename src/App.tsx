@@ -8,6 +8,7 @@ import { CharacterSheetView } from './components/CharacterSheetView';
 import { CombatTracker } from './components/CombatTracker';
 import { DiceRoller } from './components/DiceRoller';
 import { MainMenu } from './components/MainMenu';
+import { RoomSetupPage } from './components/RoomSetupPage';
 import { GamePhasePanel } from './components/GamePhasePanel';
 import { HexHeroBuilder } from './components/HexHeroBuilder';
 import { InventoryPanel } from './components/InventoryPanel';
@@ -120,6 +121,7 @@ export function App() {
   const [cockpitMode, setCockpitMode] = useState<CockpitMode>('dm');
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('quest');
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [pendingRoomSetup, setPendingRoomSetup] = useState(false);
 
   const { authSession, authLoading, user, signOut: authSignOut } = useAuthFlow();
   const {
@@ -188,17 +190,17 @@ export function App() {
 
   usePartyChoiceSync(activeSession?.id ?? null);
 
-  // Explicit app-flow state machine: login → menu → character-setup → game
-  const appStage = computeAppStage({ hasSupabaseConfig, user, activeSession, pendingSession });
+  // Explicit app-flow state machine: login → menu → room-setup → character-setup → game
+  const appStage = computeAppStage({ hasSupabaseConfig, user, activeSession, pendingSession, pendingRoomSetup });
   const gateSteps = getGateSteps(appStage);
 
-  // Guard: clear pendingSession when user logs out so we don't keep a stale
-  // character-setup modal queued for a vanished user.
+  // Guard: clear pendingSession and pendingRoomSetup when user logs out
   useEffect(() => {
-    if (!user && pendingSession) {
-      setPendingSession(null);
+    if (!user) {
+      if (pendingSession) setPendingSession(null);
+      if (pendingRoomSetup) setPendingRoomSetup(false);
     }
-  }, [user, pendingSession, setPendingSession]);
+  }, [user, pendingSession, pendingRoomSetup]);
 
   const { openingSceneBusy, hasOpeningScene, askAiToOpenScene, askAiForRestSummary } = useAiDm(
     activeSession,
@@ -649,9 +651,20 @@ export function App() {
                 roomModal={roomModal}
                 onRoomModalChange={setRoomModal}
                 onRequestEnterSession={(session) => requestEnterSession(session, user)}
+                onRequestRoomSetup={() => setPendingRoomSetup(true)}
                 onSignOut={signOut}
               />
             </div>
+          ) : null}
+          {appStage === 'room-setup' && user ? (
+            <RoomSetupPage
+              user={user}
+              onCreated={(session) => {
+                setPendingRoomSetup(false);
+                requestEnterSession(session, user);
+              }}
+              onCancel={() => setPendingRoomSetup(false)}
+            />
           ) : null}
         </section>
 

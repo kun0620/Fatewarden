@@ -10,13 +10,14 @@ import type { GameSession } from '../types';
  * `local-play` is a degenerate stage that bypasses Supabase when not configured
  * (developer / offline mode). Treated like `game` for render purposes.
  */
-export type AppStage = 'local-play' | 'login' | 'menu' | 'character-setup' | 'game';
+export type AppStage = 'local-play' | 'login' | 'menu' | 'room-setup' | 'character-setup' | 'game';
 
 export type AppFlowInput = {
   hasSupabaseConfig: boolean;
   user: User | null;
   activeSession: GameSession | null;
   pendingSession: GameSession | null;
+  pendingRoomSetup: boolean;
 };
 
 /**
@@ -30,17 +31,18 @@ export type AppFlowInput = {
  *   5. otherwise                 → menu
  */
 export function computeAppStage(input: AppFlowInput): AppStage {
-  const { hasSupabaseConfig, user, activeSession, pendingSession } = input;
+  const { hasSupabaseConfig, user, activeSession, pendingSession, pendingRoomSetup } = input;
   if (!hasSupabaseConfig) return 'local-play';
   if (!user) return 'login';
   if (activeSession) return 'game';
   if (pendingSession) return 'character-setup';
+  if (pendingRoomSetup) return 'room-setup';
   return 'menu';
 }
 
 /** Stages that render the gate (pre-game funnel). */
 export function isGateStage(stage: AppStage): boolean {
-  return stage === 'login' || stage === 'menu' || stage === 'character-setup';
+  return stage === 'login' || stage === 'menu' || stage === 'room-setup' || stage === 'character-setup';
 }
 
 /** Stages that render the in-game cockpit. */

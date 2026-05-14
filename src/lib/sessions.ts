@@ -1,5 +1,6 @@
 import type { User } from '@supabase/supabase-js';
-import type { EncounterState, GamePhase, GameSession, SessionPlayMode, SessionTheme } from '../types';
+import type { EncounterState, GamePhase, GameSession, SessionPlayMode, SessionTheme, RuleStrictness, RoomVisibility } from '../types';
+import type { RoomSetupDraft } from './roomSetup';
 import { normalizeEncounterState } from './combat';
 import { normalizeGamePhase } from './gamePhases';
 import { normalizePlayMode } from './playModes';
@@ -22,10 +23,14 @@ type SessionRow = {
   rules_version?: string | null;
   enabled_modules?: string[] | null;
   house_rules?: string | null;
+  party_size?: number | null;
+  allow_ai_dm?: boolean | null;
+  visibility?: string | null;
+  rule_strictness?: string | null;
 };
 
 const sessionSelect =
-  'id,title,join_code,created_at,created_by,play_mode,game_phase,combat_state,theme_key,theme_tone,theme_notes,rules_version,enabled_modules,house_rules';
+  'id,title,join_code,created_at,created_by,play_mode,game_phase,combat_state,theme_key,theme_tone,theme_notes,rules_version,enabled_modules,house_rules,party_size,allow_ai_dm,visibility,rule_strictness';
 const combatSessionSelect =
   'id,title,join_code,created_at,created_by,play_mode,game_phase,combat_state,rules_version,enabled_modules,house_rules';
 const legacySessionSelect = 'id,title,join_code,created_at,created_by,play_mode,game_phase,rules_version,enabled_modules,house_rules';
@@ -43,6 +48,10 @@ function mapSession(row: SessionRow): GameSession {
     theme: normalizeSessionTheme(row.theme_key, row.theme_tone, row.theme_notes),
     combatState: normalizeEncounterState(row.combat_state),
     rules: normalizeRules(row.rules_version, row.enabled_modules, row.house_rules),
+    partySize: typeof row.party_size === 'number' ? row.party_size : 4,
+    allowAiDm: typeof row.allow_ai_dm === 'boolean' ? row.allow_ai_dm : true,
+    visibility: normalizeVisibility(row.visibility),
+    ruleStrictness: normalizeRuleStrictness(row.rule_strictness),
   };
 }
 
@@ -54,8 +63,21 @@ function isMissingSessionColumn(error: { code?: string; message?: string }) {
     error.message?.includes('combat_state') ||
     error.message?.includes('theme_key') ||
     error.message?.includes('theme_tone') ||
-    error.message?.includes('theme_notes')
+    error.message?.includes('theme_notes') ||
+    error.message?.includes('party_size') ||
+    error.message?.includes('allow_ai_dm') ||
+    error.message?.includes('visibility') ||
+    error.message?.includes('rule_strictness')
   );
+}
+
+function normalizeRuleStrictness(value: unknown): RuleStrictness {
+  const valid = ['casual', 'standard', 'hardcore'];
+  return typeof value === 'string' && valid.includes(value) ? (value as RuleStrictness) : 'standard';
+}
+
+function normalizeVisibility(value: unknown): RoomVisibility {
+  return value === 'private' ? 'private' : 'invite_code';
 }
 
 function makeJoinCode() {
@@ -106,29 +128,27 @@ export async function listJoinedSessions() {
   return (data ?? []).map((row) => mapSession(row as SessionRow));
 }
 
-export async function createGameSession(
-  title: string,
-  user: User,
-  houseRules = '',
-  playMode: SessionPlayMode = 'dnd',
-  theme: SessionTheme = defaultSessionTheme,
-) {
+export async function createGameSession(draft: RoomSetupDraft, user: User) {
   const client = requireClient();
   const joinCode = makeJoinCode();
   const { data, error } = await client
     .from('sessions')
     .insert({
-      title,
+      title: draft.title.trim(),
       join_code: joinCode,
       created_by: user.id,
-      play_mode: playMode,
+      play_mode: draft.playMode,
       rules_version: defaultSessionRules.version,
       enabled_modules: defaultSessionRules.enabledModules,
-      house_rules: houseRules.trim() || defaultSessionRules.houseRules,
+      house_rules: draft.houseRules.trim() || defaultSessionRules.houseRules,
       game_phase: 'setup',
-      theme_key: theme.key,
-      theme_tone: theme.tone,
-      theme_notes: theme.notes.trim(),
+      theme_key: draft.themeKey,
+      theme_tone: defaultSessionTheme.tone,
+      theme_notes: draft.themeNotes.trim(),
+      party_size: draft.partySize,
+      allow_ai_dm: draft.allowAiDm,
+      visibility: draft.visibility,
+      rule_strictness: draft.ruleStrictness,
     })
     .select(sessionSelect)
     .single();
@@ -137,13 +157,13 @@ export async function createGameSession(
     const legacyResult = await client
       .from('sessions')
       .insert({
-        title,
+        title: draft.title.trim(),
         join_code: joinCode,
         created_by: user.id,
-        play_mode: playMode,
+        play_mode: draft.playMode,
         rules_version: defaultSessionRules.version,
         enabled_modules: defaultSessionRules.enabledModules,
-        house_rules: houseRules.trim() || defaultSessionRules.houseRules,
+        house_rules: draft.houseRules.trim() || defaultSessionRules.houseRules,
         game_phase: 'setup',
       })
       .select(combatSessionSelect)

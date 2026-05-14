@@ -91,11 +91,17 @@ export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignO
     setBusy(true);
     setMessage('');
     try {
-      const session = await createGameSession(title.trim() || 'Untitled Adventure', user, houseRules, playMode, {
-        key: themeKey,
-        tone: themeTone,
-        notes: themeNotes,
-      });
+      const session = await createGameSession({
+        title: title.trim() || 'Untitled Adventure',
+        playMode,
+        themeKey,
+        themeNotes,
+        ruleStrictness: 'standard',
+        partySize: 4,
+        allowAiDm: true,
+        visibility: 'invite_code',
+        houseRules,
+      }, user);
       setSessions((current) => [session, ...current]);
       setHouseRules('');
       setThemeNotes('');

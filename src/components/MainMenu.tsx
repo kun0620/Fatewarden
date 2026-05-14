@@ -13,6 +13,7 @@ type MainMenuProps = {
   roomModal: RoomModal;
   onRoomModalChange: (modal: RoomModal) => void;
   onRequestEnterSession: (session: GameSession) => void;
+  onRequestRoomSetup: () => void;
   onSignOut: () => void;
 };
 
@@ -98,6 +99,7 @@ export function MainMenu({
   roomModal,
   onRoomModalChange,
   onRequestEnterSession,
+  onRequestRoomSetup,
   onSignOut,
 }: MainMenuProps) {
   const [view, setView] = useState<MenuView>('home');
@@ -166,7 +168,7 @@ export function MainMenu({
               icon={<Plus size={20} aria-hidden="true" />}
               title="Create New Room"
               subtitle="Forge a new realm"
-              onClick={() => onRoomModalChange('create')}
+              onClick={onRequestRoomSetup}
             />
             <MenuCard
               icon={<DoorOpen size={20} aria-hidden="true" />}

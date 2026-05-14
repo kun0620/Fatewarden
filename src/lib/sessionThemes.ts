@@ -14,27 +14,22 @@ export const sessionThemePresets: Array<{
   {
     key: 'dark_fantasy',
     label: 'Dark Fantasy',
-    description: 'คำสาป เงามืด และทางเลือกที่มีราคา',
+    description: 'คำสาป เงามืด',
   },
   {
-    key: 'gothic_horror',
-    label: 'Cosmic Horror',
-    description: 'ความจริงผิดรูป สัญญาณจากสิ่งเหนือมนุษย์ และแรงกดดันทางจิตใจ',
+    key: 'high_fantasy',
+    label: 'High Fantasy',
+    description: 'ผจญภัยใหญ่ ชัยชนะกล้าหาญ',
+  },
+  {
+    key: 'horror',
+    label: 'Horror',
+    description: 'ความกลัว, สิ่งเหนือมนุษย์',
   },
   {
     key: 'mystery',
-    label: 'Gothic Mystery',
-    description: 'สืบสวน ร่องรอย คฤหาสน์/เมืองหม่น และ NPC มีแรงจูงใจซ่อนอยู่',
-  },
-  {
-    key: 'wilderness',
-    label: 'Wilderness',
-    description: 'เดินทาง สำรวจ ทรัพยากร และอันตรายในป่า',
-  },
-  {
-    key: 'heroic_fantasy',
-    label: 'Heroic Fantasy',
-    description: 'ผจญภัยชัดเจน จังหวะเร็ว และชัยชนะที่ยิ่งใหญ่',
+    label: 'Mystery',
+    description: 'สืบสวน ปริศนา',
   },
 ];
 
@@ -52,15 +47,30 @@ export const sessionThemeTones: Array<{
 const themeKeys = new Set<SessionThemeKey>(sessionThemePresets.map((theme) => theme.key));
 const themeTones = new Set<SessionThemeTone>(sessionThemeTones.map((tone) => tone.key));
 
+function mapLegacyThemeKey(key: string): SessionThemeKey {
+  // Map deprecated theme keys to new ones for backward compatibility
+  const legacyMap: Record<string, SessionThemeKey> = {
+    'gothic_horror': 'horror',
+    'heroic_fantasy': 'high_fantasy',
+    'wilderness': 'dark_fantasy',
+  };
+  return legacyMap[key] ?? (key as SessionThemeKey);
+}
+
 export function normalizeSessionTheme(
   key: unknown,
   tone: unknown,
   notes: unknown,
 ): SessionTheme {
+  let normalizedKey = defaultSessionTheme.key;
+  if (typeof key === 'string') {
+    const mapped = mapLegacyThemeKey(key);
+    if (themeKeys.has(mapped)) {
+      normalizedKey = mapped;
+    }
+  }
   return {
-    key: typeof key === 'string' && themeKeys.has(key as SessionThemeKey)
-      ? (key as SessionThemeKey)
-      : defaultSessionTheme.key,
+    key: normalizedKey,
     tone: typeof tone === 'string' && themeTones.has(tone as SessionThemeTone)
       ? (tone as SessionThemeTone)
       : defaultSessionTheme.tone,

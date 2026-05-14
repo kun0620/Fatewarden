@@ -9,9 +9,13 @@ export type RulesModule = 'core' | 'combat' | 'conditions';
 
 export type GamePhase = 'setup' | 'exploration' | 'combat' | 'rest';
 
-export type SessionPlayMode = 'dnd' | 'hexplore';
+export type SessionPlayMode = 'dnd' | 'story' | 'ai_dm' | 'hexplore';
 
-export type SessionThemeKey = 'dark_fantasy' | 'gothic_horror' | 'mystery' | 'wilderness' | 'heroic_fantasy';
+export type SessionThemeKey = 'dark_fantasy' | 'high_fantasy' | 'horror' | 'mystery';
+
+export type RuleStrictness = 'casual' | 'standard' | 'hardcore';
+
+export type RoomVisibility = 'private' | 'invite_code';
 
 export type SessionThemeTone = 'grim' | 'mysterious' | 'cinematic' | 'dangerous' | 'light_adventure';
 
@@ -345,6 +349,10 @@ export type GameSession = {
   theme: SessionTheme;
   rules: SessionRules;
   combatState: EncounterState | null;
+  partySize: number;
+  allowAiDm: boolean;
+  visibility: RoomVisibility;
+  ruleStrictness: RuleStrictness;
 };
 
 export type CombatantType = 'player' | 'enemy';

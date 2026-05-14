@@ -4218,3 +4218,224 @@ textarea.fw-composer-input {
   color: var(--ink-400);
 }
 
+/* ============================================================
+   ROOM SETUP PAGE & FORM
+   ============================================================ */
+
+.fw-room-setup-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  padding: var(--sp-5);
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.fw-room-setup-page__header {
+  text-align: center;
+}
+
+.fw-room-setup-page__header .fw-caption {
+  margin-bottom: var(--sp-1);
+}
+
+.fw-room-setup-page__header .fw-h2 {
+  margin: var(--sp-2) 0;
+}
+
+.fw-room-setup-page__error {
+  color: var(--danger, #c44);
+  padding: var(--sp-3);
+  background: rgba(204, 68, 68, 0.1);
+  border: 1px solid rgba(204, 68, 68, 0.3);
+  border-radius: var(--r-xs);
+  margin-top: var(--sp-3);
+}
+
+.fw-room-form-v2 {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-frame);
+  border-radius: var(--r-md);
+}
+
+.fw-room-form-v2__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.fw-room-form-v2__label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  letter-spacing: var(--ls-caption);
+  text-transform: uppercase;
+  color: var(--ink-300);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.fw-room-form-v2__required {
+  color: var(--accent, #f60);
+}
+
+.fw-room-form-v2__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.fw-room-form-v2__chip {
+  padding: var(--sp-2) var(--sp-3);
+  min-height: 44px;
+  min-width: 80px;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  cursor: pointer;
+  transition: all var(--t-base);
+  border-radius: var(--r-xs);
+  font-family: var(--font-serif);
+  color: var(--ink-200);
+  font-size: var(--fs-body-sm);
+}
+
+.fw-room-form-v2__chip[data-active="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft, rgba(255, 102, 0, 0.1));
+  color: var(--ink-100);
+}
+
+.fw-room-form-v2__chip:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.fw-room-form-v2__chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.fw-room-form-v2__segment {
+  display: inline-flex;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-xs);
+  overflow: hidden;
+}
+
+.fw-room-form-v2__segment-btn {
+  flex: 1;
+  padding: var(--sp-2) var(--sp-3);
+  min-height: 44px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: all var(--t-base);
+  font-family: var(--font-serif);
+  color: var(--ink-200);
+  font-size: var(--fs-body-sm);
+  border-right: 1px solid var(--border-subtle);
+}
+
+.fw-room-form-v2__segment-btn:last-child {
+  border-right: none;
+}
+
+.fw-room-form-v2__segment-btn[data-active="true"] {
+  background: var(--accent-soft, rgba(255, 102, 0, 0.1));
+  color: var(--ink-100);
+}
+
+.fw-room-form-v2__segment-btn:hover:not(:disabled) {
+  background: var(--accent-soft, rgba(255, 102, 0, 0.05));
+}
+
+.fw-room-form-v2__segment-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.fw-room-form-v2__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  cursor: pointer;
+  font-family: var(--font-serif);
+  color: var(--ink-200);
+  font-size: var(--fs-body-sm);
+}
+
+.fw-room-form-v2__toggle input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.fw-room-form-v2__stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.fw-room-form-v2__stepper-btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+}
+
+.fw-room-form-v2__stepper input {
+  text-align: center;
+  font-family: var(--font-mono);
+}
+
+.fw-room-form-v2__error {
+  color: var(--danger, #c44);
+  font-size: var(--fs-caption);
+  margin-top: calc(var(--sp-2) * -1);
+}
+
+.fw-room-form-v2__footer {
+  display: flex;
+  gap: var(--sp-3);
+  justify-content: flex-end;
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border-subtle);
+}
+
+@media (max-width: 640px) {
+  .fw-room-setup-page {
+    padding: var(--sp-3);
+  }
+
+  .fw-room-form-v2 {
+    padding: var(--sp-3);
+  }
+
+  .fw-room-form-v2__footer {
+    flex-direction: column-reverse;
+  }
+
+  .fw-room-form-v2__footer .fw-btn {
+    width: 100%;
+  }
+
+  .fw-room-form-v2__chips {
+    gap: var(--sp-2);
+  }
+
+  .fw-room-form-v2__chip {
+    flex: 1 1 calc(50% - var(--sp-1));
+  }
+
+  .fw-room-form-v2__segment {
+    width: 100%;
+  }
+
+  .fw-room-form-v2__segment-btn {
+    flex: 1;
+  }
+}
+
