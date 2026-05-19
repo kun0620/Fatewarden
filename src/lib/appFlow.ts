@@ -2,15 +2,27 @@ import type { User } from '@supabase/supabase-js';
 import type { GameSession } from '../types';
 
 /**
- * AppStage — explicit state machine for the top-level app flow.
+ * AppStage - explicit state machine for the top-level app flow.
  *
  * Target flow:
- *   login → menu → character-setup → game
+ *   login -> menu -> character-setup -> game
  *
  * `local-play` is a degenerate stage that bypasses Supabase when not configured
  * (developer / offline mode). Treated like `game` for render purposes.
  */
-export type AppStage = 'local-play' | 'login' | 'menu' | 'room-setup' | 'character-setup' | 'game';
+export type AppStage =
+  | 'local-play'
+  | 'login'
+  | 'menu'
+  | 'room-setup'
+  | 'character-setup'
+  | 'lobby'
+  | 'char-sheet'
+  | 'dm-dashboard'
+  | 'game'
+  | 'bestiary'
+  | 'library'
+  | 'settings';
 
 export type AppFlowInput = {
   hasSupabaseConfig: boolean;
@@ -18,31 +30,66 @@ export type AppFlowInput = {
   activeSession: GameSession | null;
   pendingSession: GameSession | null;
   pendingRoomSetup: boolean;
+  pendingLibrary: boolean;
+  pendingSettings: boolean;
+  pendingLobby: boolean;
+  pendingCharSheet: boolean;
+  pendingDmDash: boolean;
+  pendingBestiary: boolean;
 };
 
 /**
- * Pure function — derives current stage from auth + session state.
+ * Pure function - derives current stage from auth + session state.
  *
  * Rules (highest precedence first):
- *   1. No Supabase config        → local-play (demo / offline)
- *   2. No authenticated user     → login
- *   3. Active session selected   → game
- *   4. Pending session selected  → character-setup
- *   5. otherwise                 → menu
+ *   1. No Supabase config        -> local-play (demo / offline)
+ *   2. No authenticated user     -> login
+ *   3. Active session selected   -> game
+ *   4. Pending session selected  -> character-setup
+ *   5. otherwise                 -> menu
  */
 export function computeAppStage(input: AppFlowInput): AppStage {
-  const { hasSupabaseConfig, user, activeSession, pendingSession, pendingRoomSetup } = input;
+  const {
+    hasSupabaseConfig,
+    user,
+    activeSession,
+    pendingSession,
+    pendingRoomSetup,
+    pendingLibrary,
+    pendingSettings,
+    pendingLobby,
+    pendingCharSheet,
+    pendingDmDash,
+    pendingBestiary,
+  } = input;
   if (!hasSupabaseConfig) return 'local-play';
   if (!user) return 'login';
   if (activeSession) return 'game';
   if (pendingSession) return 'character-setup';
+  if (pendingLobby) return 'lobby';
+  if (pendingCharSheet) return 'char-sheet';
+  if (pendingDmDash) return 'dm-dashboard';
+  if (pendingBestiary) return 'bestiary';
   if (pendingRoomSetup) return 'room-setup';
+  if (pendingLibrary) return 'library';
+  if (pendingSettings) return 'settings';
   return 'menu';
 }
 
 /** Stages that render the gate (pre-game funnel). */
 export function isGateStage(stage: AppStage): boolean {
-  return stage === 'login' || stage === 'menu' || stage === 'room-setup' || stage === 'character-setup';
+  return (
+    stage === 'login' ||
+    stage === 'menu' ||
+    stage === 'library' ||
+    stage === 'settings' ||
+    stage === 'room-setup' ||
+    stage === 'character-setup' ||
+    stage === 'lobby' ||
+    stage === 'char-sheet' ||
+    stage === 'dm-dashboard' ||
+    stage === 'bestiary'
+  );
 }
 
 /** Stages that render the in-game cockpit. */
@@ -68,6 +115,8 @@ export function getGateSteps(stage: AppStage): GateStepIndicator {
     case 'login':
       return { signIn: 'active', table: 'pending', character: 'pending', play: 'pending' };
     case 'menu':
+    case 'library':
+    case 'settings':
       return { signIn: 'complete', table: 'active', character: 'pending', play: 'pending' };
     case 'character-setup':
       return { signIn: 'complete', table: 'complete', character: 'active', play: 'pending' };

@@ -1,10 +1,9 @@
-import { Minus, Plus, RotateCcw, SkipBack, SkipForward, Swords, XCircle } from 'lucide-react';
+import { Minus, Plus, RotateCcw, Settings, SkipBack, SkipForward, Swords, XCircle } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { useGameStore } from '../store/useGameStore';
 import { conditions } from '../lib/rules';
+import { useGameStore } from '../store/useGameStore';
 import type { GameEvent } from '../engine/events/types';
 import type { Character, Combatant, EncounterState, GamePhase } from '../types';
-import { Tooltip } from './ui/Tooltip';
 
 type CombatTrackerProps = {
   character: Character;
@@ -13,10 +12,6 @@ type CombatTrackerProps = {
   onCombatEvent: (body: string, metadata: Record<string, unknown>) => Promise<void> | void;
   onRequestPhaseChange?: (phase: GamePhase) => void;
 };
-
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
-}
 
 function hpState(hp: number, maxHp: number): 'full' | 'mid' | 'low' | 'bleed' {
   if (maxHp <= 0) return 'full';
@@ -45,6 +40,24 @@ function buildEventMeta(character: Character, sessionId: string) {
   };
 }
 
+function getConditionVariant(condition: string): 'bleed' | 'buff' | 'minor' {
+  const negative = new Set([
+    'poisoned',
+    'frightened',
+    'paralyzed',
+    'prone',
+    'stunned',
+    'exhausted',
+    'blinded',
+    'restrained',
+  ]);
+  const positive = new Set(['bless', 'haste', 'inspired', 'concentrating']);
+  const lower = condition.trim().toLowerCase();
+  if (negative.has(lower)) return 'bleed';
+  if (positive.has(lower)) return 'buff';
+  return 'minor';
+}
+
 export function CombatTracker({
   character,
   encounter,
@@ -59,6 +72,10 @@ export function CombatTracker({
   const [enemyInitiative, setEnemyInitiative] = useState(10);
   const [amounts, setAmounts] = useState<Record<string, number>>({});
   const [conditionDrafts, setConditionDrafts] = useState<Record<string, string>>({});
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [hpDraftMode, setHpDraftMode] = useState<'damage' | 'healing' | null>(null);
+  const [showConditionPicker, setShowConditionPicker] = useState(false);
+  const [showEnemyForm, setShowEnemyForm] = useState(false);
 
   const combatState = useGameStore((state) => state.combatState);
   const setCombatState = useGameStore((state) => state.setCombatState);
@@ -80,6 +97,23 @@ export function CombatTracker({
     return activeEncounter.combatants[activeEncounter.activeIndex] ?? activeEncounter.combatants[0];
   }, [activeEncounter]);
 
+  useEffect(() => {
+    if (!activeEncounter?.combatants.length) {
+      setSelectedId(null);
+      return;
+    }
+    const current = activeEncounter.combatants[activeEncounter.activeIndex] ?? activeEncounter.combatants[0];
+    const chosen = selectedId
+      ? activeEncounter.combatants.find((combatant) => combatant.id === selectedId)
+      : null;
+    if (!chosen) setSelectedId(current.id);
+  }, [activeEncounter, selectedId]);
+
+  const selectedCombatant = useMemo(
+    () => activeEncounter?.combatants.find((combatant) => combatant.id === selectedId) ?? null,
+    [activeEncounter, selectedId],
+  );
+
   const quickStep = useMemo(() => {
     if (!activeEncounter) return null;
     if (activeEncounter.combatants.length < 2) return 1;
@@ -93,6 +127,14 @@ export function CombatTracker({
     if (!activeEncounter.isActive) return true;
     return activeEncounter.round <= 1 && activeEncounter.activeIndex === 0;
   }, [activeEncounter]);
+
+  const allConditionChips = useMemo(
+    () =>
+      (activeEncounter?.combatants ?? []).flatMap((combatant) =>
+        combatant.conditions.map((condition) => ({ combatant, condition })),
+      ),
+    [activeEncounter],
+  );
 
   async function syncEncounterFromStore() {
     const latest = useGameStore.getState().combatState;
@@ -337,22 +379,25 @@ export function CombatTracker({
 
   if (!activeEncounter) {
     return (
-      <section className="fw-panel fw-combat-panel">
+      <section className="fw-panel fw-combat-panel fw-combat-panel--empty">
         <div className="fw-panel__header">
           <div>
             <p className="fw-caption">Combat</p>
-            <h2 className="fw-h2">Tracker</h2>
+            <h2 className="fw-h2">No encounter active</h2>
           </div>
           <Swords size={24} aria-hidden="true" />
+        </div>
+        <div className="fw-panel__body">
+          <p className="fw-caption">Create an encounter to begin tracking initiative.</p>
         </div>
         <form onSubmit={createEncounter} className="fw-panel__body fw-combat-panel__create">
           <div className="fw-field">
             <label className="fw-field__label">Encounter name</label>
             <input className="fw-input" value={name} onChange={(event) => setName(event.target.value)} />
           </div>
-          <button className="fw-btn fw-btn--primary" type="submit">
+          <button className="fw-btn fw-btn-gold" type="submit">
             <Swords size={17} aria-hidden="true" />
-            Create Encounter
+            Start Encounter
           </button>
         </form>
       </section>
@@ -368,28 +413,35 @@ export function CombatTracker({
         </div>
         <span className="fw-caption">Round {activeEncounter.round}</span>
       </div>
+
       <div className="fw-panel__body fw-combat-panel__body">
+        <div className="fw-combat-panel__meta">
+          <span className="fw-pill blood">Round {activeEncounter.round}</span>
+          <span className="fw-caption">Surprise: none</span>
+          <button className="fw-btn fw-btn--ghost fw-btn--sm" type="button" aria-label="Combat settings">
+            <Settings size={14} aria-hidden="true" />
+          </button>
+        </div>
 
         {shouldShowQuickSteps ? (
           <article className="fw-combat-panel__steps">
             <p className="fw-caption fw-combat-panel__steps-title">Quick Steps</p>
             <div className="fw-combat-panel__steps-list">
-            {[
-              'Step 1: Add participants',
-              'Step 2: Set initiative',
-              'Step 3: Sort',
-              'Step 4: Next Turn',
-            ].map((label, index) => {
-              const step = index + 1;
-              const isActiveStep = quickStep === step;
-              return (
+              {[
+                'Step 1: Add participants',
+                'Step 2: Set initiative',
+                'Step 3: Sort',
+                'Step 4: Next Turn',
+              ].map((label, index) => {
+                const step = index + 1;
+                const isActiveStep = quickStep === step;
+                return (
                   <span
                     className="fw-cond fw-cond--minor"
                     data-selected={isActiveStep ? 'true' : undefined}
                     key={label}
                     style={isActiveStep ? { borderColor: 'var(--accent)', color: 'var(--ink-100)' } : undefined}
                   >
-                    <span className="fw-cond__dot" />
                     {label}
                   </span>
                 );
@@ -398,18 +450,175 @@ export function CombatTracker({
           </article>
         ) : null}
 
+        <div className="fw-combat-panel__list">
+          {activeEncounter.combatants.map((combatant, index) => {
+            const isCurrent = index === activeEncounter.activeIndex;
+            const isSelected = combatant.id === selectedId;
+            const state = hpState(combatant.hitPoints, combatant.maxHitPoints);
+            const down = combatant.hitPoints <= 0;
+            return (
+              <article
+                className="fw-combat-row"
+                data-current={isCurrent ? 'true' : undefined}
+                data-selected={isSelected ? 'true' : undefined}
+                key={combatant.id}
+                onClick={() => setSelectedId(combatant.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    setSelectedId(combatant.id);
+                  }
+                }}
+                role="button"
+                style={down ? { opacity: 0.6 } : undefined}
+                tabIndex={0}
+              >
+                {isCurrent ? <span className="fw-combat-row__accent" /> : null}
+                <span className="fw-combat-row__ini fw-mono">{combatant.initiative}</span>
+                <span className={`fw-combat-row__dot ${combatant.type === 'enemy' ? 'is-enemy' : 'is-ally'}`} />
+                <span className="fw-combat-row__name">{combatant.name}</span>
+                <span className={`fw-combat-row__hp fw-mono fw-combat-row__hp--${state}`}>
+                  {combatant.hitPoints}/{combatant.maxHitPoints}
+                </span>
+                {isCurrent ? <span className="fw-cond bleed">NOW</span> : null}
+              </article>
+            );
+          })}
+        </div>
+
+        <article className="fw-combat-panel__conditions">
+          <p className="fw-caption fw-combat-panel__steps-title">Active Conditions</p>
+          <div className="fw-combat-panel__condition-list">
+            {allConditionChips.length ? (
+              allConditionChips.map(({ combatant, condition }) => {
+                const variant = getConditionVariant(condition);
+                const className =
+                  variant === 'minor' ? 'fw-cond fw-cond--minor' : `fw-cond ${variant}`;
+                return (
+                  <button
+                    className={className}
+                    key={`${combatant.id}-${condition}`}
+                    onClick={() => void removeCondition(combatant.id, condition)}
+                    type="button"
+                  >
+                    {condition} ({combatant.name} · source)
+                  </button>
+                );
+              })
+            ) : (
+              <span className="fw-caption">No active conditions</span>
+            )}
+          </div>
+        </article>
+
+        <div className="fw-combat-panel__actions-grid">
+          <button
+            className="fw-btn fw-btn-blood"
+            onClick={() => {
+              setHpDraftMode('damage');
+              setShowConditionPicker(false);
+            }}
+            type="button"
+          >
+            Damage
+          </button>
+          <button
+            className="fw-btn fw-btn-ghost"
+            onClick={() => {
+              setHpDraftMode('healing');
+              setShowConditionPicker(false);
+            }}
+            type="button"
+          >
+            Heal
+          </button>
+          <button
+            className="fw-btn fw-btn-ghost"
+            onClick={() => {
+              setShowConditionPicker((value) => !value);
+              setHpDraftMode(null);
+            }}
+            type="button"
+          >
+            Condition
+          </button>
+          <button className="fw-btn fw-btn-ghost" onClick={() => setShowEnemyForm((value) => !value)} type="button">
+            + NPC
+          </button>
+        </div>
+
+        {hpDraftMode && selectedCombatant ? (
+          <div className="fw-combat-panel__hp-actions">
+            <input
+              aria-label={`Amount for ${selectedCombatant.name}`}
+              className="fw-input"
+              min={0}
+              onChange={(event) =>
+                setAmounts((current) => ({
+                  ...current,
+                  [selectedCombatant.id]: Number(event.target.value),
+                }))
+              }
+              type="number"
+              value={amounts[selectedCombatant.id] ?? 0}
+            />
+            <button className="fw-btn fw-btn-gold" onClick={() => void applyHp(selectedCombatant.id, hpDraftMode)} type="button">
+              Apply
+            </button>
+          </div>
+        ) : null}
+
+        {showConditionPicker && selectedCombatant ? (
+          <div className="fw-combat-panel__conditions-editor">
+            <select
+              className="fw-select"
+              value={conditionDrafts[selectedCombatant.id] ?? ''}
+              onChange={(event) =>
+                setConditionDrafts((current) => ({
+                  ...current,
+                  [selectedCombatant.id]: event.target.value,
+                }))
+              }
+            >
+              <option value="">Condition</option>
+              {conditions.map((condition) => (
+                <option key={condition} value={condition}>
+                  {condition}
+                </option>
+              ))}
+            </select>
+            <button className="fw-btn fw-btn-ghost" onClick={() => void addCondition(selectedCombatant.id)} type="button">
+              <Plus size={15} aria-hidden="true" />
+            </button>
+          </div>
+        ) : null}
+
+        {showEnemyForm ? (
+          <form onSubmit={addEnemy} className="fw-combat-panel__add-enemy">
+            <input className="fw-input" value={enemyName} onChange={(event) => setEnemyName(event.target.value)} />
+            <input className="fw-input" type="number" value={enemyAc} onChange={(event) => setEnemyAc(Number(event.target.value))} />
+            <input className="fw-input" type="number" value={enemyHp} onChange={(event) => setEnemyHp(Number(event.target.value))} />
+            <input
+              className="fw-input"
+              type="number"
+              value={enemyInitiative}
+              onChange={(event) => setEnemyInitiative(Number(event.target.value))}
+            />
+            <button className="fw-btn fw-btn-ghost" type="submit">
+              <Plus size={15} aria-hidden="true" />
+              Enemy
+            </button>
+          </form>
+        ) : null}
+
         <div className="fw-combat-panel__controls">
           <button className="fw-btn fw-btn--ghost" onClick={() => void moveTurn(-1)} type="button">
             <SkipBack size={16} aria-hidden="true" />
             Previous
           </button>
-          <button className="fw-btn fw-btn--primary fw-combat-panel__next-turn" onClick={() => void moveTurn(1)} type="button">
-            <SkipForward size={16} aria-hidden="true" />
-            Next Turn
-          </button>
           <button className="fw-btn fw-btn--ghost" onClick={() => void sortInitiative()} type="button">
             <RotateCcw size={16} aria-hidden="true" />
-            <Tooltip label="ลำดับการตี — ทอย d20 + DEX">Initiative</Tooltip>
+            Initiative
           </button>
           <button className="fw-btn fw-btn--danger" onClick={() => void endEncounter()} type="button">
             <XCircle size={16} aria-hidden="true" />
@@ -421,158 +630,48 @@ export function CombatTracker({
           Active: <strong>{activeCombatant?.name ?? 'No combatants'}</strong>
         </p>
 
-        <div className="fw-combat-panel__list">
-          {activeEncounter.combatants.map((combatant, index) => (
-            <article
-              className={index === activeEncounter.activeIndex ? 'fw-card fw-card--elevated fw-combatant fw-combatant--active' : 'fw-card fw-combatant'}
-              key={combatant.id}
-            >
-              <div className="fw-combatant__top">
-                <div>
-                  <span className="fw-h3">{combatant.name}</span>
-                  <span className="fw-caption">
-                    {combatant.type === 'player' ? 'Player' : 'Enemy'} · <Tooltip label="Armor Class — ค่าที่คนตียากให้ถึง">AC</Tooltip> {combatant.armorClass}
-                  </span>
-                </div>
-                <div className="fw-field">
-                  <label className="fw-field__label">
-                    <Tooltip label="ลำดับการตี — ทอย d20 + DEX">Initiative</Tooltip>
-                  </label>
-                  <input
-                    className="fw-input"
-                    type="number"
-                    value={combatant.initiative}
-                    onChange={(event) => void setInitiative(combatant.id, Number(event.target.value))}
-                  />
-                </div>
-              </div>
-
-              <div
-                className="fw-hp fw-hp--lg"
-                data-state={hpState(combatant.hitPoints, combatant.maxHitPoints)}
-              >
-                <div
-                  className="fw-hp__fill"
-                  style={{ width: `${Math.max(0, Math.min(100, combatant.maxHitPoints > 0 ? (combatant.hitPoints / combatant.maxHitPoints) * 100 : 0))}%` }}
-                />
-                <span className="fw-hp__text">
-                  {combatant.hitPoints}/{combatant.maxHitPoints}
-                  {combatant.tempHitPoints ? ` +${combatant.tempHitPoints}` : ''}
-                </span>
-              </div>
-
-              <div className="fw-combatant__hp-actions">
-                <input
-                  className="fw-input"
-                  aria-label={`Amount for ${combatant.name}`}
-                  min={0}
-                  type="number"
-                  value={amounts[combatant.id] ?? 0}
-                  onChange={(event) =>
-                    setAmounts((current) => ({ ...current, [combatant.id]: Number(event.target.value) }))
-                  }
-                />
-                <button className="fw-btn fw-btn--ghost" onClick={() => void applyHp(combatant.id, 'damage')} type="button">
-                  Damage
-                </button>
-                <button className="fw-btn fw-btn--ghost" onClick={() => void applyHp(combatant.id, 'healing')} type="button">
-                  Heal
-                </button>
-              </div>
-
-              <div className="fw-field">
-                <label className="fw-field__label">
-                  <Tooltip label="HP ชั่วคราว — ลดก่อน HP จริง">Temp HP</Tooltip>
-                </label>
-                <input
-                  className="fw-input"
-                  min={0}
-                  type="number"
-                  value={combatant.tempHitPoints}
-                  onChange={(event) => void setTempHp(combatant.id, Number(event.target.value))}
-                />
-              </div>
-
-              <div className="fw-combatant__conditions-editor">
-                <select
-                  className="fw-select"
-                  value={conditionDrafts[combatant.id] ?? ''}
-                  onChange={(event) =>
-                    setConditionDrafts((current) => ({ ...current, [combatant.id]: event.target.value }))
-                  }
-                >
-                  <option value="">Condition</option>
-                  {conditions.map((condition) => (
-                    <option key={condition} value={condition}>
-                      {condition}
-                    </option>
-                  ))}
-                </select>
-                <button className="fw-btn fw-btn--ghost" onClick={() => void addCondition(combatant.id)} type="button">
-                  <Plus size={15} aria-hidden="true" />
-                </button>
-              </div>
-
-              {combatant.conditions.length ? (
-                <div className="fw-combatant__condition-list">
-                  {combatant.conditions.map((condition) => (
-                    <button
-                      className="fw-cond fw-cond--minor"
-                      key={condition}
-                      onClick={() => void removeCondition(combatant.id, condition)}
-                      type="button"
-                    >
-                      <span className="fw-cond__dot" />
-                      {condition}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-
-              {combatant.hitPoints === 0 ? (
-                <div className="fw-combatant__deathsave">
-                  <span>
-                    <Tooltip label="ทอย d20 — สูง 10 ได้, ต่ำ 10 เสีย">Death Save</Tooltip>
-                  </span>
-                  <button className="fw-btn fw-btn--ghost" onClick={() => void setDeathSave(combatant.id, 'successes', -1)} type="button">
-                    <Minus size={14} aria-hidden="true" />
-                  </button>
-                  <span className="fw-caption">S {combatant.deathSaves.successes}</span>
-                  <button className="fw-btn fw-btn--ghost" onClick={() => void setDeathSave(combatant.id, 'successes', 1)} type="button">
-                    <Plus size={14} aria-hidden="true" />
-                  </button>
-                  <button className="fw-btn fw-btn--ghost" onClick={() => void setDeathSave(combatant.id, 'failures', -1)} type="button">
-                    <Minus size={14} aria-hidden="true" />
-                  </button>
-                  <span className="fw-caption">F {combatant.deathSaves.failures}</span>
-                  <button className="fw-btn fw-btn--ghost" onClick={() => void setDeathSave(combatant.id, 'failures', 1)} type="button">
-                    <Plus size={14} aria-hidden="true" />
-                  </button>
-                </div>
-              ) : null}
-            </article>
-          ))}
+        <div className="fw-combat-panel__aux">
+          <button className="fw-btn fw-btn--ghost" onClick={() => void addPlayer()} type="button">
+            Add current player
+          </button>
+          {selectedCombatant ? (
+            <div className="fw-field">
+              <label className="fw-field__label">Temp HP</label>
+              <input
+                className="fw-input"
+                min={0}
+                type="number"
+                value={selectedCombatant.tempHitPoints}
+                onChange={(event) => void setTempHp(selectedCombatant.id, Number(event.target.value))}
+              />
+            </div>
+          ) : null}
         </div>
 
-        <form onSubmit={addEnemy} className="fw-combat-panel__add-enemy">
-          <input className="fw-input" value={enemyName} onChange={(event) => setEnemyName(event.target.value)} />
-          <input className="fw-input" type="number" value={enemyAc} onChange={(event) => setEnemyAc(Number(event.target.value))} />
-          <input className="fw-input" type="number" value={enemyHp} onChange={(event) => setEnemyHp(Number(event.target.value))} />
-          <input
-            className="fw-input"
-            type="number"
-            value={enemyInitiative}
-            onChange={(event) => setEnemyInitiative(Number(event.target.value))}
-          />
-          <button className="fw-btn fw-btn--ghost" type="submit">
-            <Plus size={15} aria-hidden="true" />
-            Enemy
-          </button>
-        </form>
-
-        <button className="fw-btn fw-btn--ghost" onClick={() => void addPlayer()} type="button">
-          Add current player
+        <button className="fw-btn fw-btn-gold fw-combat-panel__next-turn" onClick={() => void moveTurn(1)} type="button">
+          <SkipForward size={16} aria-hidden="true" />
+          End Turn
         </button>
+
+        {selectedCombatant && selectedCombatant.hitPoints === 0 ? (
+          <div className="fw-combatant__deathsave">
+            <span>Death Save</span>
+            <button className="fw-btn fw-btn--ghost" onClick={() => void setDeathSave(selectedCombatant.id, 'successes', -1)} type="button">
+              <Minus size={14} aria-hidden="true" />
+            </button>
+            <span className="fw-caption">S {selectedCombatant.deathSaves.successes}</span>
+            <button className="fw-btn fw-btn--ghost" onClick={() => void setDeathSave(selectedCombatant.id, 'successes', 1)} type="button">
+              <Plus size={14} aria-hidden="true" />
+            </button>
+            <button className="fw-btn fw-btn--ghost" onClick={() => void setDeathSave(selectedCombatant.id, 'failures', -1)} type="button">
+              <Minus size={14} aria-hidden="true" />
+            </button>
+            <span className="fw-caption">F {selectedCombatant.deathSaves.failures}</span>
+            <button className="fw-btn fw-btn--ghost" onClick={() => void setDeathSave(selectedCombatant.id, 'failures', 1)} type="button">
+              <Plus size={14} aria-hidden="true" />
+            </button>
+          </div>
+        ) : null}
       </div>
     </section>
   );

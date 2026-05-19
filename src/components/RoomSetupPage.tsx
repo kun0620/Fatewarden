@@ -37,21 +37,14 @@ export function RoomSetupPage({ user, onCreated, onCancel }: RoomSetupPageProps)
   }
 
   return (
-    <section className="fw-room-setup-page">
-      <header className="fw-room-setup-page__header">
-        <p className="fw-caption">Step 2 of 4</p>
-        <h1 className="fw-h2">Forge your realm</h1>
-        <p className="fw-body">Configure the room before assembling the party.</p>
-      </header>
-      <RoomSetupForm
-        draft={draft}
-        busy={busy}
-        errors={errors}
-        onChange={setDraft}
-        onSubmit={handleSubmit}
-        onCancel={onCancel}
-      />
-      {serverError ? <p className="fw-caption fw-room-setup-page__error">{serverError}</p> : null}
-    </section>
+    <RoomSetupForm
+      draft={draft}
+      busy={busy}
+      errors={errors}
+      onChange={setDraft}
+      onSubmit={handleSubmit}
+      onCancel={onCancel}
+      serverError={serverError}
+    />
   );
 }

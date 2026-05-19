@@ -1,25 +1,21 @@
-import { Backpack, BookOpen, Copy, DoorOpen, Dices, LogOut, MapPin, ScrollText, Shield, Swords, Users } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { AuthPanel } from './components/AuthPanel';
 import { CharacterEntryModal } from './components/CharacterEntryModal';
-import { CharacterSheet } from './components/CharacterSheet';
-import { CharacterSheetView } from './components/CharacterSheetView';
-import { CombatTracker } from './components/CombatTracker';
-import { DiceRoller } from './components/DiceRoller';
 import { MainMenu } from './components/MainMenu';
+import { CampaignLibrary } from './components/CampaignLibrary';
+import { SettingsPage } from './components/SettingsPage';
 import { RoomSetupPage } from './components/RoomSetupPage';
-import { GamePhasePanel } from './components/GamePhasePanel';
-import { HexHeroBuilder } from './components/HexHeroBuilder';
-import { InventoryPanel } from './components/InventoryPanel';
-import { MobileDock } from './components/MobileDock';
-import { PartyPanel } from './components/PartyPanel';
-import { CompanionPanel } from './components/CompanionPanel';
+import { LobbyScreen } from './components/LobbyScreen';
+import { CharacterSheetPage } from './components/CharacterSheetPage';
+import { DMDashboard } from './components/DMDashboard';
+import { BestiaryScreen } from './components/BestiaryScreen';
+import { AppRail } from './components/AppRail';
+import { Topbar } from './components/Topbar';
+import { CombatMode } from './components/CombatMode';
+import { Icon } from './components/ui/Icons';
 import { PartyChoicePanel } from './components/PartyChoicePanel';
-import { SessionLobby, type RoomModal } from './components/SessionLobby';
-import { ScenePanel } from './components/ScenePanel';
-import { addUniqueMessage, StoryLog } from './components/StoryLog';
-import { TableSetupPanel } from './components/TableSetupPanel';
 import { useAuthFlow } from './hooks/useAuthFlow';
 import { useAiDm } from './hooks/useAiDm';
 import { useCharacterSync } from './hooks/useCharacterSync';
@@ -31,7 +27,7 @@ import { createEventQueueState, processEventQueue, type EventRuntimeState } from
 import type { GameEvent } from './engine/events/types';
 import { getGamePhaseDefinition } from './lib/gamePhases';
 import { createEmptyInventory } from './lib/inventory';
-import { requestAiDmReply } from './lib/messages';
+import { requestAiDmReply, sendSessionMessage } from './lib/messages';
 import { getPlayModeDefinition } from './lib/playModes';
 import { getSessionThemeDefinition } from './lib/sessionThemes';
 import { subscribeToSessionUpdates, updateSessionCombatState } from './lib/sessions';
@@ -51,6 +47,28 @@ import type {
 
 type CockpitMode = 'dm' | 'player';
 type MobilePanel = 'quest' | 'party' | 'inventory' | 'map';
+type LeftSidebarTab = 'party' | 'character' | 'inventory' | 'quests';
+type RightSidebarTab = 'dice' | 'combat' | 'ai' | 'rules' | 'tools';
+
+const prototypeParty = [
+  { initials: 'AE', name: 'Aedric Vael', role: 'Warlock - Lv 7', hp: '38/52', hpPct: 73, ac: 14, slots: '1/2', you: true, tone: 'violet' },
+  { initials: 'KI', name: 'Kessra Ironwake', role: 'Fighter - Lv 7', hp: '64/70', hpPct: 91, ac: 19, slots: '', tone: 'gold' },
+  { initials: 'MT', name: 'Mirenna Thornhart', role: 'Druid - Lv 7', hp: '41/56', hpPct: 73, ac: 16, slots: '', tone: 'green' },
+  { initials: 'HD', name: 'Halric Dale', role: 'Cleric - Lv 6', hp: '0/48', hpPct: 0, ac: 18, slots: '', down: true, tone: 'blood' },
+];
+
+const prototypeInventory = [
+  { icon: 'flame', name: 'Staff of the Cinder-Reeve', meta: 'Pact weapon - 1d8 fire', tag: 'Attuned' },
+  { icon: 'potion', name: "Healer's Potion", meta: '2d4+2 HP - standard', tag: 'x2' },
+  { icon: 'sparkles', name: 'Brass censer-key', meta: 'Binding-resonance trinket', tag: 'Quest' },
+  { icon: 'scroll', name: 'Bone-tablet fragment', meta: 'Embers arc clue', tag: 'Lore' },
+];
+
+const prototypeQuests = [
+  { title: 'Free the held shadow', meta: 'Primary - chapel binding', state: 'active' },
+  { title: 'Find the missing censer-chain', meta: 'Scene clue - south wall', state: 'open' },
+  { title: 'Keep Halric alive', meta: 'Death saves pending', state: 'danger' },
+];
 
 function formatLocalTime() {
   return new Intl.DateTimeFormat('en', {
@@ -58,6 +76,393 @@ function formatLocalTime() {
     minute: '2-digit',
     hour12: false,
   }).format(new Date());
+}
+
+function addUniqueMessage(messages: StoryMessage[], next: StoryMessage) {
+  if (messages.some((message) => message.id === next.id)) return messages;
+  return [...messages, next];
+}
+
+function storyInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'AE';
+}
+
+function PrototypeStoryEntry({
+  avatar,
+  children,
+  meta,
+  name,
+  tone = 'player',
+}: {
+  avatar: string;
+  children: ReactNode;
+  meta: string;
+  name: string;
+  tone?: 'dm' | 'player';
+}) {
+  return (
+    <article className="fw-story-entry">
+      <div className={`fw-story-avatar ${tone === 'dm' ? 'dm' : ''}`}>{avatar}</div>
+      <div className="fw-story-copy">
+        <div className="fw-story-kicker">
+          <span>{name}</span>
+          <small>{meta}</small>
+        </div>
+        {children}
+      </div>
+    </article>
+  );
+}
+
+function PrototypeRollCard({
+  detail,
+  result,
+  status,
+  title,
+}: {
+  detail: string;
+  result: number;
+  status: string;
+  title: string;
+}) {
+  return (
+    <div className="fw-story-roll">
+      <div className="fw-story-roll__value">{result}</div>
+      <div>
+        <strong>{title}</strong>
+        <span>{detail}</span>
+      </div>
+      <em>{status}</em>
+    </div>
+  );
+}
+
+function PrototypeStoryFeed({
+  characterName,
+  sessionTitle,
+}: {
+  characterName: string;
+  sessionTitle?: string;
+}) {
+  const initials = storyInitials(characterName);
+
+  return (
+    <div className="fw-proto-story">
+      <PrototypeStoryEntry avatar="DM" meta="just now" name="Dungeon Master" tone="dm">
+        <p className="fw-story-text">
+          Cinder-smoke curls along the chapel floor. The brazier above the altar gutters - a single coal still alive within.
+          The chant has stopped. Whoever stood here moments ago is gone, but their shadow remains, stretched too long
+          across the south wall.
+        </p>
+      </PrototypeStoryEntry>
+
+      <PrototypeStoryEntry avatar={initials} meta="action" name={characterName}>
+        <p className="fw-story-action">
+          I keep my shield up and step toward the censer. Slow. I want a closer look at that shadow.
+        </p>
+      </PrototypeStoryEntry>
+
+      <PrototypeRollCard
+        detail="1d20+3 for Perception"
+        result={17}
+        status="Success"
+        title={`${characterName} rolled`}
+      />
+
+      <PrototypeStoryEntry avatar="DM" meta="just now" name="Dungeon Master" tone="dm">
+        <p className="fw-story-text">
+          You see the silhouette wears no helm - a circlet, perhaps. The shadow's hand grips empty air where a
+          censer-chain should hang. It is mid-prayer, frozen.
+        </p>
+      </PrototypeStoryEntry>
+
+      <PrototypeStoryEntry avatar={initials} meta="action" name={characterName}>
+        <p className="fw-story-action">I cast Detect Magic and look for residue around the altar.</p>
+      </PrototypeStoryEntry>
+
+      <PrototypeRollCard
+        detail="1d20+5 for Arcana"
+        result={24}
+        status="Critical insight"
+        title={`${characterName} rolled`}
+      />
+
+      <section className="fw-ai-suggestion">
+        <div className="fw-ai-suggestion__icon">{Icon('wand', { size: 16 })}</div>
+        <div>
+          <div className="fw-story-kicker">
+            <span>AI Warden</span>
+            <b>Suggestion</b>
+          </div>
+          <p className="fw-story-text">
+            The residue traces a binding - not an ordinary banishment. Whoever stood here is held, not gone.
+            The shadow is the warding, and it is failing.
+          </p>
+          <div className="fw-story-actions">
+            <button className="fw-btn fw-btn-purple fw-btn-sm" type="button">Accept as canon</button>
+            <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">Re-suggest</button>
+            <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">Dismiss</button>
+          </div>
+        </div>
+      </section>
+
+      <section className="fw-roll-request">
+        <div>
+          <strong>DM requests: Charisma (Persuasion)</strong>
+          <span>Convince the held shadow it is free. DC 15</span>
+        </div>
+        <div className="fw-roll-request__actions">
+          <button className="fw-btn fw-btn-gold fw-btn-sm" type="button">{Icon('dice', { size: 12 })} Roll d20+3</button>
+          <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">Adv</button>
+          <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">Dis</button>
+        </div>
+      </section>
+
+      <div className="fw-story-session-note">
+        <span>{sessionTitle || 'Session'}</span>
+        <span>Story UI prototype mode</span>
+      </div>
+    </div>
+  );
+}
+
+function PrototypeLeftPanel({
+  character,
+  tab,
+}: {
+  character: Character;
+  tab: LeftSidebarTab;
+}) {
+  if (tab === 'character') {
+    return (
+      <div className="fw-proto-panel">
+        <div className="fw-proto-hero-id">
+          <div className="fw-avatar lg dm">{storyInitials(character.name || 'Aedric Vael')}</div>
+          <div>
+            <div className="fw-display">{character.name || 'Aedric Vael'}</div>
+            <p>{character.ancestry || 'Tiefling'} {character.className || 'Warlock'} - Lv {character.level || 7}</p>
+          </div>
+        </div>
+        <div className="fw-proto-stat-grid">
+          {[
+            ['HP', `${character.hitPoints}/${character.maxHitPoints}`],
+            ['AC', String(character.armorClass)],
+            ['SPD', `${character.speed || 30} ft`],
+            ['PROF', '+3'],
+            ['INIT', '+2'],
+            ['PASS', '13'],
+          ].map(([label, value]) => (
+            <div className="fw-proto-stat" key={label}>
+              <span>{label}</span>
+              <strong>{value}</strong>
+            </div>
+          ))}
+        </div>
+        <div className="fw-proto-section-title">Resources</div>
+        {[
+          ['Pact Slots', 1, 2],
+          ['Hit Dice', 5, 7],
+          ['Inspiration', 1, 1],
+        ].map(([label, current, max]) => (
+          <div className="fw-proto-resource" key={String(label)}>
+            <div><span>{label}</span><b>{current}/{max}</b></div>
+            <div>{Array.from({ length: Number(max) }).map((_, index) => <i className={index < Number(current) ? 'on' : ''} key={index} />)}</div>
+          </div>
+        ))}
+        <div className="fw-proto-section-title">Pact Magic</div>
+        {['Eldritch Blast', 'Hex', 'Armor of Agathys', 'Misty Step'].map((spell, index) => (
+          <div className="fw-proto-list-row" key={spell}>
+            <span>{Icon(index < 2 ? 'flame' : 'sparkles', { size: 13 })}</span>
+            <div><strong>{spell}</strong><small>{index < 2 ? 'Ready' : 'Prepared'}</small></div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (tab === 'inventory') {
+    return (
+      <div className="fw-proto-panel">
+        <div className="fw-proto-panel-head">
+          <span>Arsenal & Pack</span>
+          <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">Sort</button>
+        </div>
+        <div className="fw-proto-slot-row">
+          {['Weapon', 'Armor', 'Focus', 'Quick'].map((slot) => <span key={slot}>{slot}</span>)}
+        </div>
+        {prototypeInventory.map((item) => (
+          <div className="fw-proto-list-row item" key={item.name}>
+            <span>{Icon(item.icon, { size: 14 })}</span>
+            <div><strong>{item.name}</strong><small>{item.meta}</small></div>
+            <em>{item.tag}</em>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (tab === 'quests') {
+    return (
+      <div className="fw-proto-panel">
+        <div className="fw-proto-panel-head">
+          <span>Objectives</span>
+          <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">Pin</button>
+        </div>
+        {prototypeQuests.map((quest) => (
+          <div className={`fw-proto-quest ${quest.state}`} key={quest.title}>
+            <strong>{quest.title}</strong>
+            <span>{quest.meta}</span>
+          </div>
+        ))}
+        <div className="fw-proto-scene-note">
+          <span>{Icon('map', { size: 14 })}</span>
+          <p>The chapel is dim, ash-thick, and listening.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fw-proto-panel">
+      <div className="fw-proto-section-title">Initiative - Round 3</div>
+      {prototypeParty.map((member, index) => (
+        <div className={`fw-proto-party-card ${member.you ? 'you' : ''} ${member.down ? 'down' : ''}`} key={member.name}>
+          {index === 0 ? <i className="turn" /> : null}
+          <div className={`fw-avatar ${member.tone}`}>{member.initials}</div>
+          <div>
+            <div className="fw-proto-party-name">
+              <strong>{member.name}</strong>
+              {member.you ? <span className="fw-pill gold">You</span> : null}
+              {member.down ? <span className="fw-pill blood">Down</span> : null}
+            </div>
+            <small>{member.role}</small>
+            <div className="fw-proto-hp">
+              <span>HP</span>
+              <b><i style={{ width: `${member.hpPct}%` }} /></b>
+              <em>{member.hp}</em>
+            </div>
+            <div className="fw-proto-micro">
+              <span>AC <b>{member.ac}</b></span>
+              {member.slots ? <span>Slots <b>{member.slots}</b></span> : null}
+              {member.down ? <span className="danger">Death - 2 / 0</span> : null}
+            </div>
+          </div>
+        </div>
+      ))}
+      <button className="fw-btn fw-btn-ghost fw-btn-sm fw-proto-wide" type="button">{Icon('alert', { size: 12 })} Simulate incoming damage</button>
+    </div>
+  );
+}
+
+function PrototypeRightPanel({
+  onOpenCombat,
+  tab,
+}: {
+  onOpenCombat: () => void;
+  tab: RightSidebarTab;
+}) {
+  if (tab === 'combat') {
+    return (
+      <div className="fw-proto-panel">
+        <div className="fw-proto-panel-head">
+          <span>Encounter</span>
+          <button className="fw-btn fw-btn-gold fw-btn-sm" onClick={onOpenCombat} type="button">Battle map</button>
+        </div>
+        {['Brass-Spear A', 'Brass-Spear B', 'Censer-Priest'].map((enemy, index) => (
+          <div className="fw-proto-list-row combat" key={enemy}>
+            <span>{Icon(index === 2 ? 'skull' : 'sword', { size: 14 })}</span>
+            <div><strong>{enemy}</strong><small>AC {index === 2 ? 15 : 14} - hostile</small></div>
+            <em>{index === 2 ? '22 HP' : '16 HP'}</em>
+          </div>
+        ))}
+        <div className="fw-roll-request compact">
+          <div><strong>Next turn</strong><span>Kessra Ironwake has initiative.</span></div>
+        </div>
+      </div>
+    );
+  }
+
+  if (tab === 'ai') {
+    return (
+      <div className="fw-proto-panel">
+        <div className="fw-proto-panel-head">
+          <span>AI Warden</span>
+          <span className="fw-pill gold">On</span>
+        </div>
+        <div className="fw-proto-control-grid">
+          <button className="active" type="button">Balanced</button>
+          <button type="button">Strict</button>
+          <button type="button">Cinematic</button>
+        </div>
+        {[
+          ['Scene beat', 'Escalate the failing binding.'],
+          ['Rules check', 'Ask for Persuasion DC 15.'],
+          ['Complication', 'Smoke begins counting backwards.'],
+        ].map(([title, body]) => (
+          <div className="fw-proto-ai-card" key={title}>
+            <strong>{title}</strong>
+            <p>{body}</p>
+            <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">Queue</button>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (tab === 'tools' || tab === 'rules') {
+    return (
+      <div className="fw-proto-panel">
+        <div className="fw-proto-panel-head">
+          <span>Tools</span>
+          <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">More</button>
+        </div>
+        {[
+          ['Session recap', 'Summarize the last scene'],
+          ['Share invite', 'Copy current table code'],
+          ['Safety tools', 'Pause, veil, rewind'],
+          ['Rules lens', 'Core checks and conditions'],
+        ].map(([title, meta]) => (
+          <div className="fw-proto-list-row" key={title}>
+            <span>{Icon('cog', { size: 13 })}</span>
+            <div><strong>{title}</strong><small>{meta}</small></div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="fw-proto-panel dice">
+      <div className="fw-proto-dice-card">
+        <span>Last roll - 1d20+3</span>
+        <strong>17</strong>
+        <em>+3</em>
+        <small>20 vs DC 15 - Success</small>
+      </div>
+      <div className="fw-proto-section-title">Quick Dice</div>
+      <div className="fw-proto-dice-grid">
+        {['D4', 'D6', 'D8', 'D10', 'D12', 'D20', 'D100'].map((die) => (
+          <button className={die === 'D20' ? 'active' : ''} key={die} type="button">
+            <strong>{die}</strong>
+            <span>{die === 'D20' ? '1-20' : die === 'D100' ? '1-100' : '1-' + die.slice(1)}</span>
+          </button>
+        ))}
+      </div>
+      <div className="fw-proto-section-title">Saved Rolls</div>
+      {['Eldritch Blast', 'Hex Damage', 'Persuasion (CHA)', 'Death Save'].map((roll) => (
+        <div className="fw-proto-saved-roll" key={roll}>
+          <span>{Icon('dice', { size: 11 })}</span>
+          <strong>{roll}</strong>
+          <em>{roll === 'Hex Damage' ? '1d6' : '1d20'}</em>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function findCombatant(combatants: Combatant[], action: AiConfirmAction) {
@@ -120,8 +525,23 @@ export function App() {
   const [localPhase, setLocalPhase] = useState<GamePhase>('setup');
   const [cockpitMode, setCockpitMode] = useState<CockpitMode>('dm');
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('quest');
+  const [leftSidebarTab, setLeftSidebarTab] = useState<LeftSidebarTab>('party');
+  const [rightSidebarTab, setRightSidebarTab] = useState<RightSidebarTab>('dice');
+  const [storyTab, setStoryTab] = useState<'story' | 'chat' | 'lore'>('story');
+  const [actionDraft, setActionDraft] = useState('');
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [pendingRoomSetup, setPendingRoomSetup] = useState(false);
+  const [pendingLibrary, setPendingLibrary] = useState(false);
+  const [pendingSettings, setPendingSettings] = useState(false);
+  const [pendingLobby, setPendingLobby] = useState(false);
+  const [pendingCharSheet, setPendingCharSheet] = useState(false);
+  const [pendingDmDash, setPendingDmDash] = useState(false);
+  const [pendingBestiary, setPendingBestiary] = useState(false);
+  const [combatActive, setCombatActive] = useState(false);
+  const [aiPanelBusy, setAiPanelBusy] = useState(false);
+  const [pendingConfirmAction, setPendingConfirmAction] = useState<AiConfirmAction | null>(null);
+  const [pendingConfirmSourceMessage, setPendingConfirmSourceMessage] = useState<StoryMessage | null>(null);
+  const [dismissedConfirmActionKeys, setDismissedConfirmActionKeys] = useState<Set<string>>(new Set());
 
   const { authSession, authLoading, user, signOut: authSignOut } = useAuthFlow();
   const {
@@ -190,17 +610,101 @@ export function App() {
 
   usePartyChoiceSync(activeSession?.id ?? null);
 
-  // Explicit app-flow state machine: login → menu → room-setup → character-setup → game
-  const appStage = computeAppStage({ hasSupabaseConfig, user, activeSession, pendingSession, pendingRoomSetup });
+  useEffect(() => {
+    const latestWithActions = [...storyMessages]
+      .reverse()
+      .find((message) => Array.isArray(message.metadata?.confirmActions) && (message.metadata?.confirmActions as unknown[]).length > 0);
+
+    if (!latestWithActions) {
+      setPendingConfirmAction(null);
+      setPendingConfirmSourceMessage(null);
+      return;
+    }
+
+    const confirmActions = latestWithActions.metadata?.confirmActions as AiConfirmAction[];
+    const nextAction = confirmActions.find((action) => !dismissedConfirmActionKeys.has(`${latestWithActions.id}:${action.id}`)) ?? null;
+
+    setPendingConfirmAction(nextAction);
+    setPendingConfirmSourceMessage(nextAction ? latestWithActions : null);
+  }, [storyMessages, dismissedConfirmActionKeys]);
+
+  // Explicit app-flow state machine: login -> menu -> room-setup -> character-setup -> game
+  const appStage = computeAppStage({
+    hasSupabaseConfig,
+    user,
+    activeSession,
+    pendingSession,
+    pendingRoomSetup,
+    pendingLibrary,
+    pendingSettings,
+    pendingLobby,
+    pendingCharSheet,
+    pendingDmDash,
+    pendingBestiary,
+  });
   const gateSteps = getGateSteps(appStage);
 
-  // Guard: clear pendingSession and pendingRoomSetup when user logs out
+  const returnToMainMenu = useCallback(() => {
+    setPendingRoomSetup(false);
+    setPendingLibrary(false);
+    setPendingSettings(false);
+    setPendingLobby(false);
+    setPendingCharSheet(false);
+    setPendingDmDash(false);
+    setPendingBestiary(false);
+    setPendingSession(null);
+    setRoomModal(null);
+  }, [setPendingSession, setRoomModal]);
+
+  const navigateTo = useCallback(
+    (target: 'menu' | 'game' | 'char-sheet' | 'dm-dashboard' | 'bestiary' | 'library' | 'settings') => {
+      setPendingRoomSetup(false);
+      setPendingLibrary(false);
+      setPendingSettings(false);
+      setPendingLobby(false);
+      setPendingCharSheet(false);
+      setPendingDmDash(false);
+      setPendingBestiary(false);
+      setPendingSession(null);
+      setRoomModal(null);
+      switch (target) {
+        case 'char-sheet':
+          setPendingCharSheet(true);
+          break;
+        case 'dm-dashboard':
+          setPendingDmDash(true);
+          break;
+        case 'bestiary':
+          setPendingBestiary(true);
+          break;
+        case 'library':
+          setPendingLibrary(true);
+          break;
+        case 'settings':
+          setPendingSettings(true);
+          break;
+        case 'menu':
+        case 'game':
+        default:
+          break;
+      }
+    },
+    [setPendingSession, setRoomModal],
+  );
+
+  // Guard: clear pendingSession and pending gate states when user logs out
   useEffect(() => {
     if (!user) {
       if (pendingSession) setPendingSession(null);
       if (pendingRoomSetup) setPendingRoomSetup(false);
+      if (pendingLibrary) setPendingLibrary(false);
+      if (pendingSettings) setPendingSettings(false);
+      if (pendingLobby) setPendingLobby(false);
+      if (pendingCharSheet) setPendingCharSheet(false);
+      if (pendingDmDash) setPendingDmDash(false);
+      if (pendingBestiary) setPendingBestiary(false);
     }
-  }, [user, pendingSession, pendingRoomSetup]);
+  }, [user, pendingSession, pendingRoomSetup, pendingLibrary, pendingSettings, pendingLobby, pendingCharSheet, pendingDmDash, pendingBestiary]);
 
   const { openingSceneBusy, hasOpeningScene, askAiToOpenScene, askAiForRestSummary } = useAiDm(
     activeSession,
@@ -582,322 +1086,441 @@ export function App() {
     [changeEncounter, changeGamePhase, character, currentPhase, encounter, postCombatEvent],
   );
 
+  const handleAiPanelAction = useCallback(
+    async (label: string, prompt: string) => {
+      if (!activeSession || !user || !supabase) {
+        throw new Error('AI Warden needs an active synced session.');
+      }
+
+      setAiPanelBusy(true);
+      try {
+        const author = user.email?.split('@')[0] || character.name;
+        const playerMessage = await sendSessionMessage(activeSession.id, 'player', author, prompt, {
+          kind: 'ai_panel_action',
+          label,
+        });
+        setStoryMessages((current) => addUniqueMessage(current, playerMessage));
+
+        const aiMessage = await requestAiDmReply(activeSession.id, character.name, prompt, [...storyMessages, playerMessage], {
+          session: activeSession,
+          gamePhase: currentPhase,
+          character,
+          encounter,
+          aiMode: 'adventure',
+          partySummary: `${character.name}, level ${character.level} ${character.ancestry} ${character.className}`,
+        });
+        setStoryMessages((current) => addUniqueMessage(current, aiMessage));
+      } finally {
+        setAiPanelBusy(false);
+      }
+    },
+    [activeSession, character, currentPhase, encounter, storyMessages, user],
+  );
+
+  const handleAiPanelConfirmAction = useCallback(
+    async (action: AiConfirmAction) => {
+      if (!pendingConfirmSourceMessage) {
+        throw new Error('No source message available for this AI action.');
+      }
+      await applyAiConfirmAction(action, pendingConfirmSourceMessage);
+      setDismissedConfirmActionKeys((current) => new Set(current).add(`${pendingConfirmSourceMessage.id}:${action.id}`));
+      setPendingConfirmAction(null);
+      setPendingConfirmSourceMessage(null);
+    },
+    [applyAiConfirmAction, pendingConfirmSourceMessage],
+  );
+
+  const handleAiPanelRejectAction = useCallback(() => {
+    if (pendingConfirmAction && pendingConfirmSourceMessage) {
+      setDismissedConfirmActionKeys((current) => new Set(current).add(`${pendingConfirmSourceMessage.id}:${pendingConfirmAction.id}`));
+    }
+    setPendingConfirmAction(null);
+    setPendingConfirmSourceMessage(null);
+  }, [pendingConfirmAction, pendingConfirmSourceMessage]);
+
   function copyJoinCode() {
     if (!activeSession) return;
     void navigator.clipboard?.writeText(activeSession.joinCode);
   }
 
-  async function signOut() {
-    await authSignOut();
+  function handleSwitchTable() {
+    setPendingRoomSetup(false);
     switchTable();
   }
 
-  if (isGateStage(appStage)) {
+  async function signOut() {
+    await authSignOut();
+    handleSwitchTable();
+    setPendingRoomSetup(false);
+    setPendingSettings(false);
+  }
+
+  if (appStage === 'login' || !user) {
     return (
-      <main className="fw-gate-shell" data-stage={appStage}>
-        <section className="fw-gate-hero">
-          <div className="fw-gate-copy">
-            <div className="fw-gate-brand-mark" aria-hidden="true">
-              <span>FW</span>
-            </div>
-            <p className="fw-caption">Fatewarden Web Table</p>
-            <h1>Gather the party before the veil opens.</h1>
-            <p className="fw-body">
-              Create or join a room first. Fatewarden will ask each player to choose or create a character before
-              entering the live DnD cockpit.
-            </p>
-            <div className="fw-gate-flow" aria-label="Entry flow">
-              <span className={gateSteps.signIn}>
-                <span className="fw-caption">1. Sign in</span>
-              </span>
-              <span className={gateSteps.table}>
-                <span className="fw-caption">2. Table</span>
-              </span>
-              <span className={gateSteps.character}>
-                <span className="fw-caption">3. Character</span>
-              </span>
-              <span className={gateSteps.play}>
-                <span className="fw-caption">4. Play</span>
-              </span>
-            </div>
-          </div>
-          <div className="fw-gate-status">
-            <div className="fw-gate-status-card primary">
-              <span className="fw-caption">Access</span>
-              <strong className="fw-body-sm">{user ? 'Signed in' : 'Auth required'}</strong>
-              <small className="fw-caption">{user?.email ?? 'Use your table account'}</small>
-            </div>
-            <div className="fw-gate-status-card">
-              <span className="fw-caption">Ruleset</span>
-              <strong className="fw-body-sm">SRD 5.1</strong>
-              <small className="fw-caption">Core / Combat / Conditions</small>
-            </div>
-            <div className="fw-gate-status-card">
-              <span className="fw-caption">Modes</span>
-              <strong className="fw-body-sm">DnD first</strong>
-              <small className="fw-caption">HEXplore parked for later</small>
-            </div>
-          </div>
-        </section>
-
-        <section className={`fw-gate-grid ${appStage === 'login' ? 'auth-only' : ''}`}>
-          <div>
-            <AuthPanel loading={authLoading} user={user} />
-          </div>
-          {appStage === 'menu' && user ? (
-            <div>
-              <MainMenu
-                user={user}
-                roomModal={roomModal}
-                onRoomModalChange={setRoomModal}
-                onRequestEnterSession={(session) => requestEnterSession(session, user)}
-                onRequestRoomSetup={() => setPendingRoomSetup(true)}
-                onSignOut={signOut}
-              />
-            </div>
-          ) : null}
-          {appStage === 'room-setup' && user ? (
-            <RoomSetupPage
-              user={user}
-              onCreated={(session) => {
-                setPendingRoomSetup(false);
-                requestEnterSession(session, user);
-              }}
-              onCancel={() => setPendingRoomSetup(false)}
-            />
-          ) : null}
-        </section>
-
-        {appStage === 'character-setup' && pendingSession && user ? (
-          <CharacterEntryModal
-            onCancel={() => setPendingSession(null)}
-            onEnter={completeCharacterEntry}
-            session={pendingSession}
-            user={user}
-          />
-        ) : null}
+      <main className="fw-login-wrap">
+        <AuthPanel loading={authLoading} user={user} />
       </main>
     );
   }
 
+  if (isGateStage(appStage)) {
+    const screen = (() => {
+      if (appStage === 'menu') {
+        return (
+          <MainMenu
+            user={user}
+            roomModal={roomModal}
+            onRoomModalChange={setRoomModal}
+            onRequestEnterSession={(session) => requestEnterSession(session, user)}
+            onRequestLibrary={() => {
+              setPendingRoomSetup(false);
+              setPendingSession(null);
+              setPendingSettings(false);
+              setPendingLibrary(true);
+            }}
+            onRequestSettings={() => {
+              setPendingRoomSetup(false);
+              setPendingSession(null);
+              setPendingLibrary(false);
+              setPendingSettings(true);
+            }}
+            onRequestRoomSetup={() => {
+              setPendingLibrary(false);
+              setPendingSettings(false);
+              setPendingSession(null);
+              setRoomModal(null);
+              setPendingRoomSetup(true);
+            }}
+            onRequestLobby={() => {
+              returnToMainMenu();
+              setPendingLobby(true);
+            }}
+            onRequestCharSheet={() => {
+              returnToMainMenu();
+              setPendingCharSheet(true);
+            }}
+            onRequestDmDash={() => {
+              returnToMainMenu();
+              setPendingDmDash(true);
+            }}
+            onRequestBestiary={() => {
+              returnToMainMenu();
+              setPendingBestiary(true);
+            }}
+            onSignOut={signOut}
+          />
+        );
+      }
+
+      if (appStage === 'library') {
+        return (
+          <CampaignLibrary
+            user={user}
+            onBack={returnToMainMenu}
+            onEnterSession={(session) => requestEnterSession(session, user)}
+          />
+        );
+      }
+
+      if (appStage === 'settings') {
+        return <SettingsPage user={user} onBack={returnToMainMenu} onSignOut={signOut} />;
+      }
+
+      if (appStage === 'room-setup') {
+        return (
+          <RoomSetupPage
+            user={user}
+            onCreated={(session) => {
+              setPendingRoomSetup(false);
+              requestEnterSession(session, user);
+            }}
+            onCancel={returnToMainMenu}
+          />
+        );
+      }
+
+      if (appStage === 'lobby') {
+        return <LobbyScreen user={user} onBack={returnToMainMenu} onEnterGame={() => {}} />;
+      }
+
+      if (appStage === 'char-sheet') {
+        return <CharacterSheetPage user={user} onBack={returnToMainMenu} />;
+      }
+
+      if (appStage === 'dm-dashboard') {
+        return <DMDashboard user={user} onBack={returnToMainMenu} />;
+      }
+
+      if (appStage === 'bestiary') {
+        return <BestiaryScreen onBack={returnToMainMenu} />;
+      }
+
+      if (appStage === 'character-setup' && pendingSession) {
+        return (
+          <CharacterEntryModal
+            onCancel={returnToMainMenu}
+            onEnter={completeCharacterEntry}
+            session={pendingSession}
+            user={user}
+          />
+        );
+      }
+
+      return (
+        <section className="fw-page">
+          <article className="fw-card">
+            <div className="fw-card-body">
+              <p className="fw-eyebrow">Signed in</p>
+              <strong>{user?.email ?? 'Warden'}</strong>
+              <p className="fw-dim">Select a table to continue</p>
+            </div>
+          </article>
+        </section>
+      );
+    })();
+
+    return (
+      <>
+        <div className="fw-bg-atmos" />
+        <div className="fw-bg-noise" />
+        <div className="fw-app">
+          <AppRail
+            activeStage={appStage}
+            hasActiveSession={Boolean(activeSession)}
+            user={user}
+            onNavigate={navigateTo}
+            onSignOut={signOut}
+          />
+          <section className="fw-main">
+            <Topbar
+              stage={appStage}
+              user={user}
+              onRequestSettings={() => navigateTo('settings')}
+              onSignOut={() => void signOut()}
+            />
+            {screen}
+          </section>
+        </div>
+      </>
+    );
+  }
+
   const isSessionHost = Boolean(activeSession?.createdBy && user?.id && activeSession.createdBy === user.id);
+  const activeObjectives = (sceneState?.objectives ?? []).filter((objective) => objective.status === 'active');
+  const unresolvedObjectives = (sceneState?.objectives ?? []).filter((objective) => objective.status !== 'completed');
+  const threatClocks = sceneState?.threatClocks ?? [];
 
   return (
     <>
-      <main className={`fw-app-shell mode-${cockpitMode} phase-${currentPhase}`}>
-        <header className="fw-command-bar">
-          <div className="fw-brand-lockup">
-            <p className="fw-caption">Fatewarden</p>
-            <h1>{activeSession?.title ?? 'Adventuring Table'}</h1>
-          </div>
-          <div className="fw-mode-switch" aria-label="Cockpit mode">
-            <button
-              className={cockpitMode === 'dm' ? 'active' : ''}
-              onClick={() => setCockpitMode('dm')}
-              type="button"
-            >
-              DM
-            </button>
-            <button
-              className={cockpitMode === 'player' ? 'active' : ''}
-              onClick={() => setCockpitMode('player')}
-              type="button"
-            >
-              Player
-            </button>
-          </div>
-          <div className="fw-command-status" aria-label="Table status">
-            <span className={`fw-caption ${hasSupabaseConfig ? 'connected' : ''}`}>
-              {hasSupabaseConfig ? 'Live' : 'Local'}
-            </span>
-            <span className="fw-caption">{playModeDefinition.shortLabel}</span>
-            <span className="fw-caption">{phaseDefinition.label}</span>
-            <span className="fw-caption">{user?.email?.split('@')[0] ?? character.name}</span>
-            <div className="fw-game-menu" aria-label="Table menu">
-              <button disabled={!activeSession} onClick={copyJoinCode} type="button">
-                <Copy size={15} aria-hidden="true" />
-                Copy
+      <div className="fw-bg-atmos" />
+      <div className="fw-bg-noise" />
+      <div className="fw-app">
+        <AppRail
+          activeStage={appStage}
+          hasActiveSession={Boolean(activeSession)}
+          user={user}
+          onNavigate={navigateTo}
+          onSignOut={signOut}
+        />
+        <section className="fw-main">
+          <main className="fw-game-table">
+            <header className="fw-game-banner">
+              <button className="fw-btn fw-btn-ghost fw-btn-sm" onClick={handleSwitchTable} type="button">
+                {Icon('chevL', { size: 11 })} Leave table
               </button>
-              {hasSupabaseConfig ? (
-                <button onClick={switchTable} type="button">
-                  <DoorOpen size={15} aria-hidden="true" />
-                  Switch
-                </button>
-              ) : null}
-              {hasSupabaseConfig ? (
-                <button onClick={signOut} type="button">
-                  <LogOut size={15} aria-hidden="true" />
-                  Sign out
-                </button>
-              ) : null}
-            </div>
-          </div>
-        </header>
-
-        <nav className="fw-mobile-dock" aria-label="Mobile cockpit panels">
-          <button
-            className={mobilePanel === 'quest' ? 'active' : ''}
-            onClick={() => setMobilePanel('quest')}
-            type="button"
-          >
-            <ScrollText size={18} aria-hidden="true" />
-            Quest
-          </button>
-          <button
-            className={mobilePanel === 'party' ? 'active' : ''}
-            onClick={() => setMobilePanel('party')}
-            type="button"
-          >
-            <Users size={18} aria-hidden="true" />
-            Party
-          </button>
-          <button
-            className={mobilePanel === 'inventory' ? 'active' : ''}
-            onClick={() => setMobilePanel('inventory')}
-            type="button"
-          >
-            <Backpack size={18} aria-hidden="true" />
-            Inventory
-          </button>
-          <button
-            className={mobilePanel === 'map' ? 'active' : ''}
-            onClick={() => setMobilePanel('map')}
-            type="button"
-          >
-            <MapPin size={18} aria-hidden="true" />
-            Map
-          </button>
-        </nav>
-
-        <section className="fw-cockpit">
-          <aside className="fw-rail">
-            {currentPhase === 'setup' || currentPhase === 'rest' ? (
-              <TableSetupPanel
-                activeSession={activeSession}
-                busy={phaseBusy || openingSceneBusy}
-                character={character}
-                characterStatus={characterStatus}
-                disabled={hasSupabaseConfig && (!activeSession || !user)}
-                encounter={encounter}
-                hasOpeningScene={hasOpeningScene}
-                onAskOpeningScene={askAiToOpenScene}
-                onAskRestSummary={askAiForRestSummary}
-                onApplyLongRest={handleLongRest}
-                onApplyShortRest={handleShortRest}
-                onStartExploration={startAdventure}
-                phase={currentPhase}
-              />
-            ) : null}
-            <GamePhasePanel
-              busy={phaseBusy}
-              disabled={hasSupabaseConfig && (!activeSession || !user)}
-              onChangePhase={changeGamePhase}
-              phase={currentPhase}
-            />
-            <ScenePanel isSessionHost={isSessionHost} />
-            <PartyPanel activeSession={activeSession} currentCharacter={character} />
-            <CompanionPanel
-              currentUserId={user?.id ?? null}
-              isHost={isSessionHost}
-              sessionId={activeSession?.id ?? null}
-            />
-            <section className="fw-panel">
-              <div className="fw-panel__header">
-                <div>
-                  <p className="fw-caption">Rules</p>
-                  <h2 className="fw-h2">Reference</h2>
-                </div>
-                <BookOpen size={22} aria-hidden="true" />
+              <div className="fw-game-banner-title">
+                <span className="fw-pill blood">
+                  <span style={{ width: 6, height: 6, borderRadius: 50, background: 'currentColor' }} />
+                  {hasSupabaseConfig ? 'Live' : 'Local'} - Session
+                </span>
+                <span className="fw-display">{activeSession?.title ?? 'Adventuring Table'}</span>
+                <span className="fw-serif" style={{ color: 'var(--text-3)', fontStyle: 'italic', fontSize: 13 }}>
+                  - {themeDefinition.label}
+                </span>
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-2)', padding: 'var(--sp-3) var(--sp-4)' }}>
-                {[playModeDefinition.shortLabel, themeDefinition.label, 'SRD 5.1',
-                  ...(activeSession?.rules.enabledModules ?? ['core', 'combat', 'conditions'])
-                ].map((label) => (
-                  <span className="fw-cond fw-cond--minor" key={label}>
-                    <span className="fw-cond__dot" />{label}
+              <span style={{ flex: 1 }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {[character.name || 'You', 'DM', playModeDefinition.shortLabel, phaseDefinition.label].map((label, index) => (
+                  <span
+                    className={`fw-avatar sm ${index === 1 ? 'dm' : ''}`}
+                    key={label}
+                    style={{ marginLeft: index ? -8 : 0 }}
+                    title={label}
+                  >
+                    {label.slice(0, 2).toUpperCase()}
+                    <span className="dot" style={{ background: index === 1 ? 'var(--gold)' : 'var(--success)' }} />
                   </span>
                 ))}
               </div>
-              <p className="fw-body" style={{ padding: '0 var(--sp-4) var(--sp-4)', fontSize: 'var(--fs-caption)', color: 'var(--ink-300)' }}>
-                {activeSession?.theme.notes
-                  ? `${themeDefinition.label}: ${activeSession.theme.notes}`
-                  : activeSession?.rules.houseRules ||
-                  (activeSession?.playMode === 'hexplore'
-                    ? 'HEXplore mode is ready as a table mode.'
-                    : 'Core formulas only. Longer rules text stays outside the app.')}
-              </p>
+              <button className="fw-btn fw-btn-icon fw-btn-ghost" disabled={!activeSession} onClick={copyJoinCode} type="button" title="Copy join code">
+                {Icon('copy', { size: 14 })}
+              </button>
+              <button className="fw-btn fw-btn-icon fw-btn-ghost" onClick={() => setCockpitMode(cockpitMode === 'dm' ? 'player' : 'dm')} type="button" title="Switch table view">
+                {Icon(cockpitMode === 'dm' ? 'wand' : 'user', { size: 14 })}
+              </button>
+              {hasSupabaseConfig ? (
+                <button className="fw-btn fw-btn-icon fw-btn-ghost" onClick={signOut} type="button" title="Sign out">
+                  {Icon('logout', { size: 14 })}
+                </button>
+              ) : null}
+            </header>
+
+            <section className="fw-game-layout">
+              <aside className="fw-game-side left">
+                <div className="fw-tabs" role="tablist" aria-label="Left table panels">
+                  {[
+                    { id: 'party', label: 'Party', icon: 'users' },
+                    { id: 'character', label: 'You', icon: 'user' },
+                    { id: 'inventory', label: 'Inventory', icon: 'bag' },
+                    { id: 'quests', label: 'Quests', icon: 'scroll' },
+                  ].map((tab) => (
+                    <button
+                      className={`fw-tab ${leftSidebarTab === tab.id ? 'active' : ''}`}
+                      key={tab.id}
+                      onClick={() => setLeftSidebarTab(tab.id as LeftSidebarTab)}
+                      role="tab"
+                      style={{ flex: 1 }}
+                      type="button"
+                    >
+                      {Icon(tab.icon, { size: 11 })}{tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="fw-game-scroll">
+                  <PrototypeLeftPanel character={character} tab={leftSidebarTab} />
+                </div>
+              </aside>
+
+              <section className="fw-game-center">
+                <header className="fw-scene-head">
+                  <div className="fw-scene-card">
+                    <div className="fw-scene-thumb">
+                      <svg width="100%" height="100%" viewBox="0 0 200 110" preserveAspectRatio="xMidYMid slice">
+                        <g fill="none" stroke="rgba(214,168,79,0.25)" strokeWidth="0.6">
+                          <path d="M0 88 L40 82 L70 76 L100 80 L140 70 L180 78 L200 75 V110 H0 Z" fill="rgba(0,0,0,0.4)" />
+                          <path d="M0 70 L30 62 L60 66 L90 55 L130 64 L170 58 L200 60 V70" />
+                          <circle cx="100" cy="40" r="14" fill="rgba(214,168,79,0.5)" stroke="rgba(214,168,79,0.6)" />
+                          <circle cx="100" cy="40" r="22" stroke="rgba(214,168,79,0.3)" strokeDasharray="2 2" />
+                        </g>
+                      </svg>
+                      <span>SCENE - {sceneState?.turnNumber ?? 14}</span>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="fw-eyebrow" style={{ marginBottom: 4 }}>Current Scene</div>
+                      <div className="fw-display" style={{ color: 'var(--text)', fontSize: 22, letterSpacing: '0.04em' }}>
+                        {sceneState?.location || activeSession?.title || 'Unknown location'}
+                      </div>
+                      <p className="fw-serif" style={{ color: 'var(--text-2)', fontSize: 14, fontStyle: 'italic', lineHeight: 1.55, marginTop: 6 }}>
+                        {sceneState?.description || 'Describe your first action to let the DM establish the scene.'}
+                      </p>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                        <span className="fw-pill dim">{phaseDefinition.label}</span>
+                        <span className="fw-pill dim">{activeObjectives.length} objectives</span>
+                        <span className="fw-pill">{Icon('sparkles', { size: 10 })} {threatClocks.length} clocks</span>
+                        <span className="fw-pill blood">Combat possible</span>
+                      </div>
+                    </div>
+                  </div>
+                </header>
+
+                <div className="fw-tabs" style={{ paddingInline: 18, marginTop: 4 }}>
+                  {[
+                    { id: 'story', label: 'Story Log', icon: 'scroll' },
+                    { id: 'chat', label: 'Table Chat', icon: 'users' },
+                    { id: 'lore', label: 'Lore', icon: 'book' },
+                  ].map((tab) => (
+                    <button className={`fw-tab ${storyTab === tab.id ? 'active' : ''}`} key={tab.id} onClick={() => setStoryTab(tab.id as typeof storyTab)} type="button">
+                      {Icon(tab.icon, { size: 11 })}{tab.label}
+                    </button>
+                  ))}
+                  <span style={{ flex: 1 }} />
+                  <span className="fw-mono" style={{ alignSelf: 'center', color: 'var(--text-3)', fontSize: 11 }}>Session - {formatLocalTime()}</span>
+                </div>
+
+                <div className="fw-game-scroll">
+                  {storyTab === 'story' ? (
+                    <PrototypeStoryFeed characterName={character.name || 'Aedric Vael'} sessionTitle={activeSession?.title} />
+                  ) : null}
+                  {storyTab === 'chat' ? (
+                    <div className="fw-story-empty fw-story-empty-grid">
+                      <div>
+                        <div className="fw-eyebrow">Table Chat</div>
+                        <p className="fw-serif">Party whispers, table calls, and private notes will live here when the new chat system is wired.</p>
+                      </div>
+                      <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">Visual only</button>
+                    </div>
+                  ) : null}
+                  {storyTab === 'lore' ? (
+                    <div className="fw-story-empty fw-story-empty-grid">
+                      <div>
+                        <div className="fw-eyebrow">Lore</div>
+                        <p className="fw-serif">{activeSession?.theme.notes || 'Session facts, discovered names, and table canon appear here as the campaign grows.'}</p>
+                      </div>
+                      <span className="fw-pill dim">Codex pending</span>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="fw-action-input">
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+                    <span className="fw-eyebrow" style={{ alignSelf: 'center', color: 'var(--arcane-bright)', marginRight: 4 }}>
+                      {Icon('sparkles', { size: 10 })} Suggested
+                    </span>
+                    {['Ask what the smoke remembers', 'Move toward the altar', 'Ready a reaction'].map((suggestion) => (
+                      <button className="fw-btn fw-btn-ghost fw-btn-sm" key={suggestion} onClick={() => setActionDraft(suggestion)} type="button">
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+                    <textarea
+                      onChange={(event) => setActionDraft(event.target.value)}
+                      placeholder="Speak in character, describe an action, or whisper to the DM..."
+                      value={actionDraft}
+                    />
+                    <button className="fw-btn fw-btn-gold fw-btn-lg" disabled={!actionDraft.trim()} type="button" onClick={() => setActionDraft('')}>
+                      {Icon('send', { size: 13 })} Commit
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              <aside className="fw-game-side right">
+                <div className="fw-tabs" role="tablist" aria-label="Right table panels">
+                  {[
+                    { id: 'dice', label: 'Dice', icon: 'dice' },
+                    { id: 'combat', label: 'Combat', icon: 'sword' },
+                    { id: 'ai', label: 'AI Warden', icon: 'wand' },
+                    { id: 'tools', label: 'Tools', icon: 'cog' },
+                  ].map((tab) => (
+                    <button
+                      className={`fw-tab ${rightSidebarTab === tab.id ? 'active' : ''}`}
+                      key={tab.id}
+                      onClick={() => setRightSidebarTab(tab.id as RightSidebarTab)}
+                      role="tab"
+                      style={{ flex: 1, fontSize: 10 }}
+                      type="button"
+                    >
+                      {Icon(tab.icon, { size: 11 })}{tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="fw-game-scroll">
+                  <PrototypeRightPanel onOpenCombat={() => setCombatActive(true)} tab={rightSidebarTab} />
+                </div>
+              </aside>
             </section>
-          </aside>
 
-          <section className={`fw-story ${mobilePanel === 'quest' ? 'active' : ''}`}>
-            <StoryLog
-              activeSession={activeSession}
-              character={character}
-              characterName={character.name}
-              encounter={encounter}
-              gamePhase={currentPhase}
-              initialMessages={demoMessages}
-              messages={storyMessages}
-              onConfirmAction={applyAiConfirmAction}
-              onMessagesChange={setStoryMessages}
-              sessionTitle={activeSession?.title}
-              user={user}
-            />
-          </section>
-
-          <aside className="fw-dock">
-            {isHexploreMode ? (
-              <HexHeroBuilder
-                character={character}
-                disabled={hasSupabaseConfig && (!activeSession || !user)}
-                onSave={hasSupabaseConfig ? persistCharacter : saveLocalCharacter}
-                status={characterStatus}
-              />
-            ) : (
-              <CharacterSheet
-                character={character}
-                disabled={hasSupabaseConfig && (!activeSession || !user)}
-                onOpenFullSheet={() => setIsSheetOpen(true)}
-                onSave={hasSupabaseConfig ? persistCharacter : saveLocalCharacter}
-                status={characterStatus}
-              />
-            )}
-            <DiceRoller character={character} onRoll={postDiceRoll} />
-            <CombatTracker
-              character={character}
-              encounter={encounter}
-              onCombatEvent={postCombatEvent}
-              onEncounterChange={changeEncounter}
-              onRequestPhaseChange={changeGamePhase}
-            />
-          </aside>
-
-          <MobileDock
-            activeSession={activeSession}
-            character={character}
-            currentCharacter={character}
-            encounter={encounter}
-            hasSupabaseConfig={hasSupabaseConfig}
-            isHost={isSessionHost}
-            mobilePanel={mobilePanel as 'party' | 'inventory' | 'map'}
-            user={user}
-            onCombatEvent={postCombatEvent}
-            onEncounterChange={changeEncounter}
-            onRequestPhaseChange={changeGamePhase}
-            onUpdateCharacter={hasSupabaseConfig ? persistCharacter : saveLocalCharacter}
-          />
-        </section>
-
-        {isSheetOpen && !isHexploreMode ? (
-          <CharacterSheetView
-            character={character}
-            disabled={hasSupabaseConfig && (!activeSession || !user)}
-            onClose={() => setIsSheetOpen(false)}
-            onSave={hasSupabaseConfig ? persistCharacter : saveLocalCharacter}
-            status={characterStatus}
-          />
+        {combatActive ? (
+          <div className="fw-overlay" style={{ padding: 0 }}>
+            <CombatMode onExit={() => setCombatActive(false)} />
+          </div>
         ) : null}
-      </main>
+          </main>
+        </section>
+      </div>
 
       {activeSession && user && partyChoiceState.activeChoice ? (
         <PartyChoicePanel

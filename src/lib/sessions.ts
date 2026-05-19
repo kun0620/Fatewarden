@@ -13,6 +13,8 @@ type SessionRow = {
   title: string;
   join_code: string;
   created_at: string;
+  updated_at?: string | null;
+  status?: string | null;
   created_by?: string | null;
   play_mode?: string | null;
   game_phase?: string | null;
@@ -30,9 +32,9 @@ type SessionRow = {
 };
 
 const sessionSelect =
-  'id,title,join_code,created_at,created_by,play_mode,game_phase,combat_state,theme_key,theme_tone,theme_notes,rules_version,enabled_modules,house_rules,party_size,allow_ai_dm,visibility,rule_strictness';
+  'id,title,join_code,created_at,updated_at,status,created_by,play_mode,game_phase,combat_state,theme_key,theme_tone,theme_notes,rules_version,enabled_modules,house_rules,party_size,allow_ai_dm,visibility,rule_strictness';
 const combatSessionSelect =
-  'id,title,join_code,created_at,created_by,play_mode,game_phase,combat_state,rules_version,enabled_modules,house_rules';
+  'id,title,join_code,created_at,updated_at,status,created_by,play_mode,game_phase,combat_state,rules_version,enabled_modules,house_rules';
 const legacySessionSelect = 'id,title,join_code,created_at,created_by,play_mode,game_phase,rules_version,enabled_modules,house_rules';
 const baseSessionSelect = 'id,title,join_code,created_at,created_by,rules_version,enabled_modules,house_rules';
 
@@ -42,7 +44,9 @@ function mapSession(row: SessionRow): GameSession {
     title: row.title,
     joinCode: row.join_code,
     createdAt: row.created_at,
+    updatedAt: row.updated_at ?? row.created_at,
     createdBy: row.created_by ?? undefined,
+    status: normalizeSessionStatus(row.status, row.game_phase),
     playMode: normalizePlayMode(row.play_mode),
     phase: normalizeGamePhase(row.game_phase),
     theme: normalizeSessionTheme(row.theme_key, row.theme_tone, row.theme_notes),
@@ -67,8 +71,15 @@ function isMissingSessionColumn(error: { code?: string; message?: string }) {
     error.message?.includes('party_size') ||
     error.message?.includes('allow_ai_dm') ||
     error.message?.includes('visibility') ||
-    error.message?.includes('rule_strictness')
+    error.message?.includes('rule_strictness') ||
+    error.message?.includes('updated_at') ||
+    error.message?.includes('status')
   );
+}
+
+function normalizeSessionStatus(value: unknown, phase: unknown): 'draft' | 'active' | 'ended' {
+  if (value === 'draft' || value === 'active' || value === 'ended') return value;
+  return phase === 'setup' ? 'draft' : 'active';
 }
 
 function normalizeRuleStrictness(value: unknown): RuleStrictness {
@@ -101,7 +112,7 @@ export async function listJoinedSessions() {
   const result = await client
     .from('sessions')
     .select(sessionSelect)
-    .order('created_at', { ascending: false });
+    .order('updated_at', { ascending: false });
   let data: unknown[] | null = result.data;
   let error = result.error;
 
@@ -149,6 +160,7 @@ export async function createGameSession(draft: RoomSetupDraft, user: User) {
       allow_ai_dm: draft.allowAiDm,
       visibility: draft.visibility,
       rule_strictness: draft.ruleStrictness,
+      status: 'draft',
     })
     .select(sessionSelect)
     .single();

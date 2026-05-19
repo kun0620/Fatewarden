@@ -1,4 +1,4 @@
-import { Boxes, Compass, Save } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Compass, Save, Shield, Sparkles, Sword } from 'lucide-react';
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   calculateHexHeroStats,
@@ -21,6 +21,10 @@ type HexHeroBuilderProps = {
   status?: string;
 };
 
+type BuilderStep = 'identity' | 'class' | 'scores' | 'background' | 'review';
+
+const STEP_ORDER: BuilderStep[] = ['identity', 'class', 'scores', 'background', 'review'];
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, Number.isFinite(value) ? value : min));
 }
@@ -29,10 +33,15 @@ function numberValue(event: ChangeEvent<HTMLInputElement>, min: number, max: num
   return clamp(event.target.valueAsNumber, min, max);
 }
 
+function stepIndex(step: BuilderStep) {
+  return STEP_ORDER.indexOf(step);
+}
+
 export function HexHeroBuilder({ character, disabled = false, onSave, status }: HexHeroBuilderProps) {
   const [heroName, setHeroName] = useState(character.name);
   const [draft, setDraft] = useState<HexHeroBuild>(() => normalizeHexHeroBuild(character.systemData.hexplore));
   const [saving, setSaving] = useState(false);
+  const [step, setStep] = useState<BuilderStep>('identity');
 
   useEffect(() => {
     setHeroName(character.name);
@@ -51,23 +60,11 @@ export function HexHeroBuilder({ character, disabled = false, onSave, status }: 
   }, [draft, finalStats, heroName]);
 
   function updateRole<K extends keyof HexHeroBuild['role']>(key: K, value: HexHeroBuild['role'][K]) {
-    setDraft((current) => ({
-      ...current,
-      role: {
-        ...current.role,
-        [key]: value,
-      },
-    }));
+    setDraft((current) => ({ ...current, role: { ...current.role, [key]: value } }));
   }
 
   function updateRace<K extends keyof HexHeroBuild['race']>(key: K, value: HexHeroBuild['race'][K]) {
-    setDraft((current) => ({
-      ...current,
-      race: {
-        ...current.race,
-        [key]: value,
-      },
-    }));
+    setDraft((current) => ({ ...current, race: { ...current.race, [key]: value } }));
   }
 
   function updateAbility(key: HexAbilityKey, value: Partial<HexHeroBuild['role']['abilities'][HexAbilityKey]>) {
@@ -77,46 +74,32 @@ export function HexHeroBuilder({ character, disabled = false, onSave, status }: 
         ...current.role,
         abilities: {
           ...current.role.abilities,
-          [key]: {
-            ...current.role.abilities[key],
-            ...value,
-          },
+          [key]: { ...current.role.abilities[key], ...value },
         },
       },
     }));
   }
 
   function updateSkill(key: HexSkillKey, value: number) {
-    setDraft((current) => ({
-      ...current,
-      role: {
-        ...current.role,
-        skills: {
-          ...current.role.skills,
-          [key]: value,
-        },
-      },
-    }));
+    setDraft((current) => ({ ...current, role: { ...current.role, skills: { ...current.role.skills, [key]: value } } }));
   }
 
   function updateVital(key: HexVitalKey, value: number) {
-    setDraft((current) => ({
-      ...current,
-      role: {
-        ...current.role,
-        vitals: {
-          ...current.role.vitals,
-          [key]: value,
-        },
-      },
-    }));
+    setDraft((current) => ({ ...current, role: { ...current.role, vitals: { ...current.role.vitals, [key]: value } } }));
   }
 
   function updateModifier(key: HexStatKey, value: number) {
-    updateRace('modifiers', {
-      ...draft.race.modifiers,
-      [key]: value,
-    });
+    updateRace('modifiers', { ...draft.race.modifiers, [key]: value });
+  }
+
+  function goNext() {
+    const index = stepIndex(step);
+    if (index < STEP_ORDER.length - 1) setStep(STEP_ORDER[index + 1]);
+  }
+
+  function goBack() {
+    const index = stepIndex(step);
+    if (index > 0) setStep(STEP_ORDER[index - 1]);
   }
 
   async function submit(event: FormEvent) {
@@ -132,10 +115,7 @@ export function HexHeroBuilder({ character, disabled = false, onSave, status }: 
       hitPoints: finalStats.vitals.health,
       maxHitPoints: finalStats.vitals.health,
       skills: hexSkillKeys.map((key) => `${hexSkillLabels[key]} ${finalStats.skills[key]}`),
-      systemData: {
-        ...character.systemData,
-        hexplore: draft,
-      },
+      systemData: { ...character.systemData, hexplore: draft },
     });
     setSaving(false);
   }
@@ -148,276 +128,212 @@ export function HexHeroBuilder({ character, disabled = false, onSave, status }: 
           <h2 className="fw-h2">{heroName || 'Hero Build'}</h2>
         </div>
         <span className="level-pill">
-          <Compass size={14} aria-hidden="true" />
+          <Compass aria-hidden="true" size={14} />
           Hero
         </span>
       </div>
 
-      <div className="hex-builder-grid">
-        <section className="hex-builder-section">
-          <div className="hex-section-title">
-            <Boxes size={16} aria-hidden="true" />
-            Identity
-          </div>
-          <div className="fw-field">
-            <label className="fw-field__label">Hero name</label>
-            <input
-              className="fw-input"
-              disabled={disabled || saving}
-              onChange={(event) => setHeroName(event.target.value)}
-              value={heroName}
-            />
-          </div>
-          <div className="hex-two-col">
-            <div className="fw-field">
-              <label className="fw-field__label">Role</label>
-              <input
-                className="fw-input"
-                disabled={disabled || saving}
-                onChange={(event) => updateRole('name', event.target.value)}
-                placeholder="Custom role"
-                value={draft.role.name}
-              />
-            </div>
-            <div className="fw-field">
-              <label className="fw-field__label">Race</label>
-              <input
-                className="fw-input"
-                disabled={disabled || saving}
-                onChange={(event) => updateRace('name', event.target.value)}
-                placeholder="Custom race"
-                value={draft.race.name}
-              />
-            </div>
-          </div>
-          <div className="hex-two-col">
-            <div className="fw-field">
-              <label className="fw-field__label">Role category</label>
-              <input
-                className="fw-input"
-                disabled={disabled || saving}
-                onChange={(event) => updateRole('category', event.target.value)}
-                placeholder="Utility, striker, healer..."
-                value={draft.role.category}
-              />
-            </div>
-            <div className="fw-field">
-              <label className="fw-field__label">Favored opponent</label>
-              <input
-                className="fw-input"
-                disabled={disabled || saving}
-                onChange={(event) => updateRole('favoredOpponent', event.target.value)}
-                value={draft.role.favoredOpponent}
-              />
-            </div>
-          </div>
-        </section>
+      <div className="hex-wizard">
+        <div className="hex-wizard__steps" aria-label="Progress">
+          {STEP_ORDER.map((item, index) => {
+            const active = item === step;
+            const done = index < stepIndex(step);
+            return (
+              <button className={`hex-step ${active ? 'is-active' : ''} ${done ? 'is-done' : ''}`} key={item} onClick={() => setStep(item)} type="button">
+                <span className="hex-step__dot">{done ? '◆' : '◇'}</span>
+                <span className="hex-step__label">{item}</span>
+              </button>
+            );
+          })}
+        </div>
 
-        <section className="hex-builder-section">
-          <div className="hex-section-title">Abilities</div>
-          {hexAbilityKeys.map((key) => (
-            <div className="hex-ability-row" key={key}>
+        {step === 'identity' ? (
+          <section className="hex-step-card fw-card--framed">
+            <h3 className="fw-h2">Name & Ancestry</h3>
+            <p className="fw-body">Bind the hero name and lineage before the pact takes shape.</p>
+            <div className="hex-two-col">
               <div className="fw-field">
-                <label className="fw-field__label">{hexAbilityLabels[key]} name</label>
-                <input
-                  className="fw-input"
-                  disabled={disabled || saving}
-                  onChange={(event) => updateAbility(key, { name: event.target.value })}
-                  value={draft.role.abilities[key].name}
-                />
+                <label className="fw-field__label">Hero name</label>
+                <input className="fw-input" disabled={disabled || saving} onChange={(event) => setHeroName(event.target.value)} value={heroName} />
               </div>
               <div className="fw-field">
-                <label className="fw-field__label">Base</label>
-                <input
-                  className="fw-input"
-                  disabled={disabled || saving}
-                  max={30}
-                  min={0}
-                  onChange={(event) => updateAbility(key, { base: numberValue(event, 0, 30) })}
-                  type="number"
-                  value={draft.role.abilities[key].base}
-                />
+                <label className="fw-field__label">Race</label>
+                <input className="fw-input" disabled={disabled || saving} onChange={(event) => updateRace('name', event.target.value)} value={draft.race.name} />
+              </div>
+            </div>
+            <div className="hex-two-col">
+              <div className="fw-field">
+                <label className="fw-field__label">Role category</label>
+                <input className="fw-input" disabled={disabled || saving} onChange={(event) => updateRole('category', event.target.value)} value={draft.role.category} />
               </div>
               <div className="fw-field">
-                <label className="fw-field__label">Energy</label>
-                <input
-                  className="fw-input"
-                  disabled={disabled || saving}
-                  max={30}
-                  min={0}
-                  onChange={(event) => updateAbility(key, { energyCost: numberValue(event, 0, 30) })}
-                  type="number"
-                  value={draft.role.abilities[key].energyCost}
-                />
-              </div>
-              <div className="fw-field hex-wide-field">
-                <label className="fw-field__label">Summary</label>
-                <textarea
-                  className="fw-input"
-                  disabled={disabled || saving}
-                  onChange={(event) => updateAbility(key, { summary: event.target.value })}
-                  rows={2}
-                  value={draft.role.abilities[key].summary}
-                />
+                <label className="fw-field__label">Favored opponent</label>
+                <input className="fw-input" disabled={disabled || saving} onChange={(event) => updateRole('favoredOpponent', event.target.value)} value={draft.role.favoredOpponent} />
               </div>
             </div>
-          ))}
-        </section>
+          </section>
+        ) : null}
 
-        <section className="hex-builder-section">
-          <div className="hex-section-title">Scores</div>
-          <div className="hex-score-grid">
-            {hexSkillKeys.map((key) => (
-              <div className="fw-field" key={key}>
-                <label className="fw-field__label">{hexSkillLabels[key]}</label>
-                <input
-                  className="fw-input"
-                  disabled={disabled || saving}
-                  max={30}
-                  min={0}
-                  onChange={(event) => updateSkill(key, numberValue(event, 0, 30))}
-                  type="number"
-                  value={draft.role.skills[key]}
-                />
-              </div>
-            ))}
-            {hexVitalKeys.map((key) => (
-              <div className="fw-field" key={key}>
-                <label className="fw-field__label">{hexVitalLabels[key]}</label>
-                <input
-                  className="fw-input"
-                  disabled={disabled || saving}
-                  max={99}
-                  min={0}
-                  onChange={(event) => updateVital(key, numberValue(event, 0, 99))}
-                  type="number"
-                  value={draft.role.vitals[key]}
-                />
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="hex-builder-section">
-          <div className="hex-section-title">Race modifiers</div>
-          <div className="hex-mod-grid">
-            {hexStatKeys.map((key) => (
-              <div className="fw-field" key={key}>
-                <label className="fw-field__label">{hexStatLabels[key]}</label>
-                <input
-                  className="fw-input"
-                  disabled={disabled || saving}
-                  max={30}
-                  min={-30}
-                  onChange={(event) => updateModifier(key, numberValue(event, -30, 30))}
-                  type="number"
-                  value={draft.race.modifiers[key]}
-                />
-              </div>
-            ))}
-          </div>
-          <div className="fw-field">
-            <label className="fw-field__label">Race notes</label>
-            <textarea
-              className="fw-input"
-              disabled={disabled || saving}
-              onChange={(event) => updateRace('notes', event.target.value)}
-              rows={3}
-              value={draft.race.notes}
-            />
-          </div>
-        </section>
-
-        <section className="hex-builder-section">
-          <div className="hex-section-title">Resources</div>
-          <div className="hex-two-col">
-            <div className="fw-field">
-              <label className="fw-field__label">Food rating</label>
-              <input
-                className="fw-input"
-                disabled={disabled || saving}
-                max={30}
-                min={0}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, foodRating: numberValue(event, 0, 30) }))
-                }
-                type="number"
-                value={draft.foodRating}
-              />
+        {step === 'class' ? (
+          <section className="hex-step-card fw-card--framed">
+            <h3 className="fw-h2">Class Selection</h3>
+            <p className="fw-body">Choose an archetype, then refine role details for this hero.</p>
+            <div className="hex-class-grid">
+              {[
+                { key: 'Warden', icon: Shield, desc: 'Defensive frontline with oath-bound resilience.' },
+                { key: 'Blademind', icon: Sword, desc: 'Aggressive striker focused on burst damage.' },
+                { key: 'Arcanist', icon: Sparkles, desc: 'Control and utility through arcane channels.' },
+              ].map((preset) => (
+                <button
+                  className={`hex-class-card ${draft.role.name === preset.key ? 'is-active' : ''}`}
+                  key={preset.key}
+                  onClick={() => updateRole('name', preset.key)}
+                  type="button"
+                >
+                  <preset.icon aria-hidden="true" size={20} />
+                  <strong>{preset.key}</strong>
+                  <span>{preset.desc}</span>
+                </button>
+              ))}
             </div>
             <div className="fw-field">
-              <label className="fw-field__label">Gold</label>
-              <input
-                className="fw-input"
-                disabled={disabled || saving}
-                max={999}
-                min={0}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, gold: numberValue(event, 0, 999) }))
-                }
-                type="number"
-                value={draft.gold}
-              />
+              <label className="fw-field__label">Role (custom)</label>
+              <input className="fw-input" disabled={disabled || saving} onChange={(event) => updateRole('name', event.target.value)} value={draft.role.name} />
             </div>
-          </div>
-          <div className="fw-field">
-            <label className="fw-field__label">Backpack notes</label>
-            <textarea
-              className="fw-input"
-              disabled={disabled || saving}
-              onChange={(event) => setDraft((current) => ({ ...current, backpackNotes: event.target.value }))}
-              rows={3}
-              value={draft.backpackNotes}
-            />
-          </div>
-        </section>
+          </section>
+        ) : null}
 
-        <section className="hex-preview">
-          <div className="hex-section-title">Final preview</div>
-          <div className="hex-final-grid">
-            {hexAbilityKeys.map((key) => (
-              <div key={key}>
-                <span>{draft.role.abilities[key].name || hexAbilityLabels[key]}</span>
-                <strong>{finalStats.abilities[key]}</strong>
-                <small>
-                  base {draft.role.abilities[key].base} / race {draft.race.modifiers[key] >= 0 ? '+' : ''}
-                  {draft.race.modifiers[key]}
-                </small>
+        {step === 'scores' ? (
+          <section className="hex-step-card fw-card--framed">
+            <h3 className="fw-h2">Ability Scores</h3>
+            <p className="fw-body">Tune base stats and resource pools before final modifiers are sealed.</p>
+            <div className="hex-ability-grid">
+              {hexSkillKeys.map((key) => (
+                <div className="hex-score-box" key={key}>
+                  <span className="fw-caption">{hexSkillLabels[key]}</span>
+                  <strong className="fw-mono">{finalStats.skills[key]}</strong>
+                  <small className="fw-mono">
+                    {draft.role.skills[key]} {draft.race.modifiers[key] >= 0 ? '+' : ''}
+                    {draft.race.modifiers[key]}
+                  </small>
+                  <input className="fw-input fw-input--mono" disabled={disabled || saving} max={30} min={0} onChange={(event) => updateSkill(key, numberValue(event, 0, 30))} type="number" value={draft.role.skills[key]} />
+                </div>
+              ))}
+            </div>
+            <div className="hex-two-col">
+              {hexVitalKeys.map((key) => (
+                <div className="fw-field" key={key}>
+                  <label className="fw-field__label">{hexVitalLabels[key]}</label>
+                  <input className="fw-input fw-input--mono" disabled={disabled || saving} max={99} min={0} onChange={(event) => updateVital(key, numberValue(event, 0, 99))} type="number" value={draft.role.vitals[key]} />
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {step === 'background' ? (
+          <section className="hex-step-card fw-card--framed">
+            <h3 className="fw-h2">Background & Traits</h3>
+            <p className="fw-body">Record lore, burden, and supplies carried into the next chapter.</p>
+            <div className="hex-two-col">
+              <div className="fw-field">
+                <label className="fw-field__label">Race notes</label>
+                <textarea className="fw-input" disabled={disabled || saving} onChange={(event) => updateRace('notes', event.target.value)} rows={4} value={draft.race.notes} />
               </div>
-            ))}
-            {hexSkillKeys.map((key) => (
-              <div key={key}>
-                <span>{hexSkillLabels[key]}</span>
-                <strong>{finalStats.skills[key]}</strong>
-                <small>
-                  base {draft.role.skills[key]} / race {draft.race.modifiers[key] >= 0 ? '+' : ''}
-                  {draft.race.modifiers[key]}
-                </small>
+              <div className="fw-field">
+                <label className="fw-field__label">Backpack notes</label>
+                <textarea className="fw-input" disabled={disabled || saving} onChange={(event) => setDraft((current) => ({ ...current, backpackNotes: event.target.value }))} rows={4} value={draft.backpackNotes} />
               </div>
-            ))}
-            {hexVitalKeys.map((key) => (
-              <div key={key}>
-                <span>{hexVitalLabels[key]}</span>
-                <strong>{finalStats.vitals[key]}</strong>
-                <small>
-                  base {draft.role.vitals[key]} / race {draft.race.modifiers[key] >= 0 ? '+' : ''}
-                  {draft.race.modifiers[key]}
-                </small>
+            </div>
+            <div className="hex-two-col">
+              <div className="fw-field">
+                <label className="fw-field__label">Food rating</label>
+                <input className="fw-input fw-input--mono" disabled={disabled || saving} max={30} min={0} onChange={(event) => setDraft((current) => ({ ...current, foodRating: numberValue(event, 0, 30) }))} type="number" value={draft.foodRating} />
               </div>
-            ))}
-          </div>
-          <p className={validation.length ? 'hex-validation warning' : 'hex-validation'}>
-            {validation.length ? validation.join(' ') : 'Ready to save. Full official catalog can plug into this shape later.'}
-          </p>
-        </section>
+              <div className="fw-field">
+                <label className="fw-field__label">Gold</label>
+                <input className="fw-input fw-input--mono" disabled={disabled || saving} max={999} min={0} onChange={(event) => setDraft((current) => ({ ...current, gold: numberValue(event, 0, 999) }))} type="number" value={draft.gold} />
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {step === 'review' ? (
+          <section className="hex-step-card fw-card--framed">
+            <h3 className="fw-h2">Review</h3>
+            <p className="fw-body">Your fate is now inscribed in the Grimoire.</p>
+
+            <div className="hex-final-grid">
+              {hexAbilityKeys.map((key) => (
+                <div key={key}>
+                  <span>{draft.role.abilities[key].name || hexAbilityLabels[key]}</span>
+                  <strong>{finalStats.abilities[key]}</strong>
+                  <small>
+                    base {draft.role.abilities[key].base} / race {draft.race.modifiers[key] >= 0 ? '+' : ''}
+                    {draft.race.modifiers[key]}
+                  </small>
+                </div>
+              ))}
+              {hexSkillKeys.map((key) => (
+                <div key={key}>
+                  <span>{hexSkillLabels[key]}</span>
+                  <strong>{finalStats.skills[key]}</strong>
+                  <small>
+                    base {draft.role.skills[key]} / race {draft.race.modifiers[key] >= 0 ? '+' : ''}
+                    {draft.race.modifiers[key]}
+                  </small>
+                </div>
+              ))}
+              {hexVitalKeys.map((key) => (
+                <div key={key}>
+                  <span>{hexVitalLabels[key]}</span>
+                  <strong>{finalStats.vitals[key]}</strong>
+                  <small>
+                    base {draft.role.vitals[key]} / race {draft.race.modifiers[key] >= 0 ? '+' : ''}
+                    {draft.race.modifiers[key]}
+                  </small>
+                </div>
+              ))}
+            </div>
+            <p className={validation.length ? 'hex-validation warning' : 'hex-validation'}>
+              {validation.length ? validation.join(' ') : 'Ready to save.'}
+            </p>
+          </section>
+        ) : null}
+
+        <div className="hex-wizard__actions">
+          <button className="fw-btn fw-btn-ghost" disabled={step === 'identity'} onClick={goBack} type="button">
+            <ChevronLeft aria-hidden="true" size={15} />
+            Back
+          </button>
+          {step !== 'review' ? (
+            <button className="fw-btn fw-btn-gold" onClick={goNext} type="button">
+              Continue
+              <ChevronRight aria-hidden="true" size={15} />
+            </button>
+          ) : (
+            <button className="fw-btn fw-btn-gold hex-save-cta" disabled={disabled || saving || !onSave || Boolean(validation.length)} type="submit">
+              <Save aria-hidden="true" size={17} />
+              {saving ? 'Saving...' : 'Seal the Pact'}
+            </button>
+          )}
+        </div>
+
+        {status ? <p className="fw-caption">{status}</p> : null}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', marginTop: 'var(--sp-3)' }}>
-        {status ? <p className="fw-caption">{status}</p> : null}
-        <button className="fw-btn fw-btn--ghost" disabled={disabled || saving || !onSave || Boolean(validation.length)} type="submit">
-          <Save size={17} aria-hidden="true" />
-          {saving ? 'Saving...' : 'Save Hero'}
-        </button>
+      <div className="hex-hidden-fields" aria-hidden="true">
+        {hexAbilityKeys.map((key) => (
+          <div key={key}>
+            <input className="fw-input" disabled={disabled || saving} onChange={(event) => updateAbility(key, { name: event.target.value })} type="hidden" value={draft.role.abilities[key].name} />
+            <input className="fw-input" disabled={disabled || saving} onChange={(event) => updateAbility(key, { base: numberValue(event, 0, 30) })} type="hidden" value={draft.role.abilities[key].base} />
+            <input className="fw-input" disabled={disabled || saving} onChange={(event) => updateAbility(key, { energyCost: numberValue(event, 0, 30) })} type="hidden" value={draft.role.abilities[key].energyCost} />
+            <input className="fw-input" disabled={disabled || saving} onChange={(event) => updateAbility(key, { summary: event.target.value })} type="hidden" value={draft.role.abilities[key].summary} />
+          </div>
+        ))}
+        {hexStatKeys.map((key) => (
+          <input className="fw-input" disabled={disabled || saving} key={key} onChange={(event) => updateModifier(key, numberValue(event, -30, 30))} type="hidden" value={draft.race.modifiers[key]} />
+        ))}
       </div>
     </form>
   );

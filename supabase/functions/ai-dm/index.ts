@@ -49,6 +49,12 @@ type DmReply = {
 };
 
 const GEMINI_TIMEOUT_MS = 35_000;
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
+const DEPRECATED_GEMINI_MODELS = new Set([
+  'gemini-2.0-flash-exp',
+  'gemini-2.0-flash-exp-image-generation',
+  'gemini-2.5-flash-preview-05-20',
+]);
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -57,6 +63,14 @@ const corsHeaders = {
 
 function errorResponse(message: string, status: number) {
   return Response.json({ error: message }, { status, headers: corsHeaders });
+}
+
+function resolveGeminiModel() {
+  const configured = Deno.env.get('GOOGLE_MODEL')?.trim().replace(/^models\//, '');
+  if (!configured || DEPRECATED_GEMINI_MODELS.has(configured)) {
+    return DEFAULT_GEMINI_MODEL;
+  }
+  return configured;
 }
 
 async function parseRequestBody(request: Request) {
@@ -393,7 +407,7 @@ Deno.serve(async (request) => {
   if (!apiKey) {
     return errorResponse('GOOGLE_API_KEY is not configured for the AI DM function.', 500);
   }
-  const model = Deno.env.get('GOOGLE_MODEL') ?? 'gemini-2.0-flash';
+  const model = resolveGeminiModel();
 
   const body = await parseRequestBody(request);
   if (!body) {

@@ -343,7 +343,9 @@ export type GameSession = {
   title: string;
   joinCode: string;
   createdAt: string;
+  updatedAt?: string;
   createdBy?: string;
+  status?: 'draft' | 'active' | 'ended';
   playMode: SessionPlayMode;
   phase: GamePhase;
   theme: SessionTheme;

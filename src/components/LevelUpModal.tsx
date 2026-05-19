@@ -32,16 +32,19 @@ export function LevelUpModal({ character, open, onCancel, onConfirm }: LevelUpMo
     setBusy(false);
   }
 
+  const nextLevel = Math.min(character.level + 1, 20);
+
   return (
-    <div className="fw-backdrop" role="presentation">
-      <section aria-modal="true" className="fw-modal" role="dialog">
-        <div className="fw-modal__header">
-          <div>
-            <p className="fw-caption">Level Up</p>
-            <h2 className="fw-h2">
-              {character.name} to Level {Math.min(character.level + 1, 20)}
-            </h2>
-            <small>
+    <div className="fw-backdrop levelup-backdrop" role="presentation">
+      <section aria-modal="true" className="fw-modal levelup-modal" role="dialog">
+        <div className="fw-modal__header levelup-modal__header">
+          <div className="levelup-headline">
+            <p className="fw-caption">Ascension</p>
+            <h2 className="levelup-title">✦ LEVEL {nextLevel} ATTAINED ✦</h2>
+            <p className="levelup-subtitle">
+              {character.name} grows in power.
+            </p>
+            <small className="levelup-meta">
               {character.ancestry} {character.className}
             </small>
           </div>
@@ -50,7 +53,22 @@ export function LevelUpModal({ character, open, onCancel, onConfirm }: LevelUpMo
           </button>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+        <div className="levelup-steps">
+          <article className="levelup-step-card">
+            <p className="fw-caption">1. Features Gained</p>
+            <p className="levelup-step-text">Choose the new feature package for this level.</p>
+          </article>
+          <article className="levelup-step-card">
+            <p className="fw-caption">2. HP Increase</p>
+            <p className="levelup-step-text">Pick how vitality grows with this ascension.</p>
+          </article>
+          <article className="levelup-step-card">
+            <p className="fw-caption">3. Class Choices</p>
+            <p className="levelup-step-text">Resolve spells, ability score, or feature variants.</p>
+          </article>
+        </div>
+
+        <div className="levelup-fields">
           {choices.map((choice) => (
             <div className="fw-field" key={choice.type}>
               <label className="fw-field__label">
@@ -72,13 +90,13 @@ export function LevelUpModal({ character, open, onCancel, onConfirm }: LevelUpMo
           ))}
         </div>
 
-        <div style={{ display: 'flex', gap: 'var(--sp-2)', justifyContent: 'flex-end', marginTop: 'var(--sp-4)' }}>
+        <div className="levelup-actions">
           <button className="fw-btn fw-btn--ghost" disabled={busy} onClick={onCancel} type="button">
             Cancel
           </button>
-          <button className="fw-btn fw-btn--primary" disabled={busy || !choices.length} onClick={() => void confirmLevelUp()} type="button">
+          <button className="fw-btn fw-btn-gold" disabled={busy || !choices.length} onClick={() => void confirmLevelUp()} type="button">
             <Sparkles aria-hidden="true" size={16} />
-            {busy ? 'Applying...' : 'Confirm Level Up'}
+            {busy ? 'Applying...' : 'Seal the Ascension'}
           </button>
         </div>
       </section>

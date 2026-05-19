@@ -1,5 +1,5 @@
-import { BedDouble, Dice6, MoonStar } from 'lucide-react';
-import { useState } from 'react';
+import { BedDouble, Dice6, MoonStar, Sparkles } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { getHitDieType } from '../engine/character/rest';
 import type { Character } from '../types';
 
@@ -16,62 +16,101 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, Math.trunc(value)));
 }
 
+function parseDieSize(die: string) {
+  const match = /d(\d+)/i.exec(die);
+  return match ? Number(match[1]) : 8;
+}
+
 export function RestPanel({ character, busy = false, disabled = false, onLongRest, onShortRest }: RestPanelProps) {
   const [hitDiceSpent, setHitDiceSpent] = useState(1);
+  const [summary, setSummary] = useState<string | null>(null);
   const maxSpend = Math.max(0, character.hitDice);
+  const hitDie = getHitDieType(character.className);
   const canShortRest = !disabled && !busy && maxSpend > 0;
+  const canLongRest = !disabled && !busy;
   const clampedSpend = clamp(hitDiceSpent, 1, Math.max(1, maxSpend));
+  const dieSize = parseDieSize(hitDie);
+  const estimatedRecovery = useMemo(() => Math.max(1, Math.round((dieSize / 2 + 0.5) * clampedSpend)), [clampedSpend, dieSize]);
+
+  async function submitShortRest() {
+    await onShortRest(clampedSpend);
+    setSummary(`Short rest complete · spent ${clampedSpend}${hitDie}, estimated recovery ~${estimatedRecovery} HP.`);
+  }
+
+  async function submitLongRest() {
+    await onLongRest();
+    setSummary('Long rest complete · health and core resources restored.');
+  }
 
   return (
     <section className="fw-panel rest-panel">
       <div className="fw-panel__header">
         <div>
-          <p className="fw-caption">Recovery</p>
+          <p className="fw-caption">Respite</p>
           <h2 className="fw-h2">Rest Actions</h2>
         </div>
-        <BedDouble size={22} aria-hidden="true" />
+        <BedDouble aria-hidden="true" size={22} />
       </div>
 
-      <div className="rest-stats-grid">
-        <div className="rest-stat">
-          <span>Hit Dice</span>
-          <strong>
-            {character.hitDice}/{character.maxHitDice}
-          </strong>
-        </div>
-        <div className="rest-stat">
-          <span>Hit Die</span>
-          <strong>{getHitDieType(character.className)}</strong>
-        </div>
-        <div className="rest-stat">
-          <span>Exhaustion</span>
-          <strong>{character.exhaustionLevel}</strong>
-        </div>
-      </div>
+      <div className="rest-panel__body">
+        <article className="rest-panel__section">
+          <p className="rest-panel__section-title">
+            <Dice6 aria-hidden="true" size={14} />
+            Short Rest
+          </p>
+          <p className="rest-panel__text">Spend Hit Dice to recover HP.</p>
+          <p className="rest-panel__meta">
+            Hit Dice remaining: <strong>{character.hitDice}</strong>/{character.maxHitDice} · Die {hitDie}
+          </p>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
-        <div className="fw-field">
-          <label className="fw-field__label">Spend Hit Dice</label>
-          <input
-            className="fw-input"
-            disabled={!canShortRest}
-            max={Math.max(1, maxSpend)}
-            min={1}
-            onChange={(event) => setHitDiceSpent(event.target.valueAsNumber)}
-            type="number"
-            value={clampedSpend}
-          />
-        </div>
-        <button className="fw-btn fw-btn--ghost" disabled={!canShortRest} onClick={() => void onShortRest(clampedSpend)} type="button">
-          <Dice6 size={16} aria-hidden="true" />
-          Short Rest
-        </button>
-      </div>
+          <div className="rest-panel__dice-row">
+            {Array.from({ length: Math.max(1, maxSpend) }).map((_, index) => {
+              const active = index < clampedSpend;
+              return (
+                <button
+                  className={`rest-panel__die ${active ? 'is-active' : ''}`}
+                  disabled={!canShortRest}
+                  key={`die-${index}`}
+                  onClick={() => setHitDiceSpent(index + 1)}
+                  type="button"
+                >
+                  {hitDie}
+                </button>
+              );
+            })}
+          </div>
 
-      <button className="fw-btn fw-btn--primary" disabled={disabled || busy} onClick={() => void onLongRest()} type="button">
-        <MoonStar size={16} aria-hidden="true" />
-        Long Rest
-      </button>
+          <div className="rest-panel__estimate">Estimated recovery: ~{estimatedRecovery} HP</div>
+          <button className="fw-btn fw-btn-ghost" disabled={!canShortRest} onClick={() => void submitShortRest()} type="button">
+            <Dice6 aria-hidden="true" size={16} />
+            Take Short Rest
+          </button>
+        </article>
+
+        <div className="rest-panel__divider">or</div>
+
+        <article className="rest-panel__section">
+          <p className="rest-panel__section-title is-gold">
+            <MoonStar aria-hidden="true" size={14} />
+            Long Rest
+          </p>
+          <p className="rest-panel__text">Restore all HP and key resources.</p>
+          <button className="fw-btn fw-btn-gold" disabled={!canLongRest} onClick={() => void submitLongRest()} type="button">
+            <MoonStar aria-hidden="true" size={16} />
+            Begin Long Rest
+          </button>
+        </article>
+
+        {summary ? (
+          <article className="rest-panel__summary">
+            <p className="fw-caption">
+              <Sparkles aria-hidden="true" size={12} />
+              Recovery Summary
+            </p>
+            <p className="rest-panel__text">{summary}</p>
+          </article>
+        ) : null}
+      </div>
     </section>
   );
 }
