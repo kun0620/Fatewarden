@@ -31,9 +31,12 @@ export function sortInitiativeOrder(participants: readonly CombatParticipant[]):
       const rightScore = right.initiativeScore ?? Number.NEGATIVE_INFINITY;
       if (rightScore !== leftScore) return rightScore - leftScore;
 
-      const rightDexMod = getAbilityModifier(right.dexScore);
-      const leftDexMod = getAbilityModifier(left.dexScore);
-      if (rightDexMod !== leftDexMod) return rightDexMod - leftDexMod;
+      if (right.dexScore !== left.dexScore) return right.dexScore - left.dexScore;
+
+      if (left.type !== right.type) {
+        if (left.type === 'player') return -1;
+        if (right.type === 'player') return 1;
+      }
 
       if (left.joinedOrder !== right.joinedOrder) return left.joinedOrder - right.joinedOrder;
       return left.id.localeCompare(right.id);

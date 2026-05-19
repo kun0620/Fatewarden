@@ -27,11 +27,22 @@ import {
   processCombatAddParticipant,
   processCombatAdjustDeathSave,
   processCombatAdvanceTurn,
+  processCombatApplyCondition,
+  processCombatApplyDamage,
+  processCombatAttack,
   processCombatCreateEncounter,
   processCombatEndEncounter,
+  processCombatExpireConditions,
+  processCombatMove,
+  processCombatRecoverHp,
+  processCombatRemoveCondition,
+  processCombatRollDeathSave,
+  processCombatRollInitiative,
+  processCombatSetAiBehavior,
   processCombatSetInitiative,
   processCombatSetTempHp,
   processCombatSortInitiative,
+  processCombatUseAction,
 } from '../engine/events/processors/combatProcessor';
 import type { Character, Combatant, EncounterState, Inventory } from '../types';
 
@@ -317,6 +328,15 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       return { character: activeCharacter, appliedCount: 1, failed: [] };
     }
 
+    if (event.type === 'COMBAT_ROLL_INITIATIVE') {
+      const result = processCombatRollInitiative(get().combatState, event);
+      if (!result.applied) {
+        return { character: get().activeCharacter, appliedCount: 0, failed: [result.error ?? 'Failed to roll initiative.'] };
+      }
+      get().setCombatState(result.combatState);
+      return { character: get().activeCharacter, appliedCount: 1, failed: [] };
+    }
+
     if (event.type === 'COMBAT_ADVANCE_TURN') {
       const activeCharacter = get().activeCharacter;
       if (!activeCharacter) {
@@ -340,6 +360,33 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       return { character: activeCharacter, appliedCount: 1, failed: [] };
     }
 
+    if (event.type === 'COMBAT_USE_ACTION') {
+      const result = processCombatUseAction(get().combatState, event);
+      if (!result.applied) {
+        return { character: get().activeCharacter, appliedCount: 0, failed: [result.error ?? 'Failed to use action.'] };
+      }
+      get().setCombatState(result.combatState);
+      return { character: get().activeCharacter, appliedCount: 1, failed: [] };
+    }
+
+    if (event.type === 'COMBAT_MOVE') {
+      const result = processCombatMove(get().combatState, event);
+      if (!result.applied) {
+        return { character: get().activeCharacter, appliedCount: 0, failed: [result.error ?? 'Failed to move combatant.'] };
+      }
+      get().setCombatState(result.combatState);
+      return { character: get().activeCharacter, appliedCount: 1, failed: [] };
+    }
+
+    if (event.type === 'COMBAT_ATTACK') {
+      const result = processCombatAttack(get().combatState, event);
+      if (!result.applied) {
+        return { character: get().activeCharacter, appliedCount: 0, failed: [result.error ?? 'Failed to resolve attack.'] };
+      }
+      get().setCombatState(result.combatState);
+      return { character: get().activeCharacter, appliedCount: 1, failed: [] };
+    }
+
     if (event.type === 'COMBAT_SET_TEMP_HP') {
       const result = processCombatSetTempHp(get().combatState, event);
       if (!result.applied) {
@@ -353,6 +400,33 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       const result = processCombatAdjustDeathSave(get().combatState, event);
       if (!result.applied) {
         return { character: get().activeCharacter, appliedCount: 0, failed: [result.error ?? 'Failed to adjust death save.'] };
+      }
+      get().setCombatState(result.combatState);
+      return { character: get().activeCharacter, appliedCount: 1, failed: [] };
+    }
+
+    if (event.type === 'COMBAT_ROLL_DEATH_SAVE') {
+      const result = processCombatRollDeathSave(get().combatState, event);
+      if (!result.applied) {
+        return { character: get().activeCharacter, appliedCount: 0, failed: [result.error ?? 'Failed to roll death save.'] };
+      }
+      get().setCombatState(result.combatState);
+      return { character: get().activeCharacter, appliedCount: 1, failed: [] };
+    }
+
+    if (event.type === 'COMBAT_SET_AI_BEHAVIOR') {
+      const result = processCombatSetAiBehavior(get().combatState, event);
+      if (!result.applied) {
+        return { character: get().activeCharacter, appliedCount: 0, failed: [result.error ?? 'Failed to set AI behavior.'] };
+      }
+      get().setCombatState(result.combatState);
+      return { character: get().activeCharacter, appliedCount: 1, failed: [] };
+    }
+
+    if (event.type === 'COMBAT_EXPIRE_CONDITIONS') {
+      const result = processCombatExpireConditions(get().combatState, event);
+      if (!result.applied) {
+        return { character: get().activeCharacter, appliedCount: 0, failed: [result.error ?? 'Failed to expire conditions.'] };
       }
       get().setCombatState(result.combatState);
       return { character: get().activeCharacter, appliedCount: 1, failed: [] };
@@ -410,66 +484,19 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       if (combatState && event.targetId) {
         const target = combatState.combatants.find((combatant) => combatant.id === event.targetId);
         if (target) {
-          const runtimeState: EventRuntimeState = {
-            charactersById: {
-              [target.id]: {
-                id: target.id,
-                name: target.name,
-                ancestry: '',
-                className: '',
-                level: 1,
-                background: '',
-                age: '',
-                alignment: '',
-                languages: [],
-                proficiencies: [],
-                armorClass: target.armorClass,
-                hitPoints: target.hitPoints,
-                maxHitPoints: target.maxHitPoints,
-                speed: 30,
-                darkvision: 0,
-                inspiration: false,
-                abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
-                skills: [],
-                inventory: get().inventory ?? { items: [], maxCarryWeight: 0, currency: { pp: 0, gp: 0, ep: 0, sp: 0, cp: 0 } },
-                features: [],
-                spells: [],
-                backstory: '',
-                personalityTraits: [],
-                portraitUrl: '',
-                activeConditions: [...target.conditions],
-                exhaustionLevel: 0,
-                hitDice: 1,
-                maxHitDice: 1,
-                spellSlots: {},
-                systemData: {},
-              },
-            },
-          };
-          const queue = createEventQueueState([event]);
-          const processed = processEventQueue(runtimeState, queue);
-          if (processed.failedEvents.length > 0) {
-            return { character: get().activeCharacter, appliedCount: 0, failed: processed.failedEvents.map((item) => item.error) };
+          const result =
+            event.type === 'apply_damage'
+              ? processCombatApplyDamage(combatState, target.id, event.amount, event.damageType, event.isCritical, event.bypassTempHp)
+              : event.type === 'recover_hp'
+                ? processCombatRecoverHp(combatState, target.id, event.amount, event.recoveryKind)
+                : event.type === 'apply_condition'
+                  ? processCombatApplyCondition(combatState, target.id, event.condition, event.durationRounds, event.saveEnds)
+                  : processCombatRemoveCondition(combatState, target.id, event.condition);
+          if (!result.applied) {
+            return { character: get().activeCharacter, appliedCount: 0, failed: [result.error ?? 'Failed to update combat target.'] };
           }
-          const nextTarget = processed.state.charactersById[target.id];
-          if (!nextTarget) {
-            return { character: get().activeCharacter, appliedCount: 0, failed: ['Combat target not found after processing.'] };
-          }
-          const nextCombatState: EncounterState = {
-            ...combatState,
-            combatants: combatState.combatants.map((combatant) =>
-              combatant.id === target.id
-                ? {
-                    ...combatant,
-                    hitPoints: nextTarget.hitPoints,
-                    maxHitPoints: nextTarget.maxHitPoints,
-                    conditions: [...nextTarget.activeConditions],
-                  }
-                : combatant,
-            ),
-          };
-          get().setCombatState(nextCombatState);
-          return { character: get().activeCharacter, appliedCount: processed.appliedEvents.length, failed: [] };
+          get().setCombatState(result.combatState);
+          return { character: get().activeCharacter, appliedCount: 1, failed: [] };
         }
       }
     }

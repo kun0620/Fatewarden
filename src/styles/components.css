@@ -58,6 +58,382 @@
                  0 0 24px -6px rgba(153, 27, 27, 0.5);
 }
 
+/* ---------- Character system builder + vault ---------- */
+.fw-character-builder {
+  width: min(1220px, calc(100vw - 32px));
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+}
+
+.fw-builder-select {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.75fr);
+  gap: 18px;
+}
+
+.fw-builder-layout {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr) 260px;
+  gap: 16px;
+  align-items: start;
+}
+
+.fw-builder-aside,
+.fw-builder-main,
+.fw-builder-context,
+.fw-builder-wizard,
+.fw-card--soft {
+  border: 1px solid rgba(214, 168, 79, 0.13);
+  background: linear-gradient(180deg, rgba(29, 24, 40, 0.92), rgba(14, 11, 22, 0.94));
+  border-radius: var(--r);
+  box-shadow: var(--shadow-card);
+}
+
+.fw-builder-aside,
+.fw-builder-context,
+.fw-builder-wizard {
+  padding: 16px;
+}
+
+.fw-builder-aside,
+.fw-builder-context {
+  position: sticky;
+  top: 0;
+}
+
+.fw-builder-portrait {
+  display: grid;
+  gap: 14px;
+}
+
+.fw-character-sigil,
+.fw-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 1px solid rgba(214, 168, 79, 0.45);
+  background: radial-gradient(circle at 50% 35%, rgba(124, 58, 237, 0.45), rgba(29, 24, 40, 0.95));
+  color: var(--gold-bright);
+  font-family: var(--f-display);
+  letter-spacing: 0.04em;
+}
+
+.fw-builder-statline,
+.fw-summary-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.fw-stepper {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.fw-step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  background: rgba(255,255,255,0.02);
+  color: var(--text-3);
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fw-step.active,
+.fw-step.complete {
+  color: var(--gold-bright);
+  border-color: rgba(214, 168, 79, 0.5);
+  background: rgba(214, 168, 79, 0.08);
+}
+
+.fw-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.fw-choice-tile,
+.fw-check-row,
+.fw-vault-card {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r);
+  background: rgba(255,255,255,0.025);
+  color: var(--text);
+}
+
+.fw-choice-tile {
+  min-height: 108px;
+  padding: 13px;
+  text-align: left;
+  display: grid;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.fw-choice-tile:hover,
+.fw-choice-tile.active,
+.fw-check-row:hover,
+.fw-check-row.active,
+.fw-vault-card.active {
+  border-color: rgba(214, 168, 79, 0.55);
+  background: rgba(214, 168, 79, 0.075);
+}
+
+.fw-pill-row,
+.fw-action-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fw-pill {
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(255,255,255,0.025);
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.fw-pill.active {
+  color: var(--gold-bright);
+  border-color: rgba(214, 168, 79, 0.5);
+  background: rgba(214, 168, 79, 0.08);
+}
+
+.fw-segmented {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r);
+  background: rgba(0,0,0,0.22);
+}
+
+.fw-segmented button {
+  border: 0;
+  border-radius: var(--r-sm);
+  padding: 7px 10px;
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+}
+
+.fw-segmented button.active {
+  background: rgba(214, 168, 79, 0.13);
+  color: var(--gold-bright);
+}
+
+.fw-ability-builder-grid,
+.fw-vault-ability-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.fw-ability-build-card {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r);
+  background: rgba(0,0,0,0.18);
+}
+
+.fw-ability-build-card .fw-input {
+  text-align: center;
+}
+
+.fw-personality-grid,
+.fw-review-grid,
+.fw-vault-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.fw-equipment-list {
+  display: grid;
+  gap: 8px;
+}
+
+.fw-check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  cursor: pointer;
+}
+
+.fw-inline-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fw-inline-control .fw-input {
+  width: 72px;
+}
+
+.fw-builder-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.fw-vault-selected {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px;
+  gap: 12px;
+}
+
+.fw-vault-selected > div {
+  display: grid;
+  gap: 4px;
+}
+
+.fw-vault-modal {
+  width: min(980px, calc(100vw - 32px));
+}
+
+.fw-vault-toolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) 150px 150px auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.fw-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  padding: 0 10px;
+  background: rgba(0,0,0,0.18);
+}
+
+.fw-input-wrap .fw-input {
+  border: 0;
+  background: transparent;
+  padding-left: 0;
+}
+
+.fw-hidden-input {
+  display: none;
+}
+
+.fw-vault-grid {
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.fw-vault-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 8px;
+}
+
+.fw-vault-card__main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fw-vault-card__main span:last-child {
+  display: grid;
+  gap: 3px;
+}
+
+.fw-vault-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fw-btn--icon.danger:hover {
+  border-color: rgba(239, 68, 68, 0.6);
+  color: var(--danger);
+}
+
+.fw-vault-template-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.fw-template-tile {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.fw-template-tile span {
+  display: grid;
+  gap: 2px;
+}
+
+.fw-vault-edit-form {
+  display: grid;
+  gap: 14px;
+}
+
+.fw-empty {
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r);
+  color: var(--text-2);
+  text-align: center;
+}
+
+@media (max-width: 1100px) {
+  .fw-builder-layout,
+  .fw-builder-select {
+    grid-template-columns: 1fr;
+  }
+
+  .fw-builder-aside,
+  .fw-builder-context {
+    position: static;
+  }
+
+  .fw-vault-toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .fw-stepper,
+  .fw-ability-builder-grid,
+  .fw-vault-ability-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
 body {
@@ -1804,6 +2180,47 @@ p { margin: 0; }
 }
 
 /* ============================================================
+   Combat flow modals (Attack / Spell cast)
+   ============================================================ */
+.fw-flow-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(6,5,10,0.74);
+  backdrop-filter: blur(6px);
+}
+.fw-flow-modal {
+  width: min(560px, 100%);
+  max-height: 86vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, var(--surface-2), var(--bg-deep));
+  box-shadow: 0 30px 70px -28px rgba(0,0,0,0.8);
+}
+.fw-flow-modal.accent-blood { border-color: rgba(153,27,27,0.45); }
+.fw-flow-modal.accent-arcane { border-color: rgba(124,58,237,0.45); }
+.fw-flow-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.fw-flow-body { padding: 16px; }
+.fw-flow-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+
+/* ============================================================
    Step 16M close-out - Game table containment bridge
    Keeps legacy live panels inside the prototype game shell.
    ============================================================ */
@@ -3453,4 +3870,1093 @@ p { margin: 0; }
   background: rgba(199,45,45,0.08);
   color: #fecaca;
   font-size: 12px;
+}
+
+/* Character system UI source bridge */
+.fw-character-wizard-source {
+  grid-template-columns: 248px minmax(0, 1fr) 288px;
+  align-items: start;
+}
+
+.fw-character-wizard-source .fw-builder-portrait,
+.fw-character-wizard-source .fw-builder-wizard,
+.fw-character-wizard-source .fw-builder-context {
+  border-radius: 8px;
+  border-color: rgba(214,168,79,0.16);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.012)),
+    rgba(20,12,27,0.94);
+  box-shadow: 0 24px 80px rgba(0,0,0,0.34);
+}
+
+.fw-builder-preview-source {
+  position: sticky;
+  top: 76px;
+  overflow: hidden;
+}
+
+.fw-builder-preview-source::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(214,168,79,0.18), transparent 28%),
+    radial-gradient(circle at 80% 75%, rgba(123,47,247,0.16), transparent 34%);
+}
+
+.fw-builder-preview-source > * {
+  position: relative;
+  z-index: 1;
+}
+
+.fw-builder-preview-meta,
+.fw-builder-live-vitals {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.fw-builder-preview-meta span,
+.fw-builder-live-vitals span {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.03);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.fw-character-wizard-source .fw-character-sigil {
+  width: 116px;
+  height: 116px;
+  margin: 4px auto 8px;
+  border-radius: 50%;
+  border: 1px solid rgba(214,168,79,0.58);
+  background:
+    radial-gradient(circle, rgba(214,168,79,0.28), transparent 58%),
+    linear-gradient(145deg, rgba(73,27,112,0.62), rgba(14,8,20,0.94));
+  color: var(--gold-bright);
+  font-size: 30px;
+  letter-spacing: 0;
+}
+
+.fw-wizard-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.fw-wizard-head .fw-display {
+  margin: 4px 0;
+  font-size: 32px;
+  line-height: 0.98;
+}
+
+.fw-serif-muted {
+  margin: 0;
+  color: var(--text-3);
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-style: italic;
+}
+
+.fw-wizard-head-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.fw-stepper-source {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.fw-stepper-source .fw-step {
+  min-height: 70px;
+  justify-content: flex-start;
+  padding: 10px;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.fw-step-bullet {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 7px;
+  color: var(--gold);
+  background: rgba(0,0,0,0.18);
+}
+
+.fw-step-label,
+.fw-step-desc {
+  display: block;
+}
+
+.fw-step-label {
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.fw-step-desc {
+  margin-top: 3px;
+  color: var(--text-3);
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.fw-stepper-source .fw-step.active {
+  border-color: rgba(214,168,79,0.58);
+  box-shadow: inset 0 0 0 1px rgba(214,168,79,0.14), 0 12px 36px rgba(214,168,79,0.08);
+}
+
+.fw-wizard-foot {
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.fw-builder-live-source {
+  position: sticky;
+  top: 76px;
+}
+
+.fw-builder-live-source .fw-summary-stack {
+  margin: 14px 0;
+}
+
+.fw-vault-grid .fw-vault-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 10px;
+  overflow: hidden;
+}
+
+.fw-vault-card-select {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 14px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.fw-vault-card-portrait {
+  position: relative;
+  display: grid;
+  min-height: 126px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(214,168,79,0.16);
+  border-radius: 7px;
+  background:
+    radial-gradient(circle at 48% 34%, rgba(214,168,79,0.24), transparent 28%),
+    linear-gradient(145deg, rgba(66,28,93,0.88), rgba(13,8,20,0.94));
+}
+
+.fw-vault-portrait-inner {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  border: 1px solid rgba(214,168,79,0.56);
+  border-radius: 50%;
+  color: var(--gold-bright);
+  font-family: var(--font-serif);
+  font-size: 22px;
+}
+
+.fw-vault-level,
+.fw-vault-status {
+  position: absolute;
+  left: 8px;
+  z-index: 1;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.fw-vault-level {
+  top: 8px;
+  color: var(--gold-bright);
+}
+
+.fw-vault-status {
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-3);
+}
+
+.fw-vault-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.35);
+}
+
+.fw-vault-status.active .fw-vault-status-dot,
+.fw-vault-card.active .fw-vault-status-dot {
+  background: var(--gold-bright);
+  box-shadow: 0 0 12px rgba(214,168,79,0.58);
+}
+
+.fw-vault-card-body {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fw-vault-card-title {
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.fw-vault-mini {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.fw-vault-mini span {
+  display: grid;
+  gap: 2px;
+  padding: 7px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.025);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.fw-vault-mini strong {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.fw-vault-hp {
+  display: block;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.09);
+}
+
+.fw-vault-hp span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #d63d4f, var(--gold-bright));
+}
+
+.fw-vault-card__actions {
+  align-self: start;
+}
+
+@media (max-width: 1180px) {
+  .fw-character-wizard-source {
+    grid-template-columns: 1fr;
+  }
+
+  .fw-builder-preview-source,
+  .fw-builder-live-source {
+    position: static;
+  }
+
+  .fw-stepper-source {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Character setup vault screen from latest UI source */
+.fw-modal.fw-character-builder {
+  width: min(1480px, calc(100vw - 112px));
+  max-height: calc(100vh - 96px);
+  overflow: auto;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) {
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(126,34,206,0.14), transparent 34%),
+    linear-gradient(180deg, rgba(30,22,39,0.96), rgba(17,10,24,0.96));
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-character-modal-head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: rgba(20,12,27,0.96);
+  border-bottom: 1px solid rgba(214,168,79,0.14);
+  backdrop-filter: blur(12px);
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-character-wizard-source {
+  padding: 18px;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-builder-layout {
+  grid-template-columns: 280px minmax(620px, 1fr) 320px;
+  align-items: start;
+  gap: 16px;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-builder-wizard {
+  min-width: 0;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-builder-section {
+  min-height: 430px;
+}
+
+.fw-builder-live-source .fw-summary-stack {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.fw-builder-live-source .fw-summary-stack > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.025);
+}
+
+.fw-builder-live-source .fw-summary-stack span {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.fw-builder-live-source .fw-summary-stack strong {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.fw-builder-live-source .fw-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.fw-builder-live-source .fw-pill {
+  max-width: 100%;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+.fw-character-builder--vault {
+  width: min(1480px, calc(100vw - 112px));
+  max-height: none;
+  min-height: calc(100vh - 110px);
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.fw-character-builder--vault .fw-character-modal-head {
+  display: none;
+}
+
+.fw-character-builder--vault .fw-page {
+  max-width: 1480px;
+  padding: 0 0 40px;
+}
+
+.fw-character-vault-source {
+  min-height: calc(100vh - 120px);
+}
+
+.fw-character-vault-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.fw-vault-filter-card {
+  margin-bottom: 16px;
+  border-radius: 8px;
+  background: rgba(20,12,27,0.88);
+}
+
+.fw-vault-filter-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px;
+}
+
+.fw-character-vault-search {
+  flex: 1 1 320px;
+  max-width: 380px;
+}
+
+.fw-character-vault-search svg {
+  color: var(--text-3);
+}
+
+.fw-vault-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.fw-vault-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.025);
+  color: var(--text-3);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.fw-vault-pill.active {
+  border-color: rgba(214,168,79,0.65);
+  background: rgba(214,168,79,0.08);
+  color: var(--gold-bright);
+}
+
+.fw-vault-pill-count {
+  display: inline-grid;
+  min-width: 16px;
+  height: 16px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.08);
+  color: var(--text-2);
+  font-size: 10px;
+}
+
+.fw-vault-filter-spacer {
+  flex: 1;
+}
+
+.fw-character-vault-class {
+  width: 120px;
+  min-height: 30px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.fw-character-vault-grid {
+  grid-template-columns: repeat(4, minmax(240px, 1fr));
+  gap: 14px;
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
+}
+
+.fw-character-vault-grid .fw-vault-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 308px;
+  padding: 0;
+  border-color: rgba(255,255,255,0.09);
+  border-radius: 8px;
+  background: rgba(20,12,27,0.92);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.22);
+}
+
+.fw-character-vault-grid .fw-vault-card.active {
+  border-color: rgba(214,168,79,0.55);
+  box-shadow: 0 22px 70px rgba(214,168,79,0.14);
+}
+
+.fw-character-vault-grid .fw-vault-card-portrait {
+  min-height: 118px;
+  border: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px 8px 0 0;
+}
+
+.fw-character-vault-grid .fw-vault-card:nth-child(4n + 1) .fw-vault-card-portrait {
+  background: linear-gradient(135deg, rgba(124,58,237,0.46), #06050b);
+}
+
+.fw-character-vault-grid .fw-vault-card:nth-child(4n + 2) .fw-vault-card-portrait {
+  background: linear-gradient(135deg, rgba(214,168,79,0.34), #06050b);
+}
+
+.fw-character-vault-grid .fw-vault-card:nth-child(4n + 3) .fw-vault-card-portrait {
+  background: linear-gradient(135deg, rgba(34,197,94,0.38), #06050b);
+}
+
+.fw-character-vault-grid .fw-vault-card:nth-child(4n + 4) .fw-vault-card-portrait {
+  background: linear-gradient(135deg, rgba(168,162,158,0.28), #06050b);
+}
+
+.fw-character-vault-grid .fw-vault-card-body {
+  flex: 1;
+  align-content: start;
+  padding: 14px;
+}
+
+.fw-character-vault-grid .fw-vault-card-title {
+  font-size: 17px;
+  text-transform: uppercase;
+}
+
+.fw-character-vault-grid .fw-serif-muted {
+  min-height: 42px;
+  margin-top: 8px;
+  padding-left: 8px;
+  border-left: 1px solid rgba(214,168,79,0.34);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.fw-vault-card-actions-row {
+  display: flex;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.fw-vault-card-actions-row .fw-btn:first-child {
+  flex: 1;
+  justify-content: center;
+}
+
+.fw-vault-newcard {
+  display: grid;
+  min-height: 308px;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  border: 1px dashed rgba(255,255,255,0.14);
+  border-radius: 8px;
+  background: rgba(20,12,27,0.38);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.fw-vault-newcard-icon {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  border: 1px dashed rgba(214,168,79,0.72);
+  border-radius: 50%;
+  color: var(--gold-bright);
+}
+
+.fw-vault-newcard .fw-display {
+  font-size: 14px;
+}
+
+.fw-character-vault-empty {
+  display: grid;
+  min-height: 420px;
+  place-items: center;
+  align-content: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.fw-character-vault-empty svg {
+  color: var(--text-4);
+}
+
+.fw-character-vault-empty .fw-display {
+  font-size: 22px;
+}
+
+.fw-character-vault-help {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+  padding: 14px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-family: var(--font-serif);
+  font-size: 12.5px;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.fw-character-vault-help svg {
+  color: var(--gold);
+}
+
+@media (max-width: 1320px) {
+  .fw-character-vault-grid {
+    grid-template-columns: repeat(3, minmax(240px, 1fr));
+  }
+}
+
+@media (max-width: 980px) {
+  .fw-character-builder--vault {
+    width: calc(100vw - 32px);
+  }
+
+  .fw-character-vault-grid {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+  }
+}
+
+/* Character wizard: use the latest prototype full-page shell while keeping live builder logic. */
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) {
+  width: min(1480px, calc(100vw - 112px));
+  max-height: none;
+  min-height: calc(100vh - 110px);
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) > .fw-character-modal-head {
+  display: none;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-character-wizard-source {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 18px;
+  width: 100%;
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: 18px 0 42px;
+  align-items: start;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-builder-preview-source {
+  display: none;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-builder-wizard {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-builder-context {
+  min-width: 0;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-wizard-head {
+  align-items: flex-start;
+  margin-bottom: 14px;
+  padding: 0 0 16px;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-stepper-source {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-builder-section {
+  min-height: auto;
+  padding: 0;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-builder-section > .fw-section-head,
+.fw-character-identity-card,
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-choice-grid,
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-card--soft,
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-personality-grid,
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-field,
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-review-grid,
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-body-sm {
+  margin-top: 14px;
+}
+
+.fw-character-identity-card .fw-card-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(220px, 0.8fr);
+  gap: 14px;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-choice-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-choice-grid.compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-ability-builder-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-builder-actions {
+  margin-top: 18px;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-builder-live-source {
+  position: sticky;
+  top: 18px;
+  overflow: hidden;
+  padding: 0;
+}
+
+.fw-builder-live-source::before {
+  content: "";
+  display: block;
+  height: 170px;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(214,168,79,0.26), transparent 28%),
+    radial-gradient(ellipse at 50% 44%, rgba(124,58,237,0.34), transparent 62%),
+    linear-gradient(180deg, #1a1428 0%, #08070d 100%);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.fw-builder-live-source::after {
+  content: "";
+  position: absolute;
+  top: 48px;
+  left: 50%;
+  width: 104px;
+  height: 104px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(214,168,79,0.62);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(214,168,79,0.28), transparent 56%),
+    linear-gradient(145deg, rgba(42,31,61,0.94), rgba(12,10,20,0.96));
+  box-shadow: 0 0 42px -12px rgba(214,168,79,0.62);
+  pointer-events: none;
+}
+
+.fw-builder-live-source > * {
+  position: relative;
+  z-index: 1;
+}
+
+.fw-builder-live-source > .fw-caption,
+.fw-builder-live-source > .fw-h3,
+.fw-builder-live-source > .fw-builder-live-vitals,
+.fw-builder-live-source > .fw-summary-stack,
+.fw-builder-live-source > .fw-pill-row {
+  margin-left: 16px;
+  margin-right: 16px;
+}
+
+.fw-builder-live-source > .fw-caption:first-child {
+  margin-top: 16px;
+}
+
+.fw-builder-live-source > .fw-h3 {
+  text-align: center;
+}
+
+@media (max-width: 1180px) {
+  .fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-character-wizard-source {
+    grid-template-columns: 1fr;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-builder-live-source {
+    position: relative;
+    top: auto;
+  }
+}
+
+/* Character wizard pixel pass: mirror ui_source/screens-char-wizard.jsx first. */
+.fw-backdrop:has(.fw-character-builder:not(.fw-character-builder--vault)) {
+  display: block;
+  min-height: calc(100vh - 78px);
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) {
+  width: 100%;
+  min-height: calc(100vh - 78px);
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-character-wizard-source {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 20px;
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: 18px 32px 40px;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-builder-wizard {
+  display: contents;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-wizard-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-end;
+  gap: 24px;
+  margin: 0 0 24px;
+  padding: 0;
+  border: 0;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-wizard-head .eyebrow {
+  margin: 0 0 4px;
+  color: var(--gold);
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-wizard-head .fw-display {
+  margin: 4px 0;
+  color: var(--text);
+  font-size: 30px;
+  line-height: 1;
+  letter-spacing: 0.04em;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-wizard-head .fw-serif-muted {
+  color: var(--text-3);
+  font-family: var(--f-serif);
+  font-size: 14px;
+  font-style: italic;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-wizard-head-actions {
+  margin-left: auto;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-stepper-source {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 0 0 28px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+  background: linear-gradient(180deg, rgba(29,24,40,0.6), rgba(20,17,29,0.3));
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-stepper-source .fw-step {
+  position: relative;
+  flex: 1 0 150px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 52px;
+  padding: 0 16px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  text-align: left;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-stepper-source .fw-step:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 25px;
+  right: 8px;
+  width: 34px;
+  height: 1px;
+  background: var(--border-soft);
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-stepper-source .fw-step-bullet {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border-color: rgba(214,168,79,0.36);
+  color: var(--gold-bright);
+  font-family: var(--f-mono);
+  font-size: 11px;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-stepper-source .fw-step.active .fw-step-bullet,
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-stepper-source .fw-step.done .fw-step-bullet {
+  background: linear-gradient(180deg, rgba(214,168,79,0.28), rgba(214,168,79,0.08));
+  border-color: var(--gold-deep);
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-step-label {
+  color: var(--text);
+  font-family: var(--f-serif);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-step-desc {
+  margin-top: 2px;
+  color: var(--text-3);
+  font-family: var(--f-sans);
+  font-size: 10px;
+  letter-spacing: 0;
+  line-height: 1.25;
+  text-transform: none;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-builder-section {
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 0;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-builder-section > .fw-section-head {
+  padding: 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-builder-section > .fw-section-head .fw-caption {
+  color: var(--gold);
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-choice-grid,
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-ability-builder-grid,
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-personality-grid,
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-review-grid {
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-card--soft,
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-field,
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-body-sm {
+  margin: 0;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-choice-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-choice-grid.compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-choice-tile {
+  min-height: 86px;
+  padding: 12px;
+  border-radius: var(--r);
+  background: var(--surface-2);
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-choice-tile strong {
+  color: var(--text);
+  font-family: var(--f-display);
+  font-size: 14px;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-choice-tile span {
+  margin-top: 5px;
+  color: var(--text-3);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-choice-tile.active {
+  border-color: var(--gold-deep);
+  background: linear-gradient(180deg, rgba(214,168,79,0.10), rgba(214,168,79,0.035));
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-ability-builder-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-ability-build-card {
+  padding: 12px 8px;
+  border-radius: var(--r);
+  background: var(--bg-deep);
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-builder-live-source {
+  grid-column: 2;
+  grid-row: 3 / span 2;
+  position: sticky;
+  top: 20px;
+  border-radius: var(--r-lg);
+  border-color: rgba(214,168,79,0.18);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+.fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-builder-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 0;
+  padding: 14px 18px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+  background: linear-gradient(180deg, rgba(20,17,29,0.5), rgba(11,10,16,0.3));
+  box-shadow: 0 10px 30px rgba(0,0,0,0.18);
+}
+
+@media (max-width: 1100px) {
+  .fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-character-wizard-source {
+    grid-template-columns: 1fr;
+  }
+
+  .fw-modal.fw-character-builder:not(.fw-character-builder--vault) .fw-builder-live-source {
+    grid-column: 1;
+    grid-row: auto;
+    position: relative;
+    top: auto;
+  }
 }

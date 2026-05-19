@@ -15,6 +15,7 @@ export interface ApplyDamageEvent extends BaseGameEvent {
   readonly amount: number;
   readonly damageType?: string;
   readonly isCritical?: boolean;
+  readonly bypassTempHp?: boolean;
   readonly notes?: string;
 }
 
@@ -254,9 +255,37 @@ export interface CombatSortInitiativeEvent extends BaseGameEvent {
   readonly type: 'COMBAT_SORT_INITIATIVE';
 }
 
+export interface CombatRollInitiativeEvent extends BaseGameEvent {
+  readonly type: 'COMBAT_ROLL_INITIATIVE';
+  readonly combatantId?: string;
+}
+
 export interface CombatAdvanceTurnEvent extends BaseGameEvent {
   readonly type: 'COMBAT_ADVANCE_TURN';
   readonly direction: 1 | -1;
+}
+
+export interface CombatUseActionEvent extends BaseGameEvent {
+  readonly type: 'COMBAT_USE_ACTION';
+  readonly combatantId: string;
+  readonly actionKind: import('../../types').CombatActionKind;
+}
+
+export interface CombatMoveEvent extends BaseGameEvent {
+  readonly type: 'COMBAT_MOVE';
+  readonly combatantId: string;
+  readonly feet: number;
+}
+
+export interface CombatAttackEvent extends BaseGameEvent {
+  readonly type: 'COMBAT_ATTACK';
+  readonly actorCombatantId: string;
+  readonly targetCombatantId: string;
+  readonly attackType: import('../../types').CombatAttackType;
+  readonly advantageMode?: import('../../types').CombatAdvantageMode;
+  readonly attackBonus?: number;
+  readonly damageAmount?: number;
+  readonly damageType?: string;
 }
 
 export interface CombatSetTempHpEvent extends BaseGameEvent {
@@ -270,10 +299,37 @@ export interface CombatAdjustDeathSaveEvent extends BaseGameEvent {
   readonly combatantId: string;
   readonly key: 'successes' | 'failures';
   readonly delta: number;
+  readonly rollResult?: number;  // Raw d20 roll result (1-20) for nat 20/nat 1 detection
+}
+
+export interface CombatRollDeathSaveEvent extends BaseGameEvent {
+  readonly type: 'COMBAT_ROLL_DEATH_SAVE';
+  readonly combatantId: string;
+}
+
+export interface CombatSetAiBehaviorEvent extends BaseGameEvent {
+  readonly type: 'COMBAT_SET_AI_BEHAVIOR';
+  readonly combatantId: string;
+  readonly behavior: import('../../types').CombatAiBehavior;
+  readonly controlMode?: import('../../types').CombatControlMode;
+}
+
+export interface CombatExpireConditionsEvent extends BaseGameEvent {
+  readonly type: 'COMBAT_EXPIRE_CONDITIONS';
+  readonly combatantId: string;
+  readonly timing: 'turn_start' | 'turn_end';
+}
+
+export interface CombatOpportunityTriggerEvent extends BaseGameEvent {
+  readonly type: 'COMBAT_OPPORTUNITY_TRIGGER';
+  readonly moverId: string;
+  readonly threatenedByIds: string[];
+  readonly confirmed?: boolean;
 }
 
 export interface CombatEndEncounterEvent extends BaseGameEvent {
   readonly type: 'COMBAT_END_ENCOUNTER';
+  readonly lootSummary?: string;
 }
 
 export type GameEvent =
@@ -312,7 +368,15 @@ export type GameEvent =
   | CombatAddParticipantEvent
   | CombatSetInitiativeEvent
   | CombatSortInitiativeEvent
+  | CombatRollInitiativeEvent
   | CombatAdvanceTurnEvent
+  | CombatUseActionEvent
+  | CombatMoveEvent
+  | CombatAttackEvent
   | CombatSetTempHpEvent
   | CombatAdjustDeathSaveEvent
+  | CombatRollDeathSaveEvent
+  | CombatSetAiBehaviorEvent
+  | CombatExpireConditionsEvent
+  | CombatOpportunityTriggerEvent
   | CombatEndEncounterEvent;

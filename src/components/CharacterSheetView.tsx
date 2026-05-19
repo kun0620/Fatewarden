@@ -1,9 +1,10 @@
 import { Save, X } from 'lucide-react';
 import { ChangeEvent, FormEvent, useEffect, useState } from 'react';
 import { inventoryFromNames, inventoryToNames } from '../lib/inventory';
+import { recalculateCharacter } from '../lib/characterDerived';
 import { abilityLabels, abilityModifier, formatModifier, proficiencyBonus } from '../lib/rules';
 import { Tooltip } from './ui/Tooltip';
-import type { AbilityKey, Character } from '../types';
+import type { AbilityKey, Character, CharacterPersonality } from '../types';
 
 const shortAbilityLabels: Record<AbilityKey, string> = {
   str: 'STR',
@@ -35,6 +36,31 @@ function textToList(value: string) {
     .split(/\n|,/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+const abilityKeySet = new Set<AbilityKey>(['str', 'dex', 'con', 'int', 'wis', 'cha']);
+
+function toAbilityKeys(values: string[] | undefined): AbilityKey[] | undefined {
+  if (!values) return undefined;
+  return values
+    .map((item) => item.trim().toLowerCase())
+    .filter((item): item is AbilityKey => abilityKeySet.has(item as AbilityKey));
+}
+
+function mergePersonality(
+  current: Character['personality'],
+  patch: Partial<CharacterPersonality>,
+): CharacterPersonality {
+  return {
+    traits: '',
+    ideals: '',
+    bonds: '',
+    flaws: '',
+    backstory: '',
+    quote: '',
+    ...(current ?? {}),
+    ...patch,
+  };
 }
 
 export function CharacterSheetView({
@@ -83,16 +109,18 @@ export function CharacterSheetView({
     if (!onSave) return;
 
     setSaving(true);
-    await onSave({
+    await onSave(recalculateCharacter({
       ...draft,
       skills: draft.skills.map((skill) => skill.trim()).filter(Boolean),
       languages: draft.languages.map((language) => language.trim()).filter(Boolean),
       proficiencies: draft.proficiencies.map((item) => item.trim()).filter(Boolean),
-      inventory: inventoryFromNames(inventoryToNames(draft.inventory).map((item) => item.trim()).filter(Boolean)),
+      inventory: draft.inventory,
       features: draft.features.map((item) => item.trim()).filter(Boolean),
       spells: draft.spells.map((item) => item.trim()).filter(Boolean),
+      spellsKnown: draft.spellsKnown?.map((item) => item.trim()).filter(Boolean),
+      savingThrows: toAbilityKeys(draft.savingThrows),
       personalityTraits: draft.personalityTraits.map((item) => item.trim()).filter(Boolean),
-    });
+    }));
     setSaving(false);
   }
 
@@ -144,7 +172,7 @@ export function CharacterSheetView({
                 </div>
                 <div className="fw-grimoire-sheet__quote">
                   <p className="fw-caption">Theme</p>
-                  <p className="fw-body">"โลกนี้ไม่ยุติธรรม... แต่การเอาตัวรอด คือกฎเดียวที่แท้จริง"</p>
+                  <p className="fw-body">"{draft.personality?.quote || 'Survive the dark, remember the oath.'}"</p>
                 </div>
               </div>
 
@@ -216,12 +244,30 @@ export function CharacterSheetView({
                     />
                   </div>
                   <div className="fw-field">
+                    <label className="fw-field__label">Subrace</label>
+                    <input
+                      className="fw-input"
+                      disabled={disabled || saving}
+                      onChange={(event) => updateField('subrace', event.target.value)}
+                      value={draft.subrace ?? ''}
+                    />
+                  </div>
+                  <div className="fw-field">
                     <label className="fw-field__label">Class</label>
                     <input
                       className="fw-input"
                       disabled={disabled || saving}
                       onChange={(event) => updateField('className', event.target.value)}
                       value={draft.className}
+                    />
+                  </div>
+                  <div className="fw-field">
+                    <label className="fw-field__label">Subclass</label>
+                    <input
+                      className="fw-input"
+                      disabled={disabled || saving}
+                      onChange={(event) => updateField('subclass', event.target.value)}
+                      value={draft.subclass ?? ''}
                     />
                   </div>
                   <div className="fw-field">
@@ -318,7 +364,7 @@ export function CharacterSheetView({
                 </article>
                 <article className="fw-card">
                   <p className="fw-caption">
-                    <Tooltip label="Armor Class — ค่าที่คนตียากให้ถึง">AC</Tooltip>
+                    <Tooltip label="Armor Class - harder to hit">AC</Tooltip>
                   </p>
                   <input
                     className="fw-input fw-input--mono"
@@ -344,7 +390,7 @@ export function CharacterSheetView({
                 </article>
                 <article className="fw-card">
                   <p className="fw-caption">
-                    <Tooltip label="ความชำนาญ — เพิ่มโบนัสตามเลเวล">Proficiency</Tooltip>
+                    <Tooltip label="Proficiency bonus by level">Proficiency</Tooltip>
                   </p>
                   <p className="fw-h3">{formatModifier(proficiencyBonus(draft.level))}</p>
                 </article>
@@ -382,6 +428,26 @@ export function CharacterSheetView({
                   />
                 </div>
                 <div className="fw-card">
+                  <p className="fw-caption">Spells Known</p>
+                  <textarea
+                    className="fw-input"
+                    disabled={disabled || saving}
+                    onChange={(event) => updateField('spellsKnown', textToList(event.target.value))}
+                    rows={5}
+                    value={listToText(draft.spellsKnown ?? [])}
+                  />
+                </div>
+                <div className="fw-card">
+                  <p className="fw-caption">Saving Throws</p>
+                  <textarea
+                    className="fw-input"
+                    disabled={disabled || saving}
+                    onChange={(event) => updateField('savingThrows', toAbilityKeys(textToList(event.target.value)) ?? [])}
+                    rows={5}
+                    value={listToText(draft.savingThrows ?? [])}
+                  />
+                </div>
+                <div className="fw-card">
                   <p className="fw-caption">Personality Traits</p>
                   <textarea
                     className="fw-input"
@@ -389,6 +455,49 @@ export function CharacterSheetView({
                     onChange={(event) => updateField('personalityTraits', textToList(event.target.value))}
                     rows={5}
                     value={listToText(draft.personalityTraits)}
+                  />
+                </div>
+              </section>
+
+              <section className="fw-grimoire-sheet__meta-grid">
+                <div className="fw-card">
+                  <p className="fw-caption">Ideals</p>
+                  <textarea
+                    className="fw-input"
+                    disabled={disabled || saving}
+                    onChange={(event) => updateField('personality', mergePersonality(draft.personality, { ideals: event.target.value }))}
+                    rows={4}
+                    value={draft.personality?.ideals ?? ''}
+                  />
+                </div>
+                <div className="fw-card">
+                  <p className="fw-caption">Bonds</p>
+                  <textarea
+                    className="fw-input"
+                    disabled={disabled || saving}
+                    onChange={(event) => updateField('personality', mergePersonality(draft.personality, { bonds: event.target.value }))}
+                    rows={4}
+                    value={draft.personality?.bonds ?? ''}
+                  />
+                </div>
+                <div className="fw-card">
+                  <p className="fw-caption">Flaws</p>
+                  <textarea
+                    className="fw-input"
+                    disabled={disabled || saving}
+                    onChange={(event) => updateField('personality', mergePersonality(draft.personality, { flaws: event.target.value }))}
+                    rows={4}
+                    value={draft.personality?.flaws ?? ''}
+                  />
+                </div>
+                <div className="fw-card">
+                  <p className="fw-caption">Quote</p>
+                  <textarea
+                    className="fw-input"
+                    disabled={disabled || saving}
+                    onChange={(event) => updateField('personality', mergePersonality(draft.personality, { quote: event.target.value }))}
+                    rows={4}
+                    value={draft.personality?.quote ?? ''}
                   />
                 </div>
               </section>

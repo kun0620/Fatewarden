@@ -1,5 +1,8 @@
+import { getClassByName } from '../data/classes';
+import { buildSpellSlotState, spellAttackBonus, spellSaveDC } from '../data/spellSlots';
+import { calcACFromInventory } from './inventory';
 import { skillAbilityMap } from './rules';
-import type { AbilityKey } from '../types';
+import type { AbilityKey, Character } from '../types';
 
 const classHitDie: Record<string, number> = {
   barbarian: 12,
@@ -14,21 +17,6 @@ const classHitDie: Record<string, number> = {
   warlock: 8,
   sorcerer: 6,
   wizard: 6,
-};
-
-const classSaveProficiencies: Record<string, AbilityKey[]> = {
-  barbarian: ['str', 'con'],
-  bard: ['dex', 'cha'],
-  cleric: ['wis', 'cha'],
-  druid: ['int', 'wis'],
-  fighter: ['str', 'con'],
-  monk: ['str', 'dex'],
-  paladin: ['wis', 'cha'],
-  ranger: ['str', 'dex'],
-  rogue: ['dex', 'int'],
-  sorcerer: ['con', 'cha'],
-  warlock: ['wis', 'cha'],
-  wizard: ['int', 'wis'],
 };
 
 const abilityKeys: AbilityKey[] = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
@@ -113,13 +101,17 @@ export function calcInitiative(dexScore: number) {
 }
 
 export function calcPassivePerception(wisScore: number, hasProficiency: boolean) {
-  return 10 + abilityModifier(wisScore) + (hasProficiency ? 2 : 0);
+  return calcPassivePerceptionForLevel(wisScore, hasProficiency, 1);
 }
 
-export function calcSavingThrows(abilities: Record<AbilityKey, number>, className: string) {
-  const pb = 2;
-  const normalizedClass = normalizeClassName(className);
-  const profs = classSaveProficiencies[normalizedClass] ?? [];
+export function calcPassivePerceptionForLevel(wisScore: number, hasProficiency: boolean, level: number) {
+  return 10 + abilityModifier(wisScore) + (hasProficiency ? calcProficiencyBonus(level) : 0);
+}
+
+export function calcSavingThrows(abilities: Record<AbilityKey, number>, className: string, level = 1) {
+  const pb = calcProficiencyBonus(level);
+  const classData = getClassByName(className);
+  const profs = classData?.savingThrows ?? [];
 
   return abilityKeys.reduce(
     (acc, key) => {
@@ -145,4 +137,56 @@ export function calcSkillBonuses(
   });
 
   return bonuses;
+}
+
+function getSpellAbilityScore(character: Character) {
+  const classData = getClassByName(character.className);
+  const spellAbility = classData?.spellcastingAbility;
+  return spellAbility ? character.abilities[spellAbility] : undefined;
+}
+
+export function recalculateCharacter(character: Character): Character {
+  const level = clampLevel(character.level);
+  const proficiencyBonus = calcProficiencyBonus(level);
+  const skillBonuses = calcSkillBonuses(character.abilities, character.skills, level);
+  const savingThrows = calcSavingThrows(character.abilities, character.className, level);
+  const passivePerception = calcPassivePerceptionForLevel(character.abilities.wis, character.skills.includes('Perception'), level);
+  const armorClass = calcACFromInventory(character.inventory, character.abilities.dex);
+  const maxHitPoints = calcMaxHP(level, character.className, character.abilities.con);
+  const classData = getClassByName(character.className);
+  const spellAbilityScore = getSpellAbilityScore(character);
+  const spellSlots = buildSpellSlotState(character.className, level, character.spellSlots);
+  const spellStats =
+    classData?.isCaster && typeof spellAbilityScore === 'number'
+      ? {
+          spellSaveDC: spellSaveDC(proficiencyBonus, spellAbilityScore),
+          spellAttackBonus: spellAttackBonus(proficiencyBonus, spellAbilityScore),
+        }
+      : {};
+
+  return {
+    ...character,
+    level,
+    armorClass,
+    maxHitPoints,
+    hitPoints: Math.max(0, Math.min(character.hitPoints || maxHitPoints, maxHitPoints)),
+    maxHitDice: level,
+    hitDice: Math.max(0, Math.min(character.hitDice || level, level)),
+    spellSlots,
+    savingThrows: classData?.savingThrows ?? character.savingThrows ?? [],
+    spellsKnown: character.spellsKnown ?? character.spells,
+    systemData: {
+      ...character.systemData,
+      derivedStats: {
+        armorClass,
+        maxHitPoints,
+        proficiencyBonus,
+        initiative: calcInitiative(character.abilities.dex),
+        passivePerception,
+        savingThrows,
+        skillBonuses,
+        ...spellStats,
+      },
+    },
+  };
 }

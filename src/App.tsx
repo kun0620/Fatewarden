@@ -1041,33 +1041,17 @@ export function App() {
           throw new Error('Unsupported AI combat event.');
         }
 
-        const runtimeState: EventRuntimeState = {
-          charactersById: {
-            [target.id]: combatantToRuntimeCharacter(target),
-          },
-        };
-        const queue = createEventQueueState([nextEvent]);
-        const processed = processEventQueue(runtimeState, queue);
-        if (processed.failedEvents.length > 0) {
-          throw new Error(processed.failedEvents[0].error);
+        const result = dispatchGameEvent(nextEvent);
+        if (result.failed.length > 0) {
+          throw new Error(result.failed[0]);
         }
-        const processedCharacter = processed.state.charactersById[target.id];
-        if (!processedCharacter) {
-          throw new Error('Event queue did not return target state.');
-        }
-
-        nextEncounter = {
-          ...encounter,
-          combatants: encounter.combatants.map((combatant) => {
-            if (combatant.id !== target.id) return combatant;
-            return applyRuntimeCharacterToCombatant(combatant, processedCharacter);
-          }),
-        };
+        nextEncounter = useGameStore.getState().combatState ?? encounter;
+        const processedCombatant = nextEncounter.combatants.find((combatant) => combatant.id === target.id) ?? target;
 
         if (action.type === 'damage') {
-          eventText = `${target.name} took ${Math.max(0, action.amount ?? 0)} damage. HP ${processedCharacter.hitPoints}/${processedCharacter.maxHitPoints}.`;
+          eventText = `${target.name} took ${Math.max(0, action.amount ?? 0)} damage. HP ${processedCombatant.hitPoints}/${processedCombatant.maxHitPoints}.`;
         } else if (action.type === 'healing') {
-          eventText = `${target.name} healed ${Math.max(0, action.amount ?? 0)}. HP ${processedCharacter.hitPoints}/${processedCharacter.maxHitPoints}.`;
+          eventText = `${target.name} healed ${Math.max(0, action.amount ?? 0)}. HP ${processedCombatant.hitPoints}/${processedCombatant.maxHitPoints}.`;
         } else if (action.type === 'add_condition' && action.condition) {
           eventText = `${action.condition} added to ${target.name}.`;
         } else if (action.type === 'remove_condition' && action.condition) {
@@ -1515,7 +1499,16 @@ export function App() {
 
         {combatActive ? (
           <div className="fw-overlay" style={{ padding: 0 }}>
-            <CombatMode onExit={() => setCombatActive(false)} />
+            <CombatMode
+              activeCharacterId={character.id}
+              encounter={encounter}
+              onDispatchCombatEvent={async (event) => {
+                const result = dispatchGameEvent(event);
+                if (result.failed.length) throw new Error(result.failed.join(', '));
+                await changeEncounter(useGameStore.getState().combatState);
+              }}
+              onExit={() => setCombatActive(false)}
+            />
           </div>
         ) : null}
           </main>

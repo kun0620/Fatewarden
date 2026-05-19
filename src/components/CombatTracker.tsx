@@ -76,6 +76,12 @@ export function CombatTracker({
   const [hpDraftMode, setHpDraftMode] = useState<'damage' | 'healing' | null>(null);
   const [showConditionPicker, setShowConditionPicker] = useState(false);
   const [showEnemyForm, setShowEnemyForm] = useState(false);
+  const [attackTargetId, setAttackTargetId] = useState('');
+  const [attackBonus, setAttackBonus] = useState(5);
+  const [attackDamage, setAttackDamage] = useState(6);
+  const [attackType, setAttackType] = useState<'melee' | 'ranged' | 'spell'>('melee');
+  const [advantageMode, setAdvantageMode] = useState<'normal' | 'advantage' | 'disadvantage'>('normal');
+  const [damageType, setDamageType] = useState('slashing');
 
   const combatState = useGameStore((state) => state.combatState);
   const setCombatState = useGameStore((state) => state.setCombatState);
@@ -257,6 +263,20 @@ export function CombatTracker({
     });
   }
 
+  async function rollInitiative(id?: string) {
+    if (!activeEncounter) return;
+    await dispatchCombat({
+      ...buildEventMeta(character, activeEncounter.id),
+      type: 'COMBAT_ROLL_INITIATIVE',
+      ...(id ? { combatantId: id } : {}),
+    });
+    await onCombatEvent(id ? 'Initiative rolled.' : 'Initiative rolled for all combatants.', {
+      kind: 'combat_event',
+      action: 'initiative_rolled',
+      combatantId: id,
+    });
+  }
+
   async function moveTurn(direction: 1 | -1) {
     if (!activeEncounter) return;
     const next = await dispatchCombat({
@@ -274,6 +294,53 @@ export function CombatTracker({
         activeCombatant: active,
       });
     }
+  }
+
+  async function useAction(id: string, actionKind: 'action' | 'bonusAction' | 'reaction') {
+    if (!activeEncounter) return;
+    await dispatchCombat({
+      ...buildEventMeta(character, activeEncounter.id),
+      type: 'COMBAT_USE_ACTION',
+      combatantId: id,
+      actionKind,
+    });
+  }
+
+  async function moveCombatant(id: string, feet: number) {
+    if (!activeEncounter) return;
+    await dispatchCombat({
+      ...buildEventMeta(character, activeEncounter.id),
+      type: 'COMBAT_MOVE',
+      combatantId: id,
+      feet,
+    });
+  }
+
+  async function resolveAttackFlow() {
+    if (!activeEncounter || !selectedCombatant || !attackTargetId) return;
+    const target = activeEncounter.combatants.find((combatant) => combatant.id === attackTargetId);
+    const next = await dispatchCombat({
+      ...buildEventMeta(character, activeEncounter.id),
+      type: 'COMBAT_ATTACK',
+      actorCombatantId: selectedCombatant.id,
+      targetCombatantId: attackTargetId,
+      attackType,
+      advantageMode,
+      attackBonus,
+      damageAmount: attackDamage,
+      damageType,
+    });
+    const changed = next?.combatants.find((combatant) => combatant.id === attackTargetId);
+    await onCombatEvent(
+      `${selectedCombatant.name} attacks ${target?.name ?? 'target'}. ${changed ? `HP ${changed.hitPoints}/${changed.maxHitPoints}.` : ''}`.trim(),
+      {
+        kind: 'combat_event',
+        action: 'attack',
+        actorId: selectedCombatant.id,
+        targetId: attackTargetId,
+        attackType,
+      },
+    );
   }
 
   async function applyHp(id: string, direction: 'damage' | 'healing') {
@@ -377,6 +444,32 @@ export function CombatTracker({
     );
   }
 
+  async function rollDeathSaveAuto(id: string) {
+    if (!activeEncounter) return;
+    const next = await dispatchCombat({
+      ...buildEventMeta(character, activeEncounter.id),
+      type: 'COMBAT_ROLL_DEATH_SAVE',
+      combatantId: id,
+    });
+    const combatant = next?.combatants.find((entry) => entry.id === id);
+    if (!combatant) return;
+    await onCombatEvent(
+      `${combatant.name} death saves: ${combatant.deathSaves.successes} success, ${combatant.deathSaves.failures} failure.`,
+      { kind: 'combat_event', action: 'death_save_roll', combatantId: id },
+    );
+  }
+
+  async function setAiBehavior(id: string, behavior: 'aggressive' | 'defensive' | 'support' | 'random' | 'focused') {
+    if (!activeEncounter) return;
+    await dispatchCombat({
+      ...buildEventMeta(character, activeEncounter.id),
+      type: 'COMBAT_SET_AI_BEHAVIOR',
+      combatantId: id,
+      behavior,
+      controlMode: 'hybrid',
+    });
+  }
+
   if (!activeEncounter) {
     return (
       <section className="fw-panel fw-combat-panel fw-combat-panel--empty">
@@ -478,7 +571,10 @@ export function CombatTracker({
                 <span className={`fw-combat-row__dot ${combatant.type === 'enemy' ? 'is-enemy' : 'is-ally'}`} />
                 <span className="fw-combat-row__name">{combatant.name}</span>
                 <span className={`fw-combat-row__hp fw-mono fw-combat-row__hp--${state}`}>
-                  {combatant.hitPoints}/{combatant.maxHitPoints}
+                  {combatant.tempHitPoints ? `+${combatant.tempHitPoints} ` : ''}{combatant.hitPoints}/{combatant.maxHitPoints}
+                </span>
+                <span className="fw-caption">
+                  A {combatant.actionEconomy?.action === false ? '0' : '1'} / B {combatant.actionEconomy?.bonusAction === false ? '0' : '1'} / R {combatant.actionEconomy?.reaction === false ? '0' : '1'}
                 </span>
                 {isCurrent ? <span className="fw-cond bleed">NOW</span> : null}
               </article>
@@ -501,7 +597,7 @@ export function CombatTracker({
                     onClick={() => void removeCondition(combatant.id, condition)}
                     type="button"
                   >
-                    {condition} ({combatant.name} · source)
+                    {condition} ({combatant.name} - source)
                   </button>
                 );
               })
@@ -546,6 +642,67 @@ export function CombatTracker({
             + NPC
           </button>
         </div>
+
+        {selectedCombatant ? (
+          <article className="fw-combat-panel__conditions">
+            <p className="fw-caption fw-combat-panel__steps-title">Turn Budget</p>
+            <div className="fw-combat-panel__steps-list">
+              {(['action', 'bonusAction', 'reaction'] as const).map((kind) => (
+                <button
+                  className={`fw-cond ${selectedCombatant.actionEconomy?.[kind] === false ? 'bleed' : 'buff'}`}
+                  disabled={selectedCombatant.actionEconomy?.[kind] === false}
+                  key={kind}
+                  onClick={() => void useAction(selectedCombatant.id, kind)}
+                  type="button"
+                >
+                  {kind === 'bonusAction' ? 'Bonus' : kind}
+                </button>
+              ))}
+              <button className="fw-cond fw-cond--minor" onClick={() => void moveCombatant(selectedCombatant.id, 5)} type="button">
+                Move +5 ft ({selectedCombatant.actionEconomy?.movementUsed ?? selectedCombatant.movementUsed ?? 0}/{selectedCombatant.speed ?? 30})
+              </button>
+              <button className="fw-cond fw-cond--minor" onClick={() => void rollInitiative(selectedCombatant.id)} type="button">
+                Roll init
+              </button>
+            </div>
+          </article>
+        ) : null}
+
+        {selectedCombatant && activeEncounter.combatants.length > 1 ? (
+          <article className="fw-combat-panel__conditions-editor">
+            <select className="fw-select" value={attackTargetId} onChange={(event) => setAttackTargetId(event.target.value)}>
+              <option value="">Target</option>
+              {activeEncounter.combatants
+                .filter((combatant) => combatant.id !== selectedCombatant.id)
+                .map((combatant) => (
+                  <option key={combatant.id} value={combatant.id}>
+                    {combatant.name}
+                  </option>
+                ))}
+            </select>
+            <select className="fw-select" value={attackType} onChange={(event) => setAttackType(event.target.value as typeof attackType)}>
+              <option value="melee">Melee</option>
+              <option value="ranged">Ranged</option>
+              <option value="spell">Spell</option>
+            </select>
+            <select className="fw-select" value={advantageMode} onChange={(event) => setAdvantageMode(event.target.value as typeof advantageMode)}>
+              <option value="normal">Normal</option>
+              <option value="advantage">Adv</option>
+              <option value="disadvantage">Dis</option>
+            </select>
+            <input className="fw-input" type="number" value={attackBonus} onChange={(event) => setAttackBonus(Number(event.target.value))} aria-label="Attack bonus" />
+            <input className="fw-input" type="number" value={attackDamage} onChange={(event) => setAttackDamage(Number(event.target.value))} aria-label="Damage" />
+            <select className="fw-select" value={damageType} onChange={(event) => setDamageType(event.target.value)}>
+              {['slashing', 'piercing', 'bludgeoning', 'fire', 'cold', 'lightning', 'poison', 'necrotic', 'radiant', 'force', 'psychic', 'thunder', 'acid'].map((type) => (
+                <option key={type} value={type}>{type}</option>
+              ))}
+            </select>
+            <button className="fw-btn fw-btn-gold" onClick={() => void resolveAttackFlow()} type="button">
+              <Swords size={15} aria-hidden="true" />
+              Attack
+            </button>
+          </article>
+        ) : null}
 
         {hpDraftMode && selectedCombatant ? (
           <div className="fw-combat-panel__hp-actions">
@@ -620,6 +777,9 @@ export function CombatTracker({
             <RotateCcw size={16} aria-hidden="true" />
             Initiative
           </button>
+          <button className="fw-btn fw-btn--ghost" onClick={() => void rollInitiative()} type="button">
+            Roll all
+          </button>
           <button className="fw-btn fw-btn--danger" onClick={() => void endEncounter()} type="button">
             <XCircle size={16} aria-hidden="true" />
             End
@@ -644,6 +804,19 @@ export function CombatTracker({
                 value={selectedCombatant.tempHitPoints}
                 onChange={(event) => void setTempHp(selectedCombatant.id, Number(event.target.value))}
               />
+              {selectedCombatant.type === 'enemy' ? (
+                <select
+                  className="fw-select"
+                  value={selectedCombatant.aiBehavior ?? 'aggressive'}
+                  onChange={(event) => void setAiBehavior(selectedCombatant.id, event.target.value as 'aggressive' | 'defensive' | 'support' | 'random' | 'focused')}
+                >
+                  <option value="aggressive">Aggressive</option>
+                  <option value="defensive">Defensive</option>
+                  <option value="support">Support</option>
+                  <option value="focused">Focused</option>
+                  <option value="random">Random</option>
+                </select>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -669,6 +842,9 @@ export function CombatTracker({
             <span className="fw-caption">F {selectedCombatant.deathSaves.failures}</span>
             <button className="fw-btn fw-btn--ghost" onClick={() => void setDeathSave(selectedCombatant.id, 'failures', 1)} type="button">
               <Plus size={14} aria-hidden="true" />
+            </button>
+            <button className="fw-btn fw-btn-gold" onClick={() => void rollDeathSaveAuto(selectedCombatant.id)} type="button">
+              Roll
             </button>
           </div>
         ) : null}

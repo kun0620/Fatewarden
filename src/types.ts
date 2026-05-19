@@ -72,6 +72,18 @@ export type HexHeroBuild = {
 export type CharacterSystemData = {
   hexplore?: HexHeroBuild;
   classRuntime?: ClassRuntime;
+  creation?: {
+    raceId?: string;
+    subraceId?: string;
+    classId?: string;
+    abilityMethod?: 'manual' | 'standard-array' | 'point-buy';
+    baseAbilities?: Partial<Record<AbilityKey, number>>;
+    skillChoices?: string[];
+    equipmentMode?: 'class' | 'gold' | 'custom';
+    selectedEquipment?: string[];
+    goldRolled?: number;
+  };
+  derivedStats?: DerivedStats;
   [key: string]: unknown;
 };
 
@@ -175,17 +187,30 @@ export type Inventory = {
 };
 
 export type DerivedStats = {
+  armorClass?: number;
+  maxHitPoints?: number;
   proficiencyBonus: number;
   initiative: number;
   passivePerception: number;
   savingThrows: Record<AbilityKey, number>;
   skillBonuses: Record<string, number>;
+  spellSaveDC?: number;
+  spellAttackBonus?: number;
 };
 
 export type LevelUpChoice = {
-  type: 'hp' | 'feature' | 'spell' | 'ability_score';
+  type: 'hp' | 'feature' | 'spell' | 'ability_score' | 'subclass' | 'feat';
   options: string[];
   selected?: string;
+};
+
+export type CharacterPersonality = {
+  traits: string;
+  ideals: string;
+  bonds: string;
+  flaws: string;
+  backstory?: string;
+  quote?: string;
 };
 
 export type ConditionEffect = {
@@ -209,9 +234,13 @@ export type ExhaustionEffect = {
 
 export type Character = {
   id: string;
+  userId?: string;
   name: string;
   ancestry: string;
+  race?: string;
+  subrace?: string;
   className: string;
+  subclass?: string;
   level: number;
   background: string;
   age: string;
@@ -229,8 +258,11 @@ export type Character = {
   inventory: Inventory;
   features: string[];
   spells: string[];
+  spellsKnown?: string[];
   backstory: string;
+  personality?: CharacterPersonality;
   personalityTraits: string[];
+  savingThrows?: AbilityKey[];
   portraitUrl: string;
   activeConditions: string[];
   exhaustionLevel: ExhaustionLevel;
@@ -238,6 +270,8 @@ export type Character = {
   maxHitDice: number;
   spellSlots: Record<number, SpellSlotState>;
   systemData: CharacterSystemData;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type VaultCharacter = Character & {
@@ -358,14 +392,52 @@ export type GameSession = {
 };
 
 export type CombatantType = 'player' | 'enemy';
+export type CombatantStatus = 'active' | 'dying' | 'stable' | 'unconscious' | 'dead' | 'removed';
+export type CombatAiBehavior = 'aggressive' | 'defensive' | 'support' | 'random' | 'focused';
+export type CombatControlMode = 'manual' | 'auto' | 'hybrid';
+export type CombatAttackType = 'melee' | 'ranged' | 'spell';
+export type CombatAdvantageMode = 'normal' | 'advantage' | 'disadvantage';
+export type CombatActionKind = 'action' | 'bonusAction' | 'reaction';
+export type CombatConditionExpiry = 'manual' | 'turn_start' | 'turn_end' | 'save_ends' | 'combat_end';
 
 export type DeathSaves = {
   successes: number;
   failures: number;
 };
 
+export type CombatActionEconomy = {
+  action: boolean;
+  bonusAction: boolean;
+  reaction: boolean;
+  movementUsed: number;
+  freeActionUsed?: boolean;
+  readyAction?: string | null;
+  disengaged?: boolean;
+  dodging?: boolean;
+  dashed?: boolean;
+};
+
+export type CombatConditionInstance = {
+  id: string;
+  name: string;
+  source?: string;
+  durationRounds?: number;
+  remainingRounds?: number;
+  saveEnds?: boolean;
+  expiresOn?: CombatConditionExpiry;
+  combatOnly?: boolean;
+};
+
+export type CombatConcentration = {
+  spellName: string;
+  dc?: number;
+  startedRound?: number;
+  sourceId?: string;
+};
+
 export type Combatant = {
   id: string;
+  characterId?: string;
   name: string;
   type: CombatantType;
   armorClass: number;
@@ -373,7 +445,23 @@ export type Combatant = {
   maxHitPoints: number;
   tempHitPoints: number;
   initiative: number;
+  initiativeRoll?: number;
+  initiativeBonus?: number;
+  dexScore?: number;
+  speed?: number;
+  movementUsed?: number;
+  actionEconomy?: CombatActionEconomy;
+  status?: CombatantStatus;
+  resistances?: string[];
+  vulnerabilities?: string[];
+  immunities?: string[];
   conditions: string[];
+  conditionInstances?: CombatConditionInstance[];
+  concentration?: CombatConcentration | null;
+  aiBehavior?: CombatAiBehavior;
+  controlMode?: CombatControlMode;
+  isBoss?: boolean;
+  lastDamageTaken?: number;
   deathSaves: DeathSaves;
 };
 
@@ -382,6 +470,10 @@ export type EncounterState = {
   name: string;
   round: number;
   activeIndex: number;
+  phase?: 'setup' | 'active' | 'ended';
+  activeCombatantId?: string | null;
   isActive: boolean;
   combatants: Combatant[];
+  lootSummary?: string;
+  updatedAt?: string;
 };

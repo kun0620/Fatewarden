@@ -2,8 +2,20 @@ import type { AbilityKey, AdvantageState } from '../shared/types';
 import type { RollResult } from '../dice/types';
 
 export type CombatParticipantType = 'player' | 'npc' | 'monster' | 'summon' | 'companion';
-export type CombatParticipantStatus = 'active' | 'unconscious' | 'dead' | 'removed';
-export type CombatActionType = 'attack' | 'dash' | 'disengage' | 'dodge';
+export type CombatParticipantStatus = 'active' | 'dying' | 'stable' | 'unconscious' | 'dead' | 'removed';
+export type CombatActionType =
+  | 'attack'
+  | 'cast_spell'
+  | 'dash'
+  | 'disengage'
+  | 'dodge'
+  | 'help'
+  | 'hide'
+  | 'ready'
+  | 'search'
+  | 'use_object'
+  | 'move'
+  | 'death_save';
 
 export interface CombatParticipant {
   readonly id: string;
@@ -18,9 +30,14 @@ export interface CombatParticipant {
   readonly tempHitPoints: number;
   readonly speed: number;
   readonly resistances?: readonly string[];
+  readonly vulnerabilities?: readonly string[];
+  readonly immunities?: readonly string[];
   readonly conditions: readonly string[];
   readonly status: CombatParticipantStatus;
   readonly joinedOrder: number;
+  readonly aiBehavior?: 'aggressive' | 'defensive' | 'support' | 'random' | 'focused';
+  readonly controlMode?: 'manual' | 'auto' | 'hybrid';
+  readonly movementUsed?: number;
 }
 
 export interface TurnState {

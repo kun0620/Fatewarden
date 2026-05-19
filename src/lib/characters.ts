@@ -2,15 +2,28 @@ import type { User } from '@supabase/supabase-js';
 import { demoCharacter } from '../data/demo';
 import { getDefaultRestState } from '../engine/character/rest';
 import { createEmptyInventory, inventoryToNames } from '../lib/inventory';
-import type { AbilityKey, Character, CharacterSystemData, ExhaustionLevel, Item, VaultCharacter } from '../types';
+import type {
+  AbilityKey,
+  Character,
+  CharacterPersonality,
+  CharacterSystemData,
+  ExhaustionLevel,
+  Inventory,
+  Item,
+  VaultCharacter,
+} from '../types';
+import { cloneCharacterForVault } from './characterImportExport';
 import { normalizeHexHeroBuild } from './hexplore';
 import { supabase } from './supabase';
 
 type CharacterRow = {
   id: string;
+  user_id?: string | null;
   name: string;
   ancestry: string;
+  subrace?: string | null;
   class_name: string;
+  subclass?: string | null;
   level: number;
   background?: string | null;
   age?: string | null;
@@ -26,21 +39,29 @@ type CharacterRow = {
   abilities: Record<AbilityKey, number>;
   str?: number | null;
   skills: string[];
+  inventory?: Inventory | null;
   equipment?: string[] | null;
   features?: string[] | null;
   spells?: string[] | null;
+  spells_known?: string[] | null;
   backstory?: string | null;
+  personality?: CharacterPersonality | null;
   personality_traits?: string[] | null;
+  saving_throws?: AbilityKey[] | null;
   portrait_url?: string | null;
   system_data?: CharacterSystemData | null;
+  created_at?: string | null;
   updated_at?: string | null;
 };
 
 const characterSelect = [
   'id',
+  'user_id',
   'name',
   'ancestry',
+  'subrace',
   'class_name',
+  'subclass',
   'level',
   'background',
   'age',
@@ -55,13 +76,19 @@ const characterSelect = [
   'inspiration',
   'abilities',
   'skills',
+  'inventory',
   'equipment',
   'features',
   'spells',
+  'spells_known',
   'backstory',
+  'personality',
   'personality_traits',
+  'saving_throws',
   'portrait_url',
   'system_data',
+  'created_at',
+  'updated_at',
 ].join(',');
 
 const legacyCharacterSelect = 'id,name,ancestry,class_name,level,armor_class,hit_points,max_hit_points,abilities,skills';
@@ -74,7 +101,45 @@ function requireClient() {
   return supabase;
 }
 
+function isInventory(value: unknown): value is Inventory {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value) && Array.isArray((value as Inventory).items);
+}
+
+function toPersonality(raw: CharacterRow): CharacterPersonality {
+  if (raw.personality && typeof raw.personality === 'object') {
+    return {
+      traits: raw.personality.traits ?? '',
+      ideals: raw.personality.ideals ?? '',
+      bonds: raw.personality.bonds ?? '',
+      flaws: raw.personality.flaws ?? '',
+      backstory: raw.personality.backstory ?? raw.backstory ?? '',
+      quote: raw.personality.quote ?? '',
+    };
+  }
+
+  const traits = raw.personality_traits ?? [];
+  return {
+    traits: traits[0] ?? '',
+    ideals: traits[1] ?? '',
+    bonds: traits[2] ?? '',
+    flaws: traits[3] ?? '',
+    backstory: raw.backstory ?? '',
+  };
+}
+
 function toMigratedInventory(raw: CharacterRow) {
+  if (isInventory(raw.inventory)) {
+    return {
+      ...createEmptyInventory(raw.inventory.maxCarryWeight),
+      ...raw.inventory,
+      currency: {
+        ...createEmptyInventory().currency,
+        ...(raw.inventory.currency ?? {}),
+      },
+      items: raw.inventory.items ?? [],
+    };
+  }
+
   const strength = raw.str ?? raw.abilities?.str ?? 10;
   const maxCarryWeight = Math.max(1, strength) * 15;
   const legacyEquipment = Array.isArray(raw.equipment) ? raw.equipment : [];
@@ -107,6 +172,7 @@ function toMigratedInventory(raw: CharacterRow) {
 export function migrateCharacter(raw: CharacterRow): Character {
   const row = raw;
   const systemData = row.system_data ?? {};
+  const personality = toPersonality(row);
   const hexplore = systemData.hexplore ? normalizeHexHeroBuild(systemData.hexplore) : undefined;
   const activeConditions = Array.isArray((systemData as { activeConditions?: unknown }).activeConditions)
     ? ((systemData as { activeConditions?: unknown[] }).activeConditions ?? [])
@@ -137,9 +203,13 @@ export function migrateCharacter(raw: CharacterRow): Character {
 
   return {
     id: row.id,
+    userId: row.user_id ?? undefined,
     name: row.name,
     ancestry: row.ancestry,
+    race: row.ancestry,
+    subrace: row.subrace ?? '',
     className: row.class_name,
+    subclass: row.subclass ?? '',
     level: row.level,
     background: row.background ?? '',
     age: row.age ?? '',
@@ -157,8 +227,11 @@ export function migrateCharacter(raw: CharacterRow): Character {
     inventory: toMigratedInventory(raw),
     features: row.features ?? [],
     spells: row.spells ?? [],
+    spellsKnown: row.spells_known ?? row.spells ?? [],
     backstory: row.backstory ?? '',
+    personality,
     personalityTraits: row.personality_traits ?? [],
+    savingThrows: row.saving_throws ?? [],
     portraitUrl: row.portrait_url ?? '',
     activeConditions,
     exhaustionLevel,
@@ -169,6 +242,8 @@ export function migrateCharacter(raw: CharacterRow): Character {
       ...systemData,
       ...(hexplore ? { hexplore } : {}),
     },
+    createdAt: row.created_at ?? undefined,
+    updatedAt: row.updated_at ?? undefined,
   };
 }
 
@@ -184,13 +259,23 @@ function mapVaultCharacter(row: CharacterRow): VaultCharacter {
 }
 
 function toPayload(character: Character, sessionId: string, userId: string) {
+  const personality = character.personality ?? {
+    traits: character.personalityTraits[0] ?? '',
+    ideals: character.personalityTraits[1] ?? '',
+    bonds: character.personalityTraits[2] ?? '',
+    flaws: character.personalityTraits[3] ?? '',
+    backstory: character.backstory,
+  };
+
   return {
     id: character.id.startsWith('char-demo') ? undefined : character.id,
     session_id: sessionId,
     user_id: userId,
     name: character.name.trim() || demoCharacter.name,
     ancestry: character.ancestry.trim(),
+    subrace: character.subrace?.trim() ?? '',
     class_name: character.className.trim(),
+    subclass: character.subclass?.trim() ?? '',
     level: character.level,
     background: character.background.trim(),
     age: character.age.trim(),
@@ -205,11 +290,15 @@ function toPayload(character: Character, sessionId: string, userId: string) {
     inspiration: character.inspiration,
     abilities: character.abilities,
     skills: character.skills,
+    inventory: character.inventory,
     equipment: inventoryToNames(character.inventory),
     features: character.features,
     spells: character.spells,
+    spells_known: character.spellsKnown ?? character.spells,
     backstory: character.backstory.trim(),
+    personality,
     personality_traits: character.personalityTraits,
+    saving_throws: character.savingThrows ?? [],
     portrait_url: character.portraitUrl.trim(),
     system_data: {
       ...character.systemData,
@@ -230,12 +319,22 @@ function toSessionSnapshotPayload(character: Character, sessionId: string, userI
 }
 
 function toVaultPayload(character: Character, userId: string) {
+  const personality = character.personality ?? {
+    traits: character.personalityTraits[0] ?? '',
+    ideals: character.personalityTraits[1] ?? '',
+    bonds: character.personalityTraits[2] ?? '',
+    flaws: character.personalityTraits[3] ?? '',
+    backstory: character.backstory,
+  };
+
   return {
     id: character.id.startsWith('char-demo') ? undefined : character.id,
     user_id: userId,
     name: character.name.trim() || demoCharacter.name,
     ancestry: character.ancestry.trim(),
+    subrace: character.subrace?.trim() ?? '',
     class_name: character.className.trim(),
+    subclass: character.subclass?.trim() ?? '',
     level: character.level,
     background: character.background.trim(),
     age: character.age.trim(),
@@ -250,11 +349,15 @@ function toVaultPayload(character: Character, userId: string) {
     inspiration: character.inspiration,
     abilities: character.abilities,
     skills: character.skills,
+    inventory: character.inventory,
     equipment: inventoryToNames(character.inventory),
     features: character.features,
     spells: character.spells,
+    spells_known: character.spellsKnown ?? character.spells,
     backstory: character.backstory.trim(),
+    personality,
     personality_traits: character.personalityTraits,
+    saving_throws: character.savingThrows ?? [],
     portrait_url: character.portraitUrl.trim(),
     system_data: {
       ...character.systemData,
@@ -271,6 +374,22 @@ function toLegacyPayload(character: Character, sessionId: string, userId: string
   return {
     id: character.id.startsWith('char-demo') ? undefined : character.id,
     session_id: sessionId,
+    user_id: userId,
+    name: character.name.trim() || demoCharacter.name,
+    ancestry: character.ancestry.trim(),
+    class_name: character.className.trim(),
+    level: character.level,
+    armor_class: character.armorClass,
+    hit_points: character.hitPoints,
+    max_hit_points: character.maxHitPoints,
+    abilities: character.abilities,
+    skills: character.skills,
+  };
+}
+
+function toLegacyVaultPayload(character: Character, userId: string) {
+  return {
+    id: character.id.startsWith('char-demo') ? undefined : character.id,
     user_id: userId,
     name: character.name.trim() || demoCharacter.name,
     ancestry: character.ancestry.trim(),
@@ -372,11 +491,21 @@ export async function listVaultCharacters(user: User) {
   const client = requireClient();
   const { data, error } = await client
     .from('character_vaults')
-    .select(`${characterSelect},updated_at`)
+    .select(characterSelect)
     .eq('user_id', user.id)
     .order('updated_at', { ascending: false });
 
-  if (error) throw error;
+  if (error && !isMissingColumnError(error)) throw error;
+  if (error && isMissingColumnError(error)) {
+    const { data: legacyData, error: legacyError } = await client
+      .from('character_vaults')
+      .select(`${legacyCharacterSelect},updated_at`)
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false });
+
+    if (legacyError) throw legacyError;
+    return (legacyData ?? []).map((row) => mapVaultCharacter(row as unknown as CharacterRow));
+  }
 
   return (data ?? []).map((row) => mapVaultCharacter(row as unknown as CharacterRow));
 }
@@ -386,12 +515,42 @@ export async function saveVaultCharacter(character: Character, user: User) {
   const { data, error } = await client
     .from('character_vaults')
     .upsert(toVaultPayload(character, user.id))
-    .select(`${characterSelect},updated_at`)
+    .select(characterSelect)
     .single();
 
-  if (error) throw error;
+  if (error && !isMissingColumnError(error)) throw error;
+  if (error && isMissingColumnError(error)) {
+    const { data: legacyData, error: legacyError } = await client
+      .from('character_vaults')
+      .upsert(toLegacyVaultPayload(character, user.id))
+      .select(`${legacyCharacterSelect},updated_at`)
+      .single();
+
+    if (legacyError) throw legacyError;
+    return mapVaultCharacter(legacyData as unknown as CharacterRow);
+  }
 
   return mapVaultCharacter(data as unknown as CharacterRow);
+}
+
+export async function duplicateVaultCharacter(character: Character, user: User) {
+  return saveVaultCharacter(cloneCharacterForVault(character), user);
+}
+
+export async function deleteVaultCharacter(characterId: string, user: User) {
+  const client = requireClient();
+  const { error } = await client.from('character_vaults').delete().eq('id', characterId).eq('user_id', user.id);
+  if (error) throw error;
+}
+
+export async function saveSessionCharacterToVault(character: Character, user: User) {
+  return saveVaultCharacter(
+    {
+      ...character,
+      id: crypto.randomUUID(),
+    },
+    user,
+  );
 }
 
 export async function attachVaultCharacterToSession(vaultCharacterId: string, sessionId: string, user: User) {
@@ -404,16 +563,41 @@ export async function attachVaultCharacterToSession(vaultCharacterId: string, se
     .maybeSingle();
 
   if (existingError && !isMissingColumnError(existingError)) throw existingError;
+  if (existingError && isMissingColumnError(existingError)) {
+    const { data: legacyExisting, error: legacyExistingError } = await client
+      .from('characters')
+      .select(legacyCharacterSelect)
+      .eq('session_id', sessionId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (legacyExistingError) throw legacyExistingError;
+    if (legacyExisting) return mapCharacter(legacyExisting as unknown as CharacterRow);
+  }
   if (existing) return mapCharacter(existing as unknown as CharacterRow);
 
-  const { data: vaultCharacter, error: vaultError } = await client
+  let vaultCharacter: unknown;
+  const { data: extendedVaultCharacter, error: vaultError } = await client
     .from('character_vaults')
     .select(characterSelect)
     .eq('id', vaultCharacterId)
     .eq('user_id', user.id)
     .single();
 
-  if (vaultError) throw vaultError;
+  if (vaultError && !isMissingColumnError(vaultError)) throw vaultError;
+  if (vaultError && isMissingColumnError(vaultError)) {
+    const { data: legacyVaultCharacter, error: legacyVaultError } = await client
+      .from('character_vaults')
+      .select(legacyCharacterSelect)
+      .eq('id', vaultCharacterId)
+      .eq('user_id', user.id)
+      .single();
+
+    if (legacyVaultError) throw legacyVaultError;
+    vaultCharacter = legacyVaultCharacter;
+  } else {
+    vaultCharacter = extendedVaultCharacter;
+  }
 
   const { data, error } = await client
     .from('characters')
@@ -421,7 +605,17 @@ export async function attachVaultCharacterToSession(vaultCharacterId: string, se
     .select(characterSelect)
     .single();
 
-  if (error) throw error;
+  if (error && !isMissingColumnError(error)) throw error;
+  if (error && isMissingColumnError(error)) {
+    const { data: legacyData, error: legacyError } = await client
+      .from('characters')
+      .insert(toLegacyPayload(mapCharacter(vaultCharacter as unknown as CharacterRow), sessionId, user.id))
+      .select(legacyCharacterSelect)
+      .single();
+
+    if (legacyError) throw legacyError;
+    return mapCharacter(legacyData as unknown as CharacterRow);
+  }
 
   return mapCharacter(data as unknown as CharacterRow);
 }

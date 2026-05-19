@@ -219,16 +219,39 @@ export async function updateSessionPhase(sessionId: string, phase: GamePhase) {
 
 export async function updateSessionCombatState(sessionId: string, encounter: EncounterState | null) {
   const client = requireClient();
-  const { data, error } = await client
-    .rpc('set_session_combat_state', {
+  const nextCombatState = encounter
+    ? {
+        ...encounter,
+        phase: encounter.phase ?? (encounter.isActive ? 'active' : 'setup'),
+        activeCombatantId: encounter.combatants[encounter.activeIndex]?.id ?? encounter.activeCombatantId ?? null,
+        updatedAt: new Date().toISOString(),
+      }
+    : null;
+
+  const primary = await client
+    .rpc('set_combat_state', {
       target_session_id: sessionId,
-      next_combat_state: encounter,
+      next_combat_state: nextCombatState,
     })
     .single();
 
-  if (error) throw error;
+  if (!primary.error) {
+    return mapSession(primary.data as SessionRow);
+  }
 
-  return mapSession(data as SessionRow);
+  const missingRpc = primary.error.code === '42883' || primary.error.code === 'PGRST202';
+  if (!missingRpc) throw primary.error;
+
+  const fallback = await client
+    .rpc('set_session_combat_state', {
+      target_session_id: sessionId,
+      next_combat_state: nextCombatState,
+    })
+    .single();
+
+  if (fallback.error) throw fallback.error;
+
+  return mapSession(fallback.data as SessionRow);
 }
 
 export async function deleteGameSession(sessionId: string) {
