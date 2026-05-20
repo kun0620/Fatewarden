@@ -11,6 +11,8 @@ const CRUMBS: Record<AppStage, [string, string]> = {
   'character-setup': ['Hearth', 'Bind your character'],
   lobby: ['Hearth', 'Lobby'],
   'char-sheet': ['Hearth', 'Character Sheet'],
+  'char-vault': ['Hearth', 'Character Vault'],
+  'char-wizard': ['Hearth', 'New Character'],
   'dm-dashboard': ['At the Table', 'DM Dashboard'],
   game: ['At the Table', 'Session'],
   bestiary: ['The Stacks', 'Bestiary'],

@@ -150,11 +150,11 @@ export function CharacterSheetView({
 
         <div className="fw-grimoire-sheet__layout">
           <aside className="fw-grimoire-sheet__nav">
-            <button className="fw-grimoire-sheet__nav-item" type="button">Journal</button>
-            <button className="fw-grimoire-sheet__nav-item" type="button">Bestiary</button>
+            <button className="fw-grimoire-sheet__nav-item" disabled title="Journal navigation is not wired in this sheet yet." type="button">Journal</button>
+            <button className="fw-grimoire-sheet__nav-item" disabled title="Bestiary navigation is not wired in this sheet yet." type="button">Bestiary</button>
             <button className="fw-grimoire-sheet__nav-item fw-grimoire-sheet__nav-item--active" type="button">Grimoire</button>
-            <button className="fw-grimoire-sheet__nav-item" type="button">Rituals</button>
-            <button className="fw-grimoire-sheet__nav-item" type="button">Vault</button>
+            <button className="fw-grimoire-sheet__nav-item" disabled title="Ritual navigation is not wired in this sheet yet." type="button">Rituals</button>
+            <button className="fw-grimoire-sheet__nav-item" disabled title="Vault navigation is not wired in this sheet yet." type="button">Vault</button>
           </aside>
 
           <div className="fw-grimoire-sheet__content">

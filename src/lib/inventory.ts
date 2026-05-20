@@ -94,7 +94,14 @@ export function calcACFromInventory(inventory: Inventory, dexScore: number): num
 
   const shieldBonus = equippedShields.reduce((sum, shield) => sum + (shield.armor?.baseAC ?? 2), 0);
 
-  return Math.max(1, baseAc + shieldBonus);
+  // CB6: apply ac_bonus (type='bonus', target='ac') effects from equipped + attuned items
+  const effectBonus = inventory.items
+    .filter((item) => item.equipped && (!item.attunement || item.attuned))
+    .flatMap((item) => item.effects ?? [])
+    .filter((fx) => fx.type === 'bonus' && (fx.target ?? '').toLowerCase().includes('ac'))
+    .reduce((sum, fx) => sum + (typeof fx.value === 'number' ? fx.value : 0), 0);
+
+  return Math.max(1, baseAc + shieldBonus + effectBonus);
 }
 
 export function addItem(inventory: Inventory, item: Item): Inventory {
@@ -178,6 +185,18 @@ export function unequipItem(inventory: Inventory, itemId: string): Inventory {
   return {
     ...inventory,
     items: inventory.items.map((item) => (item.id === itemId ? { ...item, equipped: false } : item)),
+  };
+}
+
+export function attuneItem(inventory: Inventory, itemId: string, attuned: boolean): Inventory {
+  const attunedCount = inventory.items.filter((item) => item.attuned && item.id !== itemId).length;
+  // Enforce limit of 3 attuned items
+  if (attuned && attunedCount >= 3) return inventory;
+  return {
+    ...inventory,
+    items: inventory.items.map((item) =>
+      item.id === itemId ? { ...item, attuned } : item,
+    ),
   };
 }
 

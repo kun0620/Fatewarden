@@ -1,6 +1,7 @@
 import type { Character, Item } from '../../../types';
 import {
   addItem,
+  attuneItem,
   convertCurrency,
   equipItem,
   removeItem,
@@ -9,6 +10,7 @@ import {
 } from '../../inventory/inventoryEngine';
 import type {
   AddItemEvent,
+  AttuneItemEvent,
   ConsumeItemEvent,
   EquipItemEvent,
   GiveItemEvent,
@@ -142,6 +144,16 @@ export function processUpdateCurrency(character: Character, event: UpdateCurrenc
     character: {
       ...character,
       inventory: convertCurrency(character.inventory, event.from, event.to, event.amount),
+    },
+    applied: true,
+  };
+}
+
+export function processAttuneItem(character: Character, event: AttuneItemEvent): InventoryEventResult {
+  return {
+    character: {
+      ...character,
+      inventory: attuneItem(character.inventory, event.itemId, event.attuned),
     },
     applied: true,
   };

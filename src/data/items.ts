@@ -168,7 +168,19 @@ export const itemTemplates: Record<string, ItemTemplate> = {
   mess_kit: gear('mess_kit', 'Mess Kit', 1, 0.2),
   blanket: gear('blanket', 'Blanket', 3, 0.5),
   holy_symbol: gear('holy_symbol', 'Holy Symbol', 1, 5),
-  potion_of_healing: gear('potion_of_healing', 'Potion of Healing', 0.5, 50, 'consumable'),
+  potion_of_healing: gear('potion_of_healing', 'Potion of Healing', 0.5, 50, 'potion'),
+
+  // Adventuring gear — additional SRD items
+  mirror_steel: gear('mirror_steel', 'Steel Mirror', 0.5, 5),
+  candle: gear('candle', 'Candle', 0, 0.01, 'consumable'),
+  chalk_1piece: gear('chalk_1piece', 'Chalk (1 piece)', 0, 0.01),
+  ink_1oz: gear('ink_1oz', 'Ink (1-ounce bottle)', 0, 10),
+  parchment_1sheet: gear('parchment_1sheet', 'Parchment (one sheet)', 0, 0.1),
+
+  // Ammunition
+  arrows_20: gear('arrows_20', 'Arrows (20)', 1, 1, 'ammunition'),
+  crossbow_bolts_20: gear('crossbow_bolts_20', 'Crossbow Bolts (20)', 1.5, 1, 'ammunition'),
+  sling_bullets_20: gear('sling_bullets_20', 'Sling Bullets (20)', 1.5, 0.04, 'ammunition'),
 };
 
 export function spawnItem(templateId: string, qty = 1): Item {

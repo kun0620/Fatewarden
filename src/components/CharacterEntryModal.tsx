@@ -860,13 +860,22 @@ export function CharacterEntryModal({ session, user, onCancel, onEnter }: Charac
             </main>
 
             <aside className="fw-card fw-builder-context fw-builder-live-source">
-              <p className="fw-caption">Live Summary</p>
-              <h3 className="fw-h3">{draft.subrace || draft.ancestry} {draft.className}</h3>
+              <span className="fw-orn-c tl" />
+              <span className="fw-orn-c tr" />
+              <span className="fw-orn-c bl" />
+              <span className="fw-orn-c br" />
+              <div className="fw-character-sigil fw-builder-live-sigil">{draft.name.slice(0, 2).toUpperCase() || 'FW'}</div>
+              <h3 className="fw-h3 fw-builder-live-name">{draft.name || 'Unbound'}</h3>
+              <p className="fw-serif-muted fw-builder-live-subtitle">
+                {draft.subrace || draft.ancestry} / {draft.className} / Level {draft.level}
+              </p>
+              <div className="fw-divider"><span className="fw-eyebrow">Vitals</span></div>
               <div className="fw-builder-live-vitals">
                 <span>AC <strong>{draft.armorClass}</strong></span>
                 <span>HP <strong>{draft.maxHitPoints}</strong></span>
                 <span>PB <strong>+{calcProficiencyBonus(draft.level)}</strong></span>
               </div>
+              <div className="fw-divider"><span className="fw-eyebrow">Abilities</span></div>
               <div className="fw-summary-stack">
                 {ABILITY_KEYS.map((key) => (
                   <div key={key}>
@@ -875,7 +884,7 @@ export function CharacterEntryModal({ session, user, onCancel, onEnter }: Charac
                   </div>
                 ))}
               </div>
-              <p className="fw-caption">Features</p>
+              <div className="fw-divider"><span className="fw-eyebrow">Features</span></div>
               <div className="fw-pill-row">
                 {draft.features.slice(0, 8).map((feature) => <span className="fw-pill" key={feature}>{feature}</span>)}
               </div>

@@ -236,6 +236,16 @@ export function unequipItem(inventory: Inventory, itemId: string): Inventory {
   };
 }
 
+export function attuneItem(inventory: Inventory, itemId: string, attuned: boolean): Inventory {
+  const attunedCount = inventory.items.filter((item) => item.attuned && item.id !== itemId).length;
+  // Spec: max 3 attuned items at once
+  if (attuned && attunedCount >= 3) return inventory;
+  return {
+    ...inventory,
+    items: inventory.items.map((item) => (item.id === itemId ? { ...item, attuned } : item)),
+  };
+}
+
 export function updateQuantity(inventory: Inventory, itemId: string, delta: number): Inventory {
   const item = inventory.items.find((entry) => entry.id === itemId);
   if (!item) return inventory;

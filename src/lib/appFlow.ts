@@ -18,6 +18,8 @@ export type AppStage =
   | 'character-setup'
   | 'lobby'
   | 'char-sheet'
+  | 'char-vault'
+  | 'char-wizard'
   | 'dm-dashboard'
   | 'game'
   | 'bestiary'
@@ -34,6 +36,8 @@ export type AppFlowInput = {
   pendingSettings: boolean;
   pendingLobby: boolean;
   pendingCharSheet: boolean;
+  pendingCharVault: boolean;
+  pendingCharWizard: boolean;
   pendingDmDash: boolean;
   pendingBestiary: boolean;
 };
@@ -45,8 +49,10 @@ export type AppFlowInput = {
  *   1. No Supabase config        -> local-play (demo / offline)
  *   2. No authenticated user     -> login
  *   3. Active session selected   -> game
- *   4. Pending session selected  -> character-setup
- *   5. otherwise                 -> menu
+ *   4. Pending lobby handoff     -> lobby
+ *   5. Character sheet overlay   -> char-sheet
+ *   6. Pending session selected  -> character-setup
+ *   7. otherwise                 -> menu
  */
 export function computeAppStage(input: AppFlowInput): AppStage {
   const {
@@ -59,15 +65,19 @@ export function computeAppStage(input: AppFlowInput): AppStage {
     pendingSettings,
     pendingLobby,
     pendingCharSheet,
+    pendingCharVault,
+    pendingCharWizard,
     pendingDmDash,
     pendingBestiary,
   } = input;
   if (!hasSupabaseConfig) return 'local-play';
   if (!user) return 'login';
   if (activeSession) return 'game';
-  if (pendingSession) return 'character-setup';
+  if (pendingCharWizard) return 'char-wizard';
   if (pendingLobby) return 'lobby';
   if (pendingCharSheet) return 'char-sheet';
+  if (pendingSession) return 'character-setup';
+  if (pendingCharVault) return 'char-vault';
   if (pendingDmDash) return 'dm-dashboard';
   if (pendingBestiary) return 'bestiary';
   if (pendingRoomSetup) return 'room-setup';
@@ -87,6 +97,8 @@ export function isGateStage(stage: AppStage): boolean {
     stage === 'character-setup' ||
     stage === 'lobby' ||
     stage === 'char-sheet' ||
+    stage === 'char-vault' ||
+    stage === 'char-wizard' ||
     stage === 'dm-dashboard' ||
     stage === 'bestiary'
   );

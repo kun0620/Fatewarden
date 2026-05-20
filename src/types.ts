@@ -98,8 +98,11 @@ export type ItemCategory =
   | 'shield'
   | 'gear'
   | 'consumable'
+  | 'potion'
+  | 'scroll'
   | 'tool'
   | 'material'
+  | 'ammunition'
   | 'quest'
   | 'currency'
   | 'misc';

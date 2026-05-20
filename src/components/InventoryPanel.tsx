@@ -1,4 +1,4 @@
-import { Backpack, Coins, FlaskConical, Hammer, Shield, Sword, Trash2, Wrench } from 'lucide-react';
+import { ArrowRightLeft, Backpack, Coins, Crosshair, FlaskConical, Hammer, Shield, Sword, Trash2, Wrench, Zap } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import {
   calcACFromInventory,
@@ -23,12 +23,25 @@ const categoryIcon: Record<ItemCategory, typeof Backpack> = {
   shield: Shield,
   gear: Backpack,
   consumable: FlaskConical,
+  potion: FlaskConical,
+  scroll: Backpack,
   tool: Wrench,
   material: Hammer,
+  ammunition: Crosshair,
   quest: Backpack,
   currency: Coins,
   misc: Backpack,
 };
+
+const CURRENCY_LABELS: Record<CurrencyKey, string> = {
+  pp: 'Platinum',
+  gp: 'Gold',
+  ep: 'Electrum',
+  sp: 'Silver',
+  cp: 'Copper',
+};
+
+const CURRENCY_KEYS: CurrencyKey[] = ['pp', 'gp', 'ep', 'sp', 'cp'];
 
 function formatWeight(weight: number) {
   return `${weight.toFixed(2)} lb`;
@@ -49,6 +62,9 @@ function findEquippedShield(items: Item[]) {
 export function InventoryPanel({ character, onUpdateCharacter, disabled = false }: InventoryPanelProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('equipment');
   const [equipToast, setEquipToast] = useState('');
+  const [convertFrom, setConvertFrom] = useState<CurrencyKey>('gp');
+  const [convertTo, setConvertTo] = useState<CurrencyKey>('sp');
+  const [convertAmount, setConvertAmount] = useState(1);
   const { dispatch, eventMeta, setActiveCharacter } = useGameStore();
   const inventory = character.inventory;
 
@@ -59,9 +75,28 @@ export function InventoryPanel({ character, onUpdateCharacter, disabled = false 
   const equippedWeapon = useMemo(() => findEquippedWeapon(inventory.items), [inventory.items]);
   const equippedArmor = useMemo(() => findEquippedArmor(inventory.items), [inventory.items]);
   const equippedShield = useMemo(() => findEquippedShield(inventory.items), [inventory.items]);
+  const attunedCount = useMemo(() => inventory.items.filter((i) => i.attuned).length, [inventory.items]);
   const totalWeight = useMemo(() => calcCarryWeight(inventory), [inventory]);
   const computedAc = useMemo(() => calcACFromInventory(inventory, character.abilities.dex), [inventory, character.abilities.dex]);
   const carryRatio = Math.max(0, Math.min(100, (totalWeight / Math.max(1, inventory.maxCarryWeight)) * 100));
+
+  function showToast(msg: string) {
+    setEquipToast(msg);
+    globalThis.setTimeout(() => setEquipToast(''), 2000);
+  }
+
+  function unequipSlot(item: Item) {
+    const event = {
+      ...eventMeta(character.id),
+      type: 'unequip_item' as const,
+      itemId: item.id,
+    };
+    const result = dispatch(event);
+    if (result.character) {
+      void onUpdateCharacter(result.character);
+      showToast(`Unequipped: ${item.name}`);
+    }
+  }
 
   function toggleEquip(item: Item) {
     const wasEquipped = item.equipped;
@@ -80,8 +115,20 @@ export function InventoryPanel({ character, onUpdateCharacter, disabled = false 
     const result = dispatch(event);
     if (result.character) {
       void onUpdateCharacter(result.character);
-      setEquipToast(`${wasEquipped ? 'Unequipped' : 'Equipped'}: ${item.name}`);
-      globalThis.setTimeout(() => setEquipToast(''), 2000);
+      showToast(`${wasEquipped ? 'Unequipped' : 'Equipped'}: ${item.name}`);
+    }
+  }
+
+  function toggleAttune(item: Item) {
+    const event = {
+      ...eventMeta(character.id),
+      type: 'attune_item' as const,
+      itemId: item.id,
+      attuned: !item.attuned,
+    };
+    const result = dispatch(event);
+    if (result.character) {
+      void onUpdateCharacter(result.character);
     }
   }
 
@@ -122,6 +169,22 @@ export function InventoryPanel({ character, onUpdateCharacter, disabled = false 
     const result = dispatch(event);
     if (result.character) {
       void onUpdateCharacter(result.character);
+    }
+  }
+
+  function executeCurrencyConvert() {
+    if (convertFrom === convertTo || convertAmount <= 0) return;
+    const event = {
+      ...eventMeta(character.id),
+      type: 'update_currency' as const,
+      from: convertFrom,
+      to: convertTo,
+      amount: convertAmount,
+    };
+    const result = dispatch(event);
+    if (result.character) {
+      void onUpdateCharacter(result.character);
+      showToast(`Converted ${convertAmount} ${convertFrom.toUpperCase()} → ${convertTo.toUpperCase()}`);
     }
   }
 
@@ -180,6 +243,7 @@ export function InventoryPanel({ character, onUpdateCharacter, disabled = false 
         </button>
       </div>
 
+      {/* EQUIPMENT TAB */}
       {activeTab === 'equipment' ? (
         <div className="fw-card fw-inventory-equipment">
           <div className="fw-inventory-equipment__doll">
@@ -187,27 +251,49 @@ export function InventoryPanel({ character, onUpdateCharacter, disabled = false 
               <p className="fw-caption">Head</p>
               <strong className="fw-body-sm">Open</strong>
             </article>
+
             <article className="fw-inventory-slot">
               <p className="fw-caption">Body</p>
               <strong className="fw-body-sm">{equippedArmor ? equippedArmor.name : 'Unarmored'}</strong>
               <span className="fw-caption">{equippedArmor?.armor ? `AC ${equippedArmor.armor.baseAC}` : 'AC base'}</span>
+              {equippedArmor ? (
+                <button type="button" className="fw-btn fw-btn--ghost fw-btn--sm" disabled={disabled} onClick={() => unequipSlot(equippedArmor)}>
+                  Unequip
+                </button>
+              ) : null}
             </article>
+
             <article className="fw-inventory-slot">
               <p className="fw-caption">Hands</p>
               <strong className="fw-body-sm">Ready</strong>
             </article>
+
             <article className="fw-inventory-slot">
               <p className="fw-caption">Weapon</p>
               <strong className="fw-body-sm">{equippedWeapon ? equippedWeapon.name : 'Unarmed'}</strong>
               <span className="fw-caption">
-                {equippedWeapon?.weapon ? `${equippedWeapon.weapon.damageDice} ${equippedWeapon.weapon.damageType}` : '1 + STR bludgeoning'}
+                {equippedWeapon?.weapon
+                  ? `${equippedWeapon.weapon.damageDice} ${equippedWeapon.weapon.damageType}`
+                  : '1 + STR bludgeoning'}
               </span>
+              {equippedWeapon ? (
+                <button type="button" className="fw-btn fw-btn--ghost fw-btn--sm" disabled={disabled} onClick={() => unequipSlot(equippedWeapon)}>
+                  Unequip
+                </button>
+              ) : null}
             </article>
+
             <article className="fw-inventory-slot">
               <p className="fw-caption">Off-hand</p>
               <strong className="fw-body-sm">{equippedShield ? equippedShield.name : 'Open'}</strong>
               <span className="fw-caption">{equippedShield ? '+2 AC' : 'No shield'}</span>
+              {equippedShield ? (
+                <button type="button" className="fw-btn fw-btn--ghost fw-btn--sm" disabled={disabled} onClick={() => unequipSlot(equippedShield)}>
+                  Unequip
+                </button>
+              ) : null}
             </article>
+
             <article className="fw-inventory-slot">
               <p className="fw-caption">Accessory</p>
               <strong className="fw-body-sm">Open</strong>
@@ -220,14 +306,26 @@ export function InventoryPanel({ character, onUpdateCharacter, disabled = false 
             </p>
             <p className="fw-body-sm">
               Weapon damage:{' '}
-              <strong>{equippedWeapon?.weapon ? `${equippedWeapon.weapon.damageDice} ${equippedWeapon.weapon.damageType}` : '1 + STR bludgeoning'}</strong>
+              <strong>
+                {equippedWeapon?.weapon
+                  ? `${equippedWeapon.weapon.damageDice} ${equippedWeapon.weapon.damageType}`
+                  : '1 + STR bludgeoning'}
+              </strong>
             </p>
           </div>
         </div>
       ) : null}
 
+      {/* BACKPACK TAB */}
       {activeTab === 'backpack' ? (
         <div className="fw-inventory-backpack">
+          <div className="fw-inventory-attunement-bar">
+            <Zap size={12} aria-hidden="true" />
+            <span className="fw-caption">
+              Attuned: <strong>{attunedCount}</strong> / 3
+            </span>
+          </div>
+
           {inventory.items.length ? (
             inventory.items.map((item) => {
               const Icon = categoryIcon[item.category] ?? Backpack;
@@ -239,15 +337,34 @@ export function InventoryPanel({ character, onUpdateCharacter, disabled = false 
                   <div className="fw-inventory-item__content">
                     <div className="fw-inventory-item__head">
                       <strong className="fw-body-sm">{item.name}</strong>
-                      <small className="fw-caption">{formatWeight(item.weight * item.quantity)}</small>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        {item.attuned ? (
+                          <span className="fw-pill fw-pill--arcane" style={{ fontSize: 10, padding: '1px 5px', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                            <Zap size={9} aria-hidden="true" /> Attuned
+                          </span>
+                        ) : null}
+                        <small className="fw-caption">{formatWeight(item.weight * item.quantity)}</small>
+                      </div>
                     </div>
                     <p className="fw-caption">{item.category} · qty {item.quantity}</p>
                     <div className="fw-inventory-item__actions">
                       <button type="button" className="fw-btn fw-btn--ghost fw-btn--sm" disabled={disabled} onClick={() => toggleEquip(item)}>
                         {item.equipped ? 'Unequip' : 'Equip'}
                       </button>
+                      {item.attunement ? (
+                        <button
+                          type="button"
+                          className={`fw-btn fw-btn--sm ${item.attuned ? 'fw-btn--arcane' : 'fw-btn--ghost'}`}
+                          disabled={disabled || (!item.attuned && attunedCount >= 3)}
+                          title={!item.attuned && attunedCount >= 3 ? 'Max 3 attuned items' : undefined}
+                          onClick={() => toggleAttune(item)}
+                        >
+                          <Zap size={12} aria-hidden="true" />
+                          {item.attuned ? 'Unattuned' : 'Attune'}
+                        </button>
+                      ) : null}
                       <button type="button" className="fw-btn fw-btn--ghost fw-btn--sm" disabled={disabled} onClick={() => changeQuantity(item, -1)}>
-                        -
+                        −
                       </button>
                       <button type="button" className="fw-btn fw-btn--ghost fw-btn--sm" disabled={disabled} onClick={() => changeQuantity(item, 1)}>
                         +
@@ -266,10 +383,11 @@ export function InventoryPanel({ character, onUpdateCharacter, disabled = false 
         </div>
       ) : null}
 
+      {/* CURRENCY TAB */}
       {activeTab === 'currency' ? (
         <div className="fw-inventory-currency">
           <div className="fw-inventory-currency__grid">
-            {(Object.keys(inventory.currency) as CurrencyKey[]).map((coin) => (
+            {CURRENCY_KEYS.map((coin) => (
               <div className="fw-field fw-inventory-currency__cell" key={coin}>
                 <label className="fw-field__label">{coin.toUpperCase()}</label>
                 <input
@@ -279,7 +397,7 @@ export function InventoryPanel({ character, onUpdateCharacter, disabled = false 
                   step={1}
                   value={inventory.currency[coin]}
                   disabled={disabled}
-                  onChange={(event) => updateCurrency(coin, event.target.value)}
+                  onChange={(e) => updateCurrency(coin, e.target.value)}
                 />
               </div>
             ))}
@@ -296,6 +414,67 @@ export function InventoryPanel({ character, onUpdateCharacter, disabled = false 
               SP→CP
             </button>
           </div>
+
+          <div className="fw-inventory-currency__convert-form">
+            <p className="fw-caption" style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <ArrowRightLeft size={12} aria-hidden="true" /> Convert Currency
+            </p>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div className="fw-field" style={{ flex: '1 1 70px', minWidth: 70 }}>
+                <label className="fw-field__label">Amount</label>
+                <input
+                  className="fw-input fw-input--mono"
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={convertAmount}
+                  disabled={disabled}
+                  onChange={(e) => setConvertAmount(Math.max(1, Math.trunc(Number(e.target.value) || 1)))}
+                />
+              </div>
+              <div className="fw-field" style={{ flex: '1 1 80px', minWidth: 80 }}>
+                <label className="fw-field__label">From</label>
+                <select
+                  className="fw-select"
+                  value={convertFrom}
+                  disabled={disabled}
+                  onChange={(e) => setConvertFrom(e.target.value as CurrencyKey)}
+                >
+                  {CURRENCY_KEYS.map((k) => (
+                    <option key={k} value={k}>
+                      {k.toUpperCase()} — {CURRENCY_LABELS[k]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="fw-field" style={{ flex: '1 1 80px', minWidth: 80 }}>
+                <label className="fw-field__label">To</label>
+                <select
+                  className="fw-select"
+                  value={convertTo}
+                  disabled={disabled}
+                  onChange={(e) => setConvertTo(e.target.value as CurrencyKey)}
+                >
+                  {CURRENCY_KEYS.map((k) => (
+                    <option key={k} value={k}>
+                      {k.toUpperCase()} — {CURRENCY_LABELS[k]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="button"
+                className="fw-btn fw-btn--primary fw-btn--sm"
+                disabled={disabled || convertFrom === convertTo || convertAmount <= 0 || inventory.currency[convertFrom] < convertAmount}
+                onClick={executeCurrencyConvert}
+              >
+                Convert
+              </button>
+            </div>
+            <p className="fw-caption" style={{ marginTop: 4, opacity: 0.6 }}>
+              Available: {inventory.currency[convertFrom]} {convertFrom.toUpperCase()}
+            </p>
+          </div>
         </div>
       ) : null}
 
@@ -303,10 +482,15 @@ export function InventoryPanel({ character, onUpdateCharacter, disabled = false 
         <p className="fw-caption">
           Carry weight: <strong>{formatWeight(totalWeight)}</strong> / <strong>{formatWeight(inventory.maxCarryWeight)}</strong>
         </p>
-        <div className="fw-hp" aria-label="Carry weight usage" data-state={carryRatio > 90 ? 'bleed' : carryRatio > 65 ? 'low' : 'full'}>
+        <div
+          className="fw-hp"
+          aria-label="Carry weight usage"
+          data-state={carryRatio > 90 ? 'bleed' : carryRatio > 65 ? 'low' : 'full'}
+        >
           <div className="fw-hp__fill" style={{ width: `${carryRatio}%` }} />
         </div>
       </div>
+
       {equipToast ? (
         <div className="fw-toast fw-toast--success">
           <strong>{equipToast}</strong>

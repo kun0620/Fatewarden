@@ -33,6 +33,11 @@ export function LevelUpModal({ character, open, onCancel, onConfirm }: LevelUpMo
   }
 
   const nextLevel = Math.min(character.level + 1, 20);
+  const confirmDisabledReason = busy
+    ? 'Level up is being applied.'
+    : !choices.length
+      ? 'No level up choices are available yet.'
+      : 'Apply level up changes.';
 
   return (
     <div className="fw-backdrop levelup-backdrop" role="presentation">
@@ -94,7 +99,13 @@ export function LevelUpModal({ character, open, onCancel, onConfirm }: LevelUpMo
           <button className="fw-btn fw-btn--ghost" disabled={busy} onClick={onCancel} type="button">
             Cancel
           </button>
-          <button className="fw-btn fw-btn-gold" disabled={busy || !choices.length} onClick={() => void confirmLevelUp()} type="button">
+          <button
+            className="fw-btn fw-btn-gold"
+            disabled={busy || !choices.length}
+            onClick={() => void confirmLevelUp()}
+            title={confirmDisabledReason}
+            type="button"
+          >
             <Sparkles aria-hidden="true" size={16} />
             {busy ? 'Applying...' : 'Seal the Ascension'}
           </button>

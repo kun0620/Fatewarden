@@ -2,6 +2,8 @@ import type { Character } from '../../types';
 import { getInventoryState, hasItem, type InventoryItem } from './inventoryEngine';
 
 export type EquipmentSlot =
+  | 'head'
+  | 'hands'
   | 'armor'
   | 'main_hand'
   | 'off_hand'
@@ -30,6 +32,8 @@ type EquipmentRuntimeSystemData = Character['systemData'] & {
 };
 
 const SLOT_CONFLICTS: Record<EquipmentSlot, EquipmentSlot[]> = {
+  head: [],
+  hands: [],
   armor: [],
   main_hand: ['two_handed'],
   off_hand: ['two_handed'],
@@ -82,6 +86,7 @@ function itemSupportsSlot(item: InventoryItem, slot: EquipmentSlot) {
   if (slot === 'armor') return item.category === 'armor';
   if (slot === 'off_hand') return item.category === 'weapon' || item.category === 'shield';
   if (slot === 'main_hand' || slot === 'two_handed') return item.category === 'weapon';
+  if (slot === 'head' || slot === 'hands') return item.category === 'armor' || item.category === 'gear';
   if (slot === 'ring_1' || slot === 'ring_2' || slot === 'amulet' || slot === 'cloak' || slot === 'belt') {
     return true;
   }

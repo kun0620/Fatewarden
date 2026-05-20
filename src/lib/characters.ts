@@ -404,12 +404,67 @@ function toLegacyVaultPayload(character: Character, userId: string) {
 }
 
 function isMissingColumnError(error: unknown) {
+  if (typeof error !== 'object' || error === null) return false;
+
+  const postgrestError = error as { code?: string; message?: string; details?: string; hint?: string };
+  const text = [
+    postgrestError.message,
+    postgrestError.details,
+    postgrestError.hint,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
   return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: string }).code === '42703'
+    postgrestError.code === '42703' ||
+    postgrestError.code === 'PGRST204' ||
+    (text.includes('column') && (text.includes('could not find') || text.includes('does not exist') || text.includes('schema cache')))
   );
+}
+
+async function findSessionCharacterRow(client: ReturnType<typeof requireClient>, sessionId: string, userId: string) {
+  const { data, error } = await client
+    .from('characters')
+    .select(characterSelect)
+    .eq('session_id', sessionId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error && !isMissingColumnError(error)) throw error;
+  if (!error) return { row: data as unknown as CharacterRow | null, legacy: false };
+
+  const { data: legacyData, error: legacyError } = await client
+    .from('characters')
+    .select(legacyCharacterSelect)
+    .eq('session_id', sessionId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (legacyError) throw legacyError;
+  return { row: legacyData as unknown as CharacterRow | null, legacy: true };
+}
+
+async function findVaultCharacterRow(client: ReturnType<typeof requireClient>, characterId: string, userId: string) {
+  const { data, error } = await client
+    .from('character_vaults')
+    .select(characterSelect)
+    .eq('id', characterId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error && !isMissingColumnError(error)) throw error;
+  if (!error) return { row: data as unknown as CharacterRow | null, legacy: false };
+
+  const { data: legacyData, error: legacyError } = await client
+    .from('character_vaults')
+    .select(`${legacyCharacterSelect},updated_at`)
+    .eq('id', characterId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (legacyError) throw legacyError;
+  return { row: legacyData as unknown as CharacterRow | null, legacy: true };
 }
 
 export async function loadCharacter(sessionId: string, user: User) {
@@ -465,25 +520,45 @@ export async function listSessionCharacters(sessionId: string) {
 
 export async function saveCharacter(character: Character, sessionId: string, user: User) {
   const client = requireClient();
-  const { data, error } = await client
-    .from('characters')
-    .upsert(toPayload(character, sessionId, user.id), { onConflict: 'session_id,user_id' })
-    .select(characterSelect)
-    .single();
+  const existing = await findSessionCharacterRow(client, sessionId, user.id);
 
-  if (error && !isMissingColumnError(error)) throw error;
-  if (error && isMissingColumnError(error)) {
-    const { data: legacyData, error: legacyError } = await client
-      .from('characters')
-      .upsert(toLegacyPayload(character, sessionId, user.id), { onConflict: 'session_id,user_id' })
-      .select(legacyCharacterSelect)
-      .single();
+  if (existing.legacy) {
+    const legacyPayload = {
+      ...toLegacyPayload(character, sessionId, user.id),
+      id: existing.row?.id ?? toLegacyPayload(character, sessionId, user.id).id,
+    };
+    const query = existing.row
+      ? client.from('characters').update(legacyPayload).eq('id', existing.row.id)
+      : client.from('characters').insert(legacyPayload);
+    const { data: legacyData, error: legacyError } = await query.select(legacyCharacterSelect).single();
 
     if (legacyError) throw legacyError;
-
     return mapCharacter(legacyData as unknown as CharacterRow);
   }
 
+  const payload = {
+    ...toPayload(character, sessionId, user.id),
+    id: existing.row?.id ?? toPayload(character, sessionId, user.id).id,
+  };
+  const query = existing.row
+    ? client.from('characters').update(payload).eq('id', existing.row.id)
+    : client.from('characters').insert(payload);
+  const { data, error } = await query.select(characterSelect).single();
+
+  if (error && !isMissingColumnError(error)) throw error;
+  if (error && isMissingColumnError(error)) {
+    const legacyPayload = {
+      ...toLegacyPayload(character, sessionId, user.id),
+      id: existing.row?.id ?? toLegacyPayload(character, sessionId, user.id).id,
+    };
+    const legacyQuery = existing.row
+      ? client.from('characters').update(legacyPayload).eq('id', existing.row.id)
+      : client.from('characters').insert(legacyPayload);
+    const { data: legacyData, error: legacyError } = await legacyQuery.select(legacyCharacterSelect).single();
+
+    if (legacyError) throw legacyError;
+    return mapCharacter(legacyData as unknown as CharacterRow);
+  }
   return mapCharacter(data as unknown as CharacterRow);
 }
 
@@ -512,19 +587,42 @@ export async function listVaultCharacters(user: User) {
 
 export async function saveVaultCharacter(character: Character, user: User) {
   const client = requireClient();
-  const { data, error } = await client
-    .from('character_vaults')
-    .upsert(toVaultPayload(character, user.id))
-    .select(characterSelect)
-    .single();
+  const candidateId = character.id.startsWith('char-demo') ? undefined : character.id;
+  const existing = candidateId ? await findVaultCharacterRow(client, candidateId, user.id) : { row: null, legacy: false };
+
+  if (existing.legacy) {
+    const legacyPayload = {
+      ...toLegacyVaultPayload(character, user.id),
+      id: existing.row?.id ?? toLegacyVaultPayload(character, user.id).id,
+    };
+    const query = existing.row
+      ? client.from('character_vaults').update(legacyPayload).eq('id', existing.row.id).eq('user_id', user.id)
+      : client.from('character_vaults').insert(legacyPayload);
+    const { data: legacyData, error: legacyError } = await query.select(`${legacyCharacterSelect},updated_at`).single();
+
+    if (legacyError) throw legacyError;
+    return mapVaultCharacter(legacyData as unknown as CharacterRow);
+  }
+
+  const payload = {
+    ...toVaultPayload(character, user.id),
+    id: existing.row?.id ?? toVaultPayload(character, user.id).id,
+  };
+  const query = existing.row
+    ? client.from('character_vaults').update(payload).eq('id', existing.row.id).eq('user_id', user.id)
+    : client.from('character_vaults').insert(payload);
+  const { data, error } = await query.select(characterSelect).single();
 
   if (error && !isMissingColumnError(error)) throw error;
   if (error && isMissingColumnError(error)) {
-    const { data: legacyData, error: legacyError } = await client
-      .from('character_vaults')
-      .upsert(toLegacyVaultPayload(character, user.id))
-      .select(`${legacyCharacterSelect},updated_at`)
-      .single();
+    const legacyPayload = {
+      ...toLegacyVaultPayload(character, user.id),
+      id: existing.row?.id ?? toLegacyVaultPayload(character, user.id).id,
+    };
+    const legacyQuery = existing.row
+      ? client.from('character_vaults').update(legacyPayload).eq('id', existing.row.id).eq('user_id', user.id)
+      : client.from('character_vaults').insert(legacyPayload);
+    const { data: legacyData, error: legacyError } = await legacyQuery.select(`${legacyCharacterSelect},updated_at`).single();
 
     if (legacyError) throw legacyError;
     return mapVaultCharacter(legacyData as unknown as CharacterRow);
@@ -555,63 +653,47 @@ export async function saveSessionCharacterToVault(character: Character, user: Us
 
 export async function attachVaultCharacterToSession(vaultCharacterId: string, sessionId: string, user: User) {
   const client = requireClient();
-  const { data: existing, error: existingError } = await client
-    .from('characters')
-    .select(characterSelect)
-    .eq('session_id', sessionId)
-    .eq('user_id', user.id)
-    .maybeSingle();
-
-  if (existingError && !isMissingColumnError(existingError)) throw existingError;
-  if (existingError && isMissingColumnError(existingError)) {
-    const { data: legacyExisting, error: legacyExistingError } = await client
-      .from('characters')
-      .select(legacyCharacterSelect)
-      .eq('session_id', sessionId)
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (legacyExistingError) throw legacyExistingError;
-    if (legacyExisting) return mapCharacter(legacyExisting as unknown as CharacterRow);
-  }
-  if (existing) return mapCharacter(existing as unknown as CharacterRow);
-
-  let vaultCharacter: unknown;
-  const { data: extendedVaultCharacter, error: vaultError } = await client
-    .from('character_vaults')
-    .select(characterSelect)
-    .eq('id', vaultCharacterId)
-    .eq('user_id', user.id)
-    .single();
-
-  if (vaultError && !isMissingColumnError(vaultError)) throw vaultError;
-  if (vaultError && isMissingColumnError(vaultError)) {
-    const { data: legacyVaultCharacter, error: legacyVaultError } = await client
-      .from('character_vaults')
-      .select(legacyCharacterSelect)
-      .eq('id', vaultCharacterId)
-      .eq('user_id', user.id)
-      .single();
-
-    if (legacyVaultError) throw legacyVaultError;
-    vaultCharacter = legacyVaultCharacter;
-  } else {
-    vaultCharacter = extendedVaultCharacter;
+  const vaultCharacter = await findVaultCharacterRow(client, vaultCharacterId, user.id);
+  if (!vaultCharacter.row) {
+    throw new Error('Could not find this vault character.');
   }
 
-  const { data, error } = await client
-    .from('characters')
-    .insert(toSessionSnapshotPayload(mapCharacter(vaultCharacter as unknown as CharacterRow), sessionId, user.id))
-    .select(characterSelect)
-    .single();
+  const existing = await findSessionCharacterRow(client, sessionId, user.id);
+  const character = mapCharacter(vaultCharacter.row);
+
+  if (existing.legacy || vaultCharacter.legacy) {
+    const legacyPayload = {
+      ...toLegacyPayload(character, sessionId, user.id),
+      id: existing.row?.id,
+    };
+    const query = existing.row
+      ? client.from('characters').update(legacyPayload).eq('id', existing.row.id)
+      : client.from('characters').insert(legacyPayload);
+    const { data: legacyData, error: legacyError } = await query.select(legacyCharacterSelect).single();
+
+    if (legacyError) throw legacyError;
+    return mapCharacter(legacyData as unknown as CharacterRow);
+  }
+
+  const payload = {
+    ...toSessionSnapshotPayload(character, sessionId, user.id),
+    id: existing.row?.id,
+  };
+  const query = existing.row
+    ? client.from('characters').update(payload).eq('id', existing.row.id)
+    : client.from('characters').insert(payload);
+  const { data, error } = await query.select(characterSelect).single();
 
   if (error && !isMissingColumnError(error)) throw error;
   if (error && isMissingColumnError(error)) {
-    const { data: legacyData, error: legacyError } = await client
-      .from('characters')
-      .insert(toLegacyPayload(mapCharacter(vaultCharacter as unknown as CharacterRow), sessionId, user.id))
-      .select(legacyCharacterSelect)
-      .single();
+    const legacyPayload = {
+      ...toLegacyPayload(character, sessionId, user.id),
+      id: existing.row?.id,
+    };
+    const legacyQuery = existing.row
+      ? client.from('characters').update(legacyPayload).eq('id', existing.row.id)
+      : client.from('characters').insert(legacyPayload);
+    const { data: legacyData, error: legacyError } = await legacyQuery.select(legacyCharacterSelect).single();
 
     if (legacyError) throw legacyError;
     return mapCharacter(legacyData as unknown as CharacterRow);

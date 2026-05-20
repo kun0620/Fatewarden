@@ -126,19 +126,31 @@ export interface RemoveItemEvent extends BaseGameEvent {
   readonly quantity?: number;
 }
 
+export type InventoryEquipSlot =
+  | 'head' | 'hands' | 'armor'
+  | 'main_hand' | 'off_hand' | 'two_handed'
+  | 'ring_1' | 'ring_2' | 'amulet' | 'cloak' | 'belt';
+
 export interface EquipItemEvent extends BaseGameEvent {
   readonly type: 'equip_item';
   readonly targetId: string;
   readonly itemId: string;
-  readonly slot: 'armor' | 'main_hand' | 'off_hand' | 'two_handed' | 'ring_1' | 'ring_2' | 'amulet' | 'cloak' | 'belt';
+  readonly slot: InventoryEquipSlot;
   readonly attuned?: boolean;
 }
 
 export interface UnequipItemEvent extends BaseGameEvent {
   readonly type: 'unequip_item';
   readonly targetId: string;
-  readonly slot?: 'armor' | 'main_hand' | 'off_hand' | 'two_handed' | 'ring_1' | 'ring_2' | 'amulet' | 'cloak' | 'belt';
+  readonly slot?: InventoryEquipSlot;
   readonly itemId?: string;
+}
+
+export interface AttuneItemEvent extends BaseGameEvent {
+  readonly type: 'attune_item';
+  readonly targetId: string;
+  readonly itemId: string;
+  readonly attuned: boolean;
 }
 
 export interface UpdateCurrencyEvent extends BaseGameEvent {
@@ -351,6 +363,7 @@ export type GameEvent =
   | RemoveItemEvent
   | EquipItemEvent
   | UnequipItemEvent
+  | AttuneItemEvent
   | UpdateCurrencyEvent
   | UpdateQuantityEvent
   | ConsumeItemEvent

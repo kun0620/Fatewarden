@@ -66,7 +66,7 @@ type AppRailProps = {
   activeStage: AppStage;
   hasActiveSession: boolean;
   user: User | null;
-  onNavigate: (target: 'menu' | 'game' | 'char-sheet' | 'dm-dashboard' | 'bestiary' | 'library' | 'settings') => void;
+  onNavigate: (target: 'menu' | 'game' | 'char-sheet' | 'char-vault' | 'char-wizard' | 'dm-dashboard' | 'bestiary' | 'library' | 'settings') => void;
   onSignOut: () => void;
 };
 
@@ -87,6 +87,7 @@ export function AppRail({ activeStage, hasActiveSession, user, onNavigate, onSig
         onClick={() => onNavigate('game')}
       />
       <RailBtn icon="scroll" label="Sheet" active={activeStage === 'char-sheet'} onClick={() => onNavigate('char-sheet')} />
+      <RailBtn icon="users" label="Vault" active={activeStage === 'char-vault' || activeStage === 'char-wizard'} onClick={() => onNavigate('char-vault')} />
       <RailBtn icon="crown" label="DM" active={activeStage === 'dm-dashboard'} onClick={() => onNavigate('dm-dashboard')} />
       <RailBtn icon="skull" label="Bestiary" active={activeStage === 'bestiary'} onClick={() => onNavigate('bestiary')} />
       <RailBtn icon="book" label="Library" active={activeStage === 'library'} onClick={() => onNavigate('library')} />

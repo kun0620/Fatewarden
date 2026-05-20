@@ -12,6 +12,7 @@ import {
 } from './processors/raceProcessor';
 import {
   processAddItem,
+  processAttuneItem,
   processConsumeItem,
   processEquipItem,
   processGiveItem,
@@ -183,6 +184,12 @@ export function processEvent(state: EventRuntimeState, event: GameEvent): Proces
       case 'unequip_item': {
         const result = processUnequipItem(current, event);
         if (!result.applied) throw new Error(result.error ?? 'Failed to unequip item');
+        nextCharacter = result.character;
+        break;
+      }
+      case 'attune_item': {
+        const result = processAttuneItem(current, event);
+        if (!result.applied) throw new Error(result.error ?? 'Failed to attune item');
         nextCharacter = result.character;
         break;
       }

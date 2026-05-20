@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { AuthPanel } from './components/AuthPanel';
-import { CharacterEntryModal } from './components/CharacterEntryModal';
 import { MainMenu } from './components/MainMenu';
 import { CampaignLibrary } from './components/CampaignLibrary';
 import { SettingsPage } from './components/SettingsPage';
@@ -11,6 +10,8 @@ import { LobbyScreen } from './components/LobbyScreen';
 import { CharacterSheetPage } from './components/CharacterSheetPage';
 import { DMDashboard } from './components/DMDashboard';
 import { BestiaryScreen } from './components/BestiaryScreen';
+import { CharacterVaultScreen } from './components/CharacterVaultScreen';
+import { CharacterWizardScreen } from './components/CharacterWizardScreen';
 import { AppRail } from './components/AppRail';
 import { Topbar } from './components/Topbar';
 import { CombatMode } from './components/CombatMode';
@@ -45,7 +46,6 @@ import type {
   StoryMessage,
 } from './types';
 
-type CockpitMode = 'dm' | 'player';
 type MobilePanel = 'quest' | 'party' | 'inventory' | 'map';
 type LeftSidebarTab = 'party' | 'character' | 'inventory' | 'quests';
 type RightSidebarTab = 'dice' | 'combat' | 'ai' | 'rules' | 'tools';
@@ -68,6 +68,44 @@ const prototypeQuests = [
   { title: 'Free the held shadow', meta: 'Primary - chapel binding', state: 'active' },
   { title: 'Find the missing censer-chain', meta: 'Scene clue - south wall', state: 'open' },
   { title: 'Keep Halric alive', meta: 'Death saves pending', state: 'danger' },
+];
+
+const prototypeQuickSlots = [
+  { name: "Healer's Potion", icon: 'potion', cost: '1A', qty: '2', tone: 'gold' },
+  { name: 'Brass censer-key', icon: 'sparkles', cost: 'Free', qty: '', tone: 'arcane' },
+  { name: 'Torch', icon: 'torch', cost: '1A', qty: '3', tone: 'gold' },
+  null,
+];
+
+const prototypeEquippedItems = [
+  {
+    name: 'Staff of the Cinder-Reeve',
+    meta: 'Pact weapon · 1d8 fire',
+    icon: 'flame',
+    tag: 'Attuned',
+    charges: '5/7',
+    special: true,
+  },
+  {
+    name: 'Leather armor',
+    meta: 'AC 11 + Dex',
+    icon: 'shield',
+    tag: '',
+    charges: '',
+  },
+  {
+    name: 'Light crossbow',
+    meta: '1d8 piercing · 80/320',
+    icon: 'sword',
+    tag: '',
+    charges: '',
+  },
+];
+
+const prototypeCarriedItems = [
+  { name: "Healer's Potion", meta: '2d4+2 HP · standard', icon: 'potion', qty: 'x2', special: false },
+  { name: 'Bone-tablet fragment', meta: 'Quest · Embers arc', icon: 'scroll', qty: '', special: true },
+  { name: 'Brass censer-key', meta: 'Trinket · binding-resonance', icon: 'sparkles', qty: '', special: true },
 ];
 
 function formatLocalTime() {
@@ -240,12 +278,16 @@ function PrototypeLeftPanel({
 }) {
   if (tab === 'character') {
     return (
-      <div className="fw-proto-panel">
+      <div className="fw-proto-panel fw-proto-you-panel">
         <div className="fw-proto-hero-id">
           <div className="fw-avatar lg dm">{storyInitials(character.name || 'Aedric Vael')}</div>
           <div>
             <div className="fw-display">{character.name || 'Aedric Vael'}</div>
-            <p>{character.ancestry || 'Tiefling'} {character.className || 'Warlock'} - Lv {character.level || 7}</p>
+            <p>{character.ancestry || 'Tiefling'} {character.className || 'Warlock'} · Lv {character.level || 7}</p>
+            <div className="fw-proto-condition-row">
+              <span className="fw-cond">Bless</span>
+              <span className="fw-cond bleed">Cursed</span>
+            </div>
           </div>
         </div>
         <div className="fw-proto-stat-grid">
@@ -264,21 +306,43 @@ function PrototypeLeftPanel({
           ))}
         </div>
         <div className="fw-proto-section-title">Resources</div>
-        {[
-          ['Pact Slots', 1, 2],
-          ['Hit Dice', 5, 7],
-          ['Inspiration', 1, 1],
-        ].map(([label, current, max]) => (
-          <div className="fw-proto-resource" key={String(label)}>
+        {[ 
+          ['Pact Slots', 1, 2, 'arcane'],
+          ['Hit Dice (d8)', 5, 7, 'gold'],
+          ['Inspiration', 1, 1, 'gold'],
+        ].map(([label, current, max, tone]) => (
+          <div className={`fw-proto-resource ${tone}`} key={String(label)}>
             <div><span>{label}</span><b>{current}/{max}</b></div>
             <div>{Array.from({ length: Number(max) }).map((_, index) => <i className={index < Number(current) ? 'on' : ''} key={index} />)}</div>
           </div>
         ))}
-        <div className="fw-proto-section-title">Pact Magic</div>
-        {['Eldritch Blast', 'Hex', 'Armor of Agathys', 'Misty Step'].map((spell, index) => (
-          <div className="fw-proto-list-row" key={spell}>
+        <div className="fw-proto-section-title">Ability Scores</div>
+        <div className="fw-proto-ability-grid">
+          {[
+            ['STR', '9', '-1'],
+            ['DEX', '14', '+2'],
+            ['CON', '12', '+1'],
+            ['INT', '13', '+1'],
+            ['WIS', '11', '+0'],
+            ['CHA', '18', '+4'],
+          ].map(([label, score, mod]) => (
+            <div className="fw-proto-ability" key={label}>
+              <span>{label}</span>
+              <strong>{score}</strong>
+              <em>{mod}</em>
+            </div>
+          ))}
+        </div>
+        <div className="fw-proto-section-title">Spells · Pact Magic</div>
+        {[
+          ['Eldritch Blast', 'Cantrip · 2 beams · 1d10 force each', true],
+          ['Hex', 'Lvl 1 · 1d6 necrotic per hit', true],
+          ['Armor of Agathys', 'Lvl 1 · 10 temp HP', false],
+          ['Misty Step', 'Lvl 2 · BA · teleport 30 ft', false],
+        ].map(([spell, meta, active], index) => (
+          <div className={`fw-proto-list-row spell ${active ? 'active' : ''}`} key={String(spell)}>
             <span>{Icon(index < 2 ? 'flame' : 'sparkles', { size: 13 })}</span>
-            <div><strong>{spell}</strong><small>{index < 2 ? 'Ready' : 'Prepared'}</small></div>
+            <div><strong>{spell}</strong><small>{meta}</small></div>
           </div>
         ))}
       </div>
@@ -287,19 +351,96 @@ function PrototypeLeftPanel({
 
   if (tab === 'inventory') {
     return (
-      <div className="fw-proto-panel">
-        <div className="fw-proto-panel-head">
-          <span>Arsenal & Pack</span>
-          <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">Sort</button>
+      <div className="fw-proto-panel fw-proto-inventory-panel">
+        <section className="fw-inv-quickbar">
+          <div className="fw-eyebrow fw-proto-inv-eyebrow">
+            {Icon('zap', { size: 9 })} Quick-use · 1-2-3-4
+          </div>
+          <div className="fw-proto-quick-grid">
+            {prototypeQuickSlots.map((item, index) => item ? (
+              <button className="fw-quickslot" key={item.name} type="button">
+                <span className="fw-quickslot-kbd">{index + 1}</span>
+                <span className={item.tone === 'arcane' ? 'arcane' : ''}>{Icon(item.icon, { size: 15 })}</span>
+                <b>{item.name.split(' ').slice(0, 2).join(' ')}</b>
+                {item.cost ? <small className="fw-quickslot-action">{item.cost}</small> : null}
+                {item.qty ? <small className="fw-quickslot-qty">{item.qty}</small> : null}
+              </button>
+            ) : (
+              <button className="fw-quickslot empty" key="empty" type="button">
+                <span className="fw-quickslot-kbd">{index + 1}</span>
+                {Icon('plus', { size: 14 })}
+                <b>Pin</b>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <div className="fw-inv-subtabs">
+          <button className="fw-inv-subtab active" type="button">{Icon('bag', { size: 11 })} My Bag <span className="fw-inv-subtab-count">9</span></button>
+          <button className="fw-inv-subtab" type="button">{Icon('sparkles', { size: 11 })} Loot Pool <span className="fw-inv-subtab-count blood">4</span></button>
         </div>
-        <div className="fw-proto-slot-row">
-          {['Weapon', 'Armor', 'Focus', 'Quick'].map((slot) => <span key={slot}>{slot}</span>)}
+
+        <div className="fw-proto-carry-card">
+          <div>
+            <span>{Icon('bag', { size: 12 })}</span>
+            <b>Carry</b>
+            <em>34 / 90 lb</em>
+          </div>
+          <i><b /></i>
         </div>
-        {prototypeInventory.map((item) => (
-          <div className="fw-proto-list-row item" key={item.name}>
-            <span>{Icon(item.icon, { size: 14 })}</span>
-            <div><strong>{item.name}</strong><small>{item.meta}</small></div>
-            <em>{item.tag}</em>
+        <input className="fw-input fw-proto-bag-search" placeholder="Search bag..." readOnly />
+        <div className="fw-proto-filter-row">
+          {[
+            ['All', 'bag'],
+            ['Weapons', 'sword'],
+            ['Armor', 'shield'],
+            ['Consumables', 'potion'],
+            ['Quest', 'sparkles'],
+          ].map(([label, icon], index) => (
+            <button className={`fw-inv-chip ${index === 0 ? 'active' : ''}`} key={label} type="button">
+              {Icon(icon, { size: 9 })} {label}
+            </button>
+          ))}
+        </div>
+        <div className="fw-proto-section-title muted-line">Equipped</div>
+        {prototypeEquippedItems.map((item) => (
+          <div className={`fw-inv-row ${item.special ? 'special' : ''}`} key={item.name}>
+            <div className="fw-inv-row-head">
+              <span className="fw-inv-icon">{Icon(item.icon, { size: 13 })}</span>
+              <div>
+                <strong>{item.name}</strong>
+                <small>{item.meta}</small>
+              </div>
+              {item.tag ? <span className="fw-cond">{item.tag}</span> : null}
+              {item.charges ? <span className="fw-inv-charges">{item.charges}</span> : null}
+              {Icon('chevD', { size: 11 })}
+            </div>
+            <div className="fw-inv-actions">
+              <button type="button">Unequip</button>
+              <button type="button">{Icon('zap', { size: 10 })}</button>
+              <button type="button">{Icon('users', { size: 10 })} Give</button>
+            </div>
+          </div>
+        ))}
+        <div className="fw-proto-section-title muted-line">
+          <span>Carried</span>
+          <em>6</em>
+        </div>
+        {prototypeCarriedItems.map((item) => (
+          <div className={`fw-inv-row ${item.special ? 'lore' : ''}`} key={item.name}>
+            <div className="fw-inv-row-head">
+              <span className="fw-inv-icon">{Icon(item.icon, { size: 13 })}</span>
+              <div>
+                <strong>{item.name}</strong>
+                <small>{item.meta}</small>
+              </div>
+              {item.qty ? <span className="fw-inv-qty">{item.qty}</span> : null}
+              {Icon('chevD', { size: 11 })}
+            </div>
+            <div className="fw-inv-actions">
+              <button type="button">{Icon('zap', { size: 10 })}</button>
+              <button type="button">{Icon('users', { size: 10 })} Give</button>
+            </div>
           </div>
         ))}
       </div>
@@ -308,21 +449,39 @@ function PrototypeLeftPanel({
 
   if (tab === 'quests') {
     return (
-      <div className="fw-proto-panel">
-        <div className="fw-proto-panel-head">
-          <span>Objectives</span>
-          <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">Pin</button>
-        </div>
-        {prototypeQuests.map((quest) => (
-          <div className={`fw-proto-quest ${quest.state}`} key={quest.title}>
-            <strong>{quest.title}</strong>
-            <span>{quest.meta}</span>
+      <div className="fw-proto-panel fw-proto-quest-panel">
+        <section className="fw-proto-quest-card active">
+          <div>
+            <span>Main</span>
+            <strong>The Gilded Tomb</strong>
           </div>
-        ))}
-        <div className="fw-proto-scene-note">
-          <span>{Icon('map', { size: 14 })}</span>
-          <p>The chapel is dim, ash-thick, and listening.</p>
-        </div>
+          <ul>
+            <li className="done">Find the chapel beneath the city.</li>
+            <li className="done">Confirm the Cinder-Reeve.</li>
+            <li className="current">Decide the fate of the held shadow.</li>
+            <li>Recover the brass censer-chain.</li>
+          </ul>
+        </section>
+        <section className="fw-proto-quest-card">
+          <div>
+            <span>Side</span>
+            <strong>The Bone-Tablet</strong>
+            <em>2 / 3</em>
+          </div>
+          <ul>
+            <li>Reassemble three fragments.</li>
+            <li>Find the tablet's reader.</li>
+          </ul>
+        </section>
+        <section className="fw-proto-quest-card">
+          <div>
+            <span>Personal</span>
+            <strong>A Letter to Lira</strong>
+          </div>
+          <ul>
+            <li>Write a letter, then never send it.</li>
+          </ul>
+        </section>
       </div>
     );
   }
@@ -367,84 +526,205 @@ function PrototypeRightPanel({
   tab: RightSidebarTab;
 }) {
   if (tab === 'combat') {
+    const turn = [
+      { n: 'Kessra', ini: 22, hp: '64/70', ally: true },
+      { n: 'Cinder-Reeve', ini: 19, hp: '-', foe: true, current: true },
+      { n: 'Aedric (you)', ini: 17, hp: '38/52', ally: true },
+      { n: 'Brass Spear x2', ini: 15, hp: '12/22', foe: true },
+      { n: 'Mirenna', ini: 14, hp: '41/56', ally: true },
+      { n: 'Halric (down)', ini: 8, hp: '0/48', ally: true, down: true },
+    ];
+
     return (
-      <div className="fw-proto-panel">
-        <div className="fw-proto-panel-head">
-          <span>Encounter</span>
-          <button className="fw-btn fw-btn-gold fw-btn-sm" onClick={onOpenCombat} type="button">Battle map</button>
+      <div className="fw-proto-right-panel fw-proto-right-combat">
+        <div className="fw-combat-round-head">
+          <span className="fw-pill blood"><i /> Round 3</span>
+          <small>Surprise: none</small>
+          <button className="fw-btn fw-btn-icon fw-btn-ghost fw-btn-sm" type="button">{Icon('chevR', { size: 12 })}</button>
         </div>
-        {['Brass-Spear A', 'Brass-Spear B', 'Censer-Priest'].map((enemy, index) => (
-          <div className="fw-proto-list-row combat" key={enemy}>
-            <span>{Icon(index === 2 ? 'skull' : 'sword', { size: 14 })}</span>
-            <div><strong>{enemy}</strong><small>AC {index === 2 ? 15 : 14} - hostile</small></div>
-            <em>{index === 2 ? '22 HP' : '16 HP'}</em>
+
+        <div className="fw-combat-turn-list">
+          {turn.map((item) => (
+            <div className={`fw-combat-turn ${item.current ? 'current' : ''} ${item.down ? 'down' : ''}`} key={item.n}>
+              <b>{item.ini}</b>
+              <i className={item.foe ? 'foe' : ''} />
+              <span>{item.n}</span>
+              <em>{item.hp}</em>
+              {item.current ? <strong>NOW</strong> : null}
+            </div>
+          ))}
+        </div>
+
+        <div>
+          <div className="fw-proto-section-title">Active Conditions</div>
+          <div className="fw-combat-conditions">
+            <span className="fw-cond">Bless (Mirenna - 8rd)</span>
+            <span className="fw-cond bleed">Cursed (Aedric - until rest)</span>
+            <span className="fw-cond bleed">Prone (Brass Spear)</span>
+            <span className="fw-cond buff">Concentration (Hex)</span>
           </div>
-        ))}
-        <div className="fw-roll-request compact">
-          <div><strong>Next turn</strong><span>Kessra Ironwake has initiative.</span></div>
         </div>
+
+        <div className="fw-combat-actions">
+          <button className="fw-btn fw-btn-blood" type="button">{Icon('minus', { size: 12 })} Damage</button>
+          <button className="fw-btn fw-btn-ghost" type="button">{Icon('heart', { size: 12 })} Heal</button>
+          <button className="fw-btn fw-btn-ghost" type="button">{Icon('sparkles', { size: 12 })} Condition</button>
+          <button className="fw-btn fw-btn-ghost" type="button">{Icon('plus', { size: 12 })} NPC</button>
+        </div>
+
+        <button className="fw-btn fw-btn-gold fw-proto-wide" type="button">
+          End Turn {Icon('chevR', { size: 12 })}
+        </button>
+        <button className="fw-btn fw-btn-ghost fw-proto-wide" onClick={onOpenCombat} type="button">
+          {Icon('map', { size: 12 })} Battle map
+        </button>
       </div>
     );
   }
 
   if (tab === 'ai') {
+    const actions = [
+      ['Generate Scene', 'From recent log + chosen tone.', 'sparkles'],
+      ['Suggest Consequence', 'Outcome of last action.', 'alert'],
+      ['Ask Rules', 'RAW citation. No state change.', 'book'],
+      ['Voice NPC', 'Speak as the Cinder-Reeve.', 'users'],
+      ['Roll Random Encounter', 'By region - Ysavir under.', 'map'],
+    ];
+
     return (
-      <div className="fw-proto-panel">
-        <div className="fw-proto-panel-head">
-          <span>AI Warden</span>
-          <span className="fw-pill gold">On</span>
-        </div>
-        <div className="fw-proto-control-grid">
-          <button className="active" type="button">Balanced</button>
-          <button type="button">Strict</button>
-          <button type="button">Cinematic</button>
-        </div>
-        {[
-          ['Scene beat', 'Escalate the failing binding.'],
-          ['Rules check', 'Ask for Persuasion DC 15.'],
-          ['Complication', 'Smoke begins counting backwards.'],
-        ].map(([title, body]) => (
-          <div className="fw-proto-ai-card" key={title}>
-            <strong>{title}</strong>
-            <p>{body}</p>
-            <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">Queue</button>
+      <div className="fw-proto-right-panel fw-proto-right-ai">
+        <div className="fw-ai-panel-head">
+          <span>{Icon('wand', { size: 14 })}</span>
+          <div>
+            <strong>AI Warden</strong>
+            <small>Assistant - awaits the DM.</small>
           </div>
-        ))}
+          <button className="fw-toggle on" type="button" aria-label="AI Warden enabled" />
+        </div>
+
+        <div>
+          <div className="fw-proto-section-title">Tone</div>
+          <div className="fw-ai-tone-grid">
+            {['Balanced', 'Grim', 'Heroic', 'Mystery'].map((tone, index) => (
+              <button className={index === 0 ? 'active' : ''} key={tone} type="button">{tone}</button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div className="fw-proto-section-title">Rule Strictness</div>
+          <div className="fw-dice-mode fw-ai-strictness">
+            {['Casual', 'Standard', 'Hardcore'].map((mode, index) => (
+              <button className={index === 1 ? 'active' : ''} key={mode} type="button">{mode}</button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div className="fw-proto-section-title">Warden Actions</div>
+          <div className="fw-ai-action-list">
+            {actions.map(([title, body, icon]) => (
+              <button className="fw-ai-action" key={title} type="button">
+                <span>{Icon(icon, { size: 12 })}</span>
+                <div><strong>{title}</strong><small>{body}</small></div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="fw-ai-pending-card">
+          <div><span>{Icon('alert', { size: 12 })}</span><b>Pending Confirmation</b></div>
+          <p>The Warden proposes: <strong>Aedric takes 7 fire damage</strong> from the brazen censer's burst.</p>
+          <div>
+            <button className="fw-btn fw-btn-gold fw-btn-sm" type="button">{Icon('check', { size: 11 })} Confirm</button>
+            <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">{Icon('x', { size: 11 })} Reject</button>
+          </div>
+        </div>
+
+        <p className="fw-ai-note">The Warden suggests. It never commits damage, conditions, death, or inventory loss without your approval.</p>
       </div>
     );
   }
 
   if (tab === 'tools' || tab === 'rules') {
+    const tools = [
+      ['Pause', 'pause'],
+      ['Recap', 'scroll'],
+      ['Bell', 'bell'],
+      ['Loot', 'bag'],
+      ['Map', 'map'],
+      ['Handouts', 'layers'],
+    ];
+    const rules = [
+      ['Prone', 'Disadv on attack. Melee attacks vs prone gain adv.'],
+      ['Cursed (Hex)', '1d6 necrotic on hit. Disadv on chosen ability.'],
+      ['Concentration', 'DC 10 or half damage on hit.'],
+      ['Unconscious', 'Drops what holds. Auto-fails STR / DEX saves.'],
+    ];
+
     return (
-      <div className="fw-proto-panel">
-        <div className="fw-proto-panel-head">
-          <span>Tools</span>
-          <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">More</button>
-        </div>
-        {[
-          ['Session recap', 'Summarize the last scene'],
-          ['Share invite', 'Copy current table code'],
-          ['Safety tools', 'Pause, veil, rewind'],
-          ['Rules lens', 'Core checks and conditions'],
-        ].map(([title, meta]) => (
-          <div className="fw-proto-list-row" key={title}>
-            <span>{Icon('cog', { size: 13 })}</span>
-            <div><strong>{title}</strong><small>{meta}</small></div>
+      <div className="fw-proto-right-panel fw-proto-right-tools">
+        <div>
+          <div className="fw-proto-section-title">Session Tools</div>
+          <div className="fw-tools-grid">
+            {tools.map(([label, icon]) => (
+              <button className="fw-tool-btn" key={label} type="button">
+                <span>{Icon(icon, { size: 14 })}</span>
+                <strong>{label}</strong>
+              </button>
+            ))}
           </div>
-        ))}
+        </div>
+
+        <div>
+          <div className="fw-proto-section-title">Rules - Conditions</div>
+          <input className="fw-input fw-rule-search" placeholder="Search rules, spells, conditions..." />
+          <div className="fw-rule-list">
+            {rules.map(([title, body]) => (
+              <div className="fw-rule-row" key={title}>
+                <strong>{title}</strong>
+                <small>{body}</small>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div className="fw-proto-section-title">Audio</div>
+          <div className="fw-audio-card">
+            <button className="fw-btn fw-btn-icon" type="button">{Icon('play', { size: 12 })}</button>
+            <div>
+              <strong>Cinder Chapel - ambient loop</strong>
+              <span><i /></span>
+            </div>
+          </div>
+        </div>
+
+        <button className="fw-btn fw-btn-blood fw-proto-wide" type="button">
+          {Icon('logout', { size: 12 })} End Session
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="fw-proto-panel dice">
+    <div className="fw-proto-right-panel fw-proto-right-dice">
       <div className="fw-proto-dice-card">
-        <span>Last roll - 1d20+3</span>
-        <strong>17</strong>
-        <em>+3</em>
-        <small>20 vs DC 15 - Success</small>
+        <span>Last Roll - 1d20+3</span>
+        <strong>17 <em>+3</em></strong>
+        <small>= 20 vs DC 15</small>
+        <p>Success.</p>
       </div>
-      <div className="fw-proto-section-title">Quick Dice</div>
+
+      <div className="fw-dice-title-row">
+        <div className="fw-proto-section-title">Quick Dice</div>
+        <div className="fw-dice-mode">
+          <button className="active" type="button">Normal</button>
+          <button type="button">Adv</button>
+          <button type="button">Dis</button>
+        </div>
+      </div>
+
       <div className="fw-proto-dice-grid">
         {['D4', 'D6', 'D8', 'D10', 'D12', 'D20', 'D100'].map((die) => (
           <button className={die === 'D20' ? 'active' : ''} key={die} type="button">
@@ -453,14 +733,28 @@ function PrototypeRightPanel({
           </button>
         ))}
       </div>
+
       <div className="fw-proto-section-title">Saved Rolls</div>
-      {['Eldritch Blast', 'Hex Damage', 'Persuasion (CHA)', 'Death Save'].map((roll) => (
-        <div className="fw-proto-saved-roll" key={roll}>
-          <span>{Icon('dice', { size: 11 })}</span>
+      {[
+        ['Eldritch Blast', '2d10 + 4 - force', 'flame'],
+        ['Hex Damage', '1d6 - necrotic', 'skull'],
+        ['Persuasion (CHA)', '1d20 + 6', 'users'],
+        ['Death Save', '1d20', 'skull'],
+      ].map(([roll, meta, icon]) => (
+        <button className="fw-proto-saved-roll" key={roll} type="button">
+          <span>{Icon(icon, { size: 11 })}</span>
           <strong>{roll}</strong>
-          <em>{roll === 'Hex Damage' ? '1d6' : '1d20'}</em>
-        </div>
+          <em>{meta}</em>
+        </button>
       ))}
+      <button className="fw-btn fw-btn-ghost fw-btn-sm fw-proto-wide" type="button">{Icon('plus', { size: 11 })} Custom roll</button>
+
+      <div className="fw-proto-section-title">Recent</div>
+      <div className="fw-proto-recent-card">
+        <div><span>You</span> - Perception 17 <b>✓</b></div>
+        <div><span>Mirenna</span> - Arcana 24 <b>★</b></div>
+        <div><span>Halric</span> - Death 8 <b className="danger">×</b></div>
+      </div>
     </div>
   );
 }
@@ -523,11 +817,11 @@ function applyRuntimeCharacterToCombatant(combatant: Combatant, runtimeCharacter
 export function App() {
   const [storyMessages, setStoryMessages] = useState<StoryMessage[]>(hasSupabaseConfig ? [] : demoMessages);
   const [localPhase, setLocalPhase] = useState<GamePhase>('setup');
-  const [cockpitMode, setCockpitMode] = useState<CockpitMode>('dm');
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('quest');
   const [leftSidebarTab, setLeftSidebarTab] = useState<LeftSidebarTab>('party');
   const [rightSidebarTab, setRightSidebarTab] = useState<RightSidebarTab>('dice');
   const [storyTab, setStoryTab] = useState<'story' | 'chat' | 'lore'>('story');
+  const [actionMode, setActionMode] = useState<'speak' | 'act' | 'aside'>('speak');
   const [actionDraft, setActionDraft] = useState('');
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [pendingRoomSetup, setPendingRoomSetup] = useState(false);
@@ -535,6 +829,8 @@ export function App() {
   const [pendingSettings, setPendingSettings] = useState(false);
   const [pendingLobby, setPendingLobby] = useState(false);
   const [pendingCharSheet, setPendingCharSheet] = useState(false);
+  const [pendingCharVault, setPendingCharVault] = useState(false);
+  const [pendingCharWizard, setPendingCharWizard] = useState(false);
   const [pendingDmDash, setPendingDmDash] = useState(false);
   const [pendingBestiary, setPendingBestiary] = useState(false);
   const [combatActive, setCombatActive] = useState(false);
@@ -639,6 +935,8 @@ export function App() {
     pendingSettings,
     pendingLobby,
     pendingCharSheet,
+    pendingCharVault,
+    pendingCharWizard,
     pendingDmDash,
     pendingBestiary,
   });
@@ -650,19 +948,35 @@ export function App() {
     setPendingSettings(false);
     setPendingLobby(false);
     setPendingCharSheet(false);
+    setPendingCharVault(false);
+    setPendingCharWizard(false);
     setPendingDmDash(false);
     setPendingBestiary(false);
     setPendingSession(null);
     setRoomModal(null);
   }, [setPendingSession, setRoomModal]);
 
+  const completeCharacterEntryToLobby = useCallback(
+    (session: GameSession, sessionCharacter: Character) => {
+      setCharacter(sessionCharacter);
+      setCharacterStatus('Character attached to this table');
+      setEncounter(session.combatState);
+      setPendingSession(session);
+      setPendingCharWizard(false);
+      setPendingLobby(true);
+    },
+    [setCharacter, setCharacterStatus, setEncounter, setPendingSession],
+  );
+
   const navigateTo = useCallback(
-    (target: 'menu' | 'game' | 'char-sheet' | 'dm-dashboard' | 'bestiary' | 'library' | 'settings') => {
+    (target: 'menu' | 'game' | 'char-sheet' | 'char-vault' | 'char-wizard' | 'dm-dashboard' | 'bestiary' | 'library' | 'settings') => {
       setPendingRoomSetup(false);
       setPendingLibrary(false);
       setPendingSettings(false);
       setPendingLobby(false);
       setPendingCharSheet(false);
+      setPendingCharVault(false);
+      setPendingCharWizard(false);
       setPendingDmDash(false);
       setPendingBestiary(false);
       setPendingSession(null);
@@ -670,6 +984,12 @@ export function App() {
       switch (target) {
         case 'char-sheet':
           setPendingCharSheet(true);
+          break;
+        case 'char-vault':
+          setPendingCharVault(true);
+          break;
+        case 'char-wizard':
+          setPendingCharWizard(true);
           break;
         case 'dm-dashboard':
           setPendingDmDash(true);
@@ -692,6 +1012,26 @@ export function App() {
     [setPendingSession, setRoomModal],
   );
 
+  const openCharacterSheet = useCallback(() => {
+    setPendingRoomSetup(false);
+    setPendingLibrary(false);
+    setPendingSettings(false);
+    setPendingLobby(false);
+    setPendingCharVault(false);
+    setPendingCharWizard(false);
+    setPendingDmDash(false);
+    setPendingBestiary(false);
+    setPendingCharSheet(true);
+    setRoomModal(null);
+  }, [setRoomModal]);
+
+  const returnFromCharacterSheet = useCallback(() => {
+    setPendingCharSheet(false);
+    if (!pendingSession) {
+      setPendingCharVault(true);
+    }
+  }, [pendingSession]);
+
   // Guard: clear pendingSession and pending gate states when user logs out
   useEffect(() => {
     if (!user) {
@@ -701,10 +1041,12 @@ export function App() {
       if (pendingSettings) setPendingSettings(false);
       if (pendingLobby) setPendingLobby(false);
       if (pendingCharSheet) setPendingCharSheet(false);
+      if (pendingCharVault) setPendingCharVault(false);
+      if (pendingCharWizard) setPendingCharWizard(false);
       if (pendingDmDash) setPendingDmDash(false);
       if (pendingBestiary) setPendingBestiary(false);
     }
-  }, [user, pendingSession, pendingRoomSetup, pendingLibrary, pendingSettings, pendingLobby, pendingCharSheet, pendingDmDash, pendingBestiary]);
+  }, [user, pendingSession, pendingRoomSetup, pendingLibrary, pendingSettings, pendingLobby, pendingCharSheet, pendingCharVault, pendingCharWizard, pendingDmDash, pendingBestiary]);
 
   const { openingSceneBusy, hasOpeningScene, askAiToOpenScene, askAiForRestSummary } = useAiDm(
     activeSession,
@@ -1122,11 +1464,6 @@ export function App() {
     setPendingConfirmSourceMessage(null);
   }, [pendingConfirmAction, pendingConfirmSourceMessage]);
 
-  function copyJoinCode() {
-    if (!activeSession) return;
-    void navigator.clipboard?.writeText(activeSession.joinCode);
-  }
-
   function handleSwitchTable() {
     setPendingRoomSetup(false);
     switchTable();
@@ -1181,7 +1518,7 @@ export function App() {
             }}
             onRequestCharSheet={() => {
               returnToMainMenu();
-              setPendingCharSheet(true);
+              setPendingCharVault(true);
             }}
             onRequestDmDash={() => {
               returnToMainMenu();
@@ -1224,11 +1561,23 @@ export function App() {
       }
 
       if (appStage === 'lobby') {
-        return <LobbyScreen user={user} onBack={returnToMainMenu} onEnterGame={() => {}} />;
+        return (
+          <LobbyScreen
+            user={user}
+            onBack={() => {
+              setPendingLobby(false);
+            }}
+            onEnterGame={() => {
+              if (pendingSession) {
+                completeCharacterEntry(pendingSession, character);
+              }
+            }}
+          />
+        );
       }
 
       if (appStage === 'char-sheet') {
-        return <CharacterSheetPage user={user} onBack={returnToMainMenu} />;
+        return <CharacterSheetPage user={user} onBack={returnFromCharacterSheet} />;
       }
 
       if (appStage === 'dm-dashboard') {
@@ -1239,13 +1588,51 @@ export function App() {
         return <BestiaryScreen onBack={returnToMainMenu} />;
       }
 
+      if (appStage === 'char-vault') {
+        return (
+          <CharacterVaultScreen
+            user={user}
+            onBack={returnToMainMenu}
+            onOpenWizard={() => navigateTo('char-wizard')}
+            onOpenSheet={openCharacterSheet}
+          />
+        );
+      }
+
+      if (appStage === 'char-wizard') {
+        return (
+          <CharacterWizardScreen
+            user={user}
+            session={pendingSession}
+            onBack={() => {
+              if (pendingSession) {
+                setPendingCharWizard(false);
+              } else {
+                navigateTo('char-vault');
+              }
+            }}
+            onSaved={() => {
+              setPendingCharWizard(false);
+              setPendingCharVault(true);
+            }}
+            onBound={(session, sessionCharacter) => {
+              completeCharacterEntryToLobby(session, sessionCharacter);
+            }}
+          />
+        );
+      }
+
       if (appStage === 'character-setup' && pendingSession) {
         return (
-          <CharacterEntryModal
-            onCancel={returnToMainMenu}
-            onEnter={completeCharacterEntry}
-            session={pendingSession}
+          <CharacterVaultScreen
             user={user}
+            onBack={returnToMainMenu}
+            onOpenWizard={() => setPendingCharWizard(true)}
+            onOpenSheet={openCharacterSheet}
+            session={pendingSession}
+            onBound={(session, sessionCharacter) => {
+              completeCharacterEntryToLobby(session, sessionCharacter);
+            }}
           />
         );
       }
@@ -1307,22 +1694,30 @@ export function App() {
           onSignOut={signOut}
         />
         <section className="fw-main">
-          <main className="fw-game-table">
+          <main className={`fw-game-table ${combatActive ? 'is-combat' : ''}`}>
             <header className="fw-game-banner">
               <button className="fw-btn fw-btn-ghost fw-btn-sm" onClick={handleSwitchTable} type="button">
                 {Icon('chevL', { size: 11 })} Leave table
               </button>
               <div className="fw-game-banner-title">
                 <span className="fw-pill blood">
-                  <span style={{ width: 6, height: 6, borderRadius: 50, background: 'currentColor' }} />
-                  {hasSupabaseConfig ? 'Live' : 'Local'} - Session
+                  <span className="fw-live-dot" />
+                  {combatActive ? 'Combat · Round 3' : 'Live · Session 15'}
                 </span>
-                <span className="fw-display">{activeSession?.title ?? 'Adventuring Table'}</span>
+                <span className="fw-display">The Hollow Crown of Ysavir</span>
                 <span className="fw-serif" style={{ color: 'var(--text-3)', fontStyle: 'italic', fontSize: 13 }}>
-                  - {themeDefinition.label}
+                  · Act III — The Gilded Tomb
                 </span>
               </div>
               <span style={{ flex: 1 }} />
+              <button
+                className={`fw-btn ${combatActive ? 'fw-btn-blood' : 'fw-btn-ghost'} fw-btn-sm fw-game-encounter-toggle`}
+                onClick={() => setCombatActive((current) => !current)}
+                type="button"
+              >
+                {Icon(combatActive ? 'scroll' : 'sword', { size: 12 })}
+                {combatActive ? 'Resume story' : 'Run encounter'}
+              </button>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 {[character.name || 'You', 'DM', playModeDefinition.shortLabel, phaseDefinition.label].map((label, index) => (
                   <span
@@ -1336,17 +1731,15 @@ export function App() {
                   </span>
                 ))}
               </div>
-              <button className="fw-btn fw-btn-icon fw-btn-ghost" disabled={!activeSession} onClick={copyJoinCode} type="button" title="Copy join code">
-                {Icon('copy', { size: 14 })}
+              <button className="fw-btn fw-btn-icon fw-btn-ghost" type="button" title="Microphone">
+                {Icon('mic', { size: 14 })}
               </button>
-              <button className="fw-btn fw-btn-icon fw-btn-ghost" onClick={() => setCockpitMode(cockpitMode === 'dm' ? 'player' : 'dm')} type="button" title="Switch table view">
-                {Icon(cockpitMode === 'dm' ? 'wand' : 'user', { size: 14 })}
+              <button className="fw-btn fw-btn-icon fw-btn-ghost" type="button" title="Table audio">
+                {Icon('volume', { size: 14 })}
               </button>
-              {hasSupabaseConfig ? (
-                <button className="fw-btn fw-btn-icon fw-btn-ghost" onClick={signOut} type="button" title="Sign out">
-                  {Icon('logout', { size: 14 })}
-                </button>
-              ) : null}
+              <button className="fw-btn fw-btn-icon fw-btn-ghost" type="button" title="More table options">
+                {Icon('kebab', { size: 14 })}
+              </button>
             </header>
 
             <section className="fw-game-layout">
@@ -1377,6 +1770,21 @@ export function App() {
               </aside>
 
               <section className="fw-game-center">
+                {combatActive ? (
+                  <div className="fw-game-combat-pane">
+                    <CombatMode
+                      activeCharacterId={character.id}
+                      encounter={encounter}
+                      onDispatchCombatEvent={async (event) => {
+                        const result = dispatchGameEvent(event);
+                        if (result.failed.length) throw new Error(result.failed.join(', '));
+                        await changeEncounter(useGameStore.getState().combatState);
+                      }}
+                      onExit={() => setCombatActive(false)}
+                    />
+                  </div>
+                ) : (
+                  <>
                 <header className="fw-scene-head">
                   <div className="fw-scene-card">
                     <div className="fw-scene-thumb">
@@ -1388,20 +1796,20 @@ export function App() {
                           <circle cx="100" cy="40" r="22" stroke="rgba(214,168,79,0.3)" strokeDasharray="2 2" />
                         </g>
                       </svg>
-                      <span>SCENE - {sceneState?.turnNumber ?? 14}</span>
+                      <span>SCENE - 0</span>
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div className="fw-eyebrow" style={{ marginBottom: 4 }}>Current Scene</div>
                       <div className="fw-display" style={{ color: 'var(--text)', fontSize: 22, letterSpacing: '0.04em' }}>
-                        {sceneState?.location || activeSession?.title || 'Unknown location'}
+                        {activeSession?.title || sceneState?.location || 'Gun'}
                       </div>
                       <p className="fw-serif" style={{ color: 'var(--text-2)', fontSize: 14, fontStyle: 'italic', lineHeight: 1.55, marginTop: 6 }}>
-                        {sceneState?.description || 'Describe your first action to let the DM establish the scene.'}
+                        Describe your first action to let the DM establish the scene.
                       </p>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-                        <span className="fw-pill dim">{phaseDefinition.label}</span>
-                        <span className="fw-pill dim">{activeObjectives.length} objectives</span>
-                        <span className="fw-pill">{Icon('sparkles', { size: 10 })} {threatClocks.length} clocks</span>
+                        <span className="fw-pill dim">Setup</span>
+                        <span className="fw-pill dim">0 objectives</span>
+                        <span className="fw-pill">{Icon('sparkles', { size: 10 })} 0 clocks</span>
                         <span className="fw-pill blood">Combat possible</span>
                       </div>
                     </div>
@@ -1419,12 +1827,17 @@ export function App() {
                     </button>
                   ))}
                   <span style={{ flex: 1 }} />
-                  <span className="fw-mono" style={{ alignSelf: 'center', color: 'var(--text-3)', fontSize: 11 }}>Session - {formatLocalTime()}</span>
+                  <span className="fw-mono" style={{ alignSelf: 'center', color: 'var(--text-3)', fontSize: 11 }}>
+                    Session 15 · 1h 24m
+                  </span>
+                  <button className="fw-btn fw-btn-icon fw-btn-ghost fw-btn-sm" type="button" title="Search log">
+                    {Icon('search', { size: 12 })}
+                  </button>
                 </div>
 
                 <div className="fw-game-scroll">
                   {storyTab === 'story' ? (
-                    <PrototypeStoryFeed characterName={character.name || 'Aedric Vael'} sessionTitle={activeSession?.title} />
+                    <PrototypeStoryFeed characterName={character.name || activeSession?.title || 'Gun'} sessionTitle={activeSession?.title} />
                   ) : null}
                   {storyTab === 'chat' ? (
                     <div className="fw-story-empty fw-story-empty-grid">
@@ -1458,16 +1871,46 @@ export function App() {
                     ))}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
-                    <textarea
-                      onChange={(event) => setActionDraft(event.target.value)}
-                      placeholder="Speak in character, describe an action, or whisper to the DM..."
-                      value={actionDraft}
-                    />
+                    <div className="fw-action-box">
+                      <div className="fw-action-modes" role="tablist" aria-label="Action mode">
+                        {[
+                          { id: 'speak', label: 'Speak', icon: 'users' },
+                          { id: 'act', label: 'Act', icon: 'sword' },
+                          { id: 'aside', label: 'Aside (DM only)', icon: 'eye' },
+                        ].map((mode) => (
+                          <button
+                            className={`fw-btn fw-btn-ghost fw-btn-sm ${actionMode === mode.id ? 'active' : ''}`}
+                            key={mode.id}
+                            onClick={() => setActionMode(mode.id as typeof actionMode)}
+                            type="button"
+                          >
+                            {Icon(mode.icon, { size: 10 })}{mode.label}
+                          </button>
+                        ))}
+                      </div>
+                      <textarea
+                        onChange={(event) => setActionDraft(event.target.value)}
+                        placeholder={
+                          actionMode === 'speak'
+                            ? 'Speak in character to the table...'
+                            : actionMode === 'act'
+                              ? 'Describe your action. The Warden will request rolls.'
+                              : 'Whisper to the DM only...'
+                        }
+                        value={actionDraft}
+                      />
+                    </div>
+                    <div className="fw-action-side-tools">
+                      <button className="fw-btn fw-btn-icon fw-btn-ghost" type="button" title="Roll dice">{Icon('dice', { size: 14 })}</button>
+                      <button className="fw-btn fw-btn-icon fw-btn-ghost" type="button" title="Ask AI Warden">{Icon('sparkles', { size: 14 })}</button>
+                    </div>
                     <button className="fw-btn fw-btn-gold fw-btn-lg" disabled={!actionDraft.trim()} type="button" onClick={() => setActionDraft('')}>
                       {Icon('send', { size: 13 })} Commit
                     </button>
                   </div>
                 </div>
+                  </>
+                )}
               </section>
 
               <aside className="fw-game-side right">
@@ -1497,20 +1940,6 @@ export function App() {
               </aside>
             </section>
 
-        {combatActive ? (
-          <div className="fw-overlay" style={{ padding: 0 }}>
-            <CombatMode
-              activeCharacterId={character.id}
-              encounter={encounter}
-              onDispatchCombatEvent={async (event) => {
-                const result = dispatchGameEvent(event);
-                if (result.failed.length) throw new Error(result.failed.join(', '));
-                await changeEncounter(useGameStore.getState().combatState);
-              }}
-              onExit={() => setCombatActive(false)}
-            />
-          </div>
-        ) : null}
           </main>
         </section>
       </div>
