@@ -7,6 +7,11 @@ import React, { useState, useMemo } from 'react';
 import { Icon } from './ui/Icons';
 import { Seg } from './ui/Primitives';
 import { TabBar } from './ui/TabBar';
+import type { SceneState } from '../engine/scene/sceneTypes';
+import type { CompanionSheet } from '../engine/companion/companionTypes';
+import type { JournalEntry as EngineJournalEntry } from '../engine/journal/journalTypes';
+import type { AffinityRecord } from '../engine/relationship/relationshipTypes';
+import type { GameEvent } from '../engine/events/types';
 
 /* ============================================================
    DATA CONSTANTS
@@ -319,7 +324,7 @@ interface JournalEntry { type: EntryTypeKey; auto: boolean; title: string; time:
 function JournalTimeline() {
   const entries: JournalEntry[] = [
     { type: 'recap',  auto: true,  title: 'Session 15 · The Hollow Crown',         time: '2 days ago',     body: 'The party reached the chapel. Halric fell. The Cinder-Reeve waited.' },
-    { type: 'memory', auto: true,  title: 'Halric stabilized — barely',            time: 'session 15',     body: "Aedric's Medicine check (DC 13 → 17). He breathes shallow, but breathes." },
+    { type: 'memory', auto: true,  title: 'Halric stabilized — barely',            time: 'session 15',     body: "The warlock's Medicine check (DC 13 → 17). He breathes shallow, but breathes." },
     { type: 'clue',   auto: false, title: 'Brass-Chain liturgy fragment',          time: 'Session 15 mid', body: 'Pew 4, second board from north. Words match Mother Censer\'s old prayers.', tags: ['bone-tablet', 'Mother Censer'] },
     { type: 'quest',  auto: true,  title: 'Confront the Cinder-Reeve · active',   time: 'Session 15',     body: 'The Reeve speaks. We have not answered yet.' },
     { type: 'memory', auto: false, title: 'Note: the Reeve uses past tense only', time: '1h ago',          body: 'Worth checking against the binding circle inscriptions.', tags: ['Cinder-Reeve'] },
@@ -605,9 +610,9 @@ interface NPC { id: number; n: string; role: string; aff: number; quote: string;
 const NPCS: NPC[] = [
   { id: 1, n: 'Brother Aldric',        role: 'Cleric of the Old Faith',  aff: 62,  quote: 'The secrets of the cathedral belong only to the pure.',           color: '#A271FF' },
   { id: 2, n: 'The Cinder-Reeve',      role: 'Patron · Antagonist',      aff: -65, quote: 'The shadow has not moved. Neither have I.',                       color: '#C72D2D' },
-  { id: 3, n: 'Mother Censer',         role: "Aedric's old kin",         aff: -88, quote: 'You forget — the collar was mine first.',                         color: '#F87171' },
+  { id: 3, n: 'Mother Censer',         role: "The warlock's old kin",         aff: -88, quote: 'You forget — the collar was mine first.',                         color: '#F87171' },
   { id: 4, n: "Brask of Brask's Hold", role: 'Innkeep · Ally',           aff: 92,  quote: 'Send word when you breathe again, lad.',                         color: '#D6A84F' },
-  { id: 5, n: 'Lira Vael',             role: 'Sister · Off-screen',      aff: 70,  quote: 'Aedric? My brother died in the Reach.',                          color: '#86EFAC' },
+  { id: 5, n: 'Lira Vael',             role: 'Sister · Off-screen',      aff: 70,  quote: 'You? My brother died in the Reach.',                          color: '#86EFAC' },
   { id: 6, n: 'Septine warden',        role: 'Faction · Neutral',        aff: 8,   quote: 'Walk softly. The Sept is watching.',                              color: '#A8A29E' },
 ];
 
@@ -716,7 +721,7 @@ function RelationshipPanel() {
 function AffinityHistory() {
   const [segVal, setSegVal] = useState('All');
   const events = [
-    { d: '1h ago',         v: -8,  reason: 'Aedric refused to share the bone-tablet rubbing', src: 'Player choice' },
+    { d: '1h ago',         v: -8,  reason: 'The warlock refused to share the bone-tablet rubbing', src: 'Player choice' },
     { d: 'Session 15 mid', v: +12, reason: 'Helped Aldric tend to Halric',                    src: 'Player choice' },
     { d: 'Session 14 end', v: +5,  reason: 'Defended the cathedral relic',                    src: 'Player choice' },
     { d: 'Session 14 mid', v: -3,  reason: 'Made a joke about the Old Faith in front of Aldric', src: 'Player choice' },
@@ -767,20 +772,72 @@ function AffinityHistory() {
 
 type NarrTab = 'scene' | 'journal' | 'companion' | 'relations';
 
-export interface NarrativePanelProps {
-  /** Currently unused — panel is self-contained with local state */
-  className?: string;
-}
+const DANGER_INDEX: Record<string, number> = { none: 0, low: 1, medium: 2, high: 3, extreme: 4 };
+const ENGINE_TO_ENTRY_TYPE: Record<string, EntryTypeKey> = {
+  memory: 'memory', clue: 'clue', quest_update: 'quest', recap: 'recap',
+};
 
-export function NarrativePanel({ className }: NarrativePanelProps) {
+export type NarrativePanelProps = {
+  sceneState: SceneState | null;
+  companions: CompanionSheet[];
+  journalEntries: EngineJournalEntry[];
+  relationships: AffinityRecord[];
+  onDispatch: (event: GameEvent) => void;
+  onAddJournalEntry: (entry: Omit<EngineJournalEntry, 'id' | 'createdAt'>) => void;
+  onAdjustAffinity: (characterId: string, npcId: string, npcName: string, delta: number, reason: string) => void;
+  characterId: string;
+  sessionId: string;
+  isHost?: boolean;
+  className?: string;
+};
+
+export function NarrativePanel({
+  sceneState,
+  companions,
+  journalEntries,
+  relationships,
+  onDispatch,
+  onAddJournalEntry,
+  onAdjustAffinity,
+  characterId,
+  sessionId,
+  className,
+}: NarrativePanelProps) {
   const [tab, setTab] = useState<NarrTab>('scene');
+  const [noteTitle, setNoteTitle] = useState('');
+  const [noteBody, setNoteBody] = useState('');
+  const [noteType, setNoteType] = useState<EngineJournalEntry['type']>('memory');
 
   const tabs = useMemo(() => [
-    { id: 'scene' as NarrTab,     label: 'Scene'      },
-    { id: 'journal' as NarrTab,   label: 'Journal'    },
-    { id: 'companion' as NarrTab, label: 'Companion'  },
-    { id: 'relations' as NarrTab, label: 'Relations'  },
+    { id: 'scene' as NarrTab,     label: 'Scene'     },
+    { id: 'journal' as NarrTab,   label: 'Journal'   },
+    { id: 'companion' as NarrTab, label: 'Companion' },
+    { id: 'relations' as NarrTab, label: 'Relations' },
   ], []);
+
+  function handleAddNote() {
+    if (!noteTitle.trim()) return;
+    onAddJournalEntry({ sessionId, characterId, type: noteType, title: noteTitle.trim(), content: noteBody.trim(), tags: [] });
+    setNoteTitle('');
+    setNoteBody('');
+  }
+
+  function dispatchLoyaltyChange(companionId: string, delta: number) {
+    onDispatch({
+      type: 'COMPANION_LOYALTY_CHANGE',
+      id: crypto.randomUUID(),
+      sessionId,
+      actorId: characterId,
+      targetId: companionId,
+      createdAt: new Date().toISOString(),
+      source: 'user' as const,
+      companionId,
+      delta,
+    } as unknown as GameEvent);
+  }
+
+  const curMode = (sceneState?.mode ?? 'exploration') as SceneModeKey;
+  const modeInfo = SCENE_MODES[curMode];
 
   return (
     <div className={'fw-narr-panel' + (className ? ' ' + className : '')} style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
@@ -788,75 +845,274 @@ export function NarrativePanel({ className }: NarrativePanelProps) {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
+        {/* ── SCENE TAB ── */}
         {tab === 'scene' && (
           <>
-            <div>
-              <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Scene Mode</div>
-              <SceneModeBadges />
-            </div>
-            <div>
-              <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Danger Level</div>
-              <DangerLevel />
-            </div>
-            <div>
-              <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Threat Clocks</div>
-              <ThreatClocks />
-            </div>
-            <div>
-              <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Reality Stability</div>
-              <RealityStability />
-            </div>
-            <div>
-              <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Objectives</div>
-              <ObjectivesList />
-            </div>
+            {sceneState ? (
+              <>
+                <div>
+                  <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Scene Mode</div>
+                  <div className="fw-scene-active-preview" style={{ borderColor: modeInfo.color + '55', background: `linear-gradient(180deg,${modeInfo.color}11,transparent)`, marginBottom: 8 }}>
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                      <span className="fw-scene-pill" style={{ background: modeInfo.color, color: 'rgba(13,10,22,0.85)' }}>
+                        {Icon(modeInfo.icon, { size: 12 })} {modeInfo.label}
+                      </span>
+                      <span style={{ flex: 1, fontSize: 12.5, color: 'var(--text-2)', fontStyle: 'italic', fontFamily: 'var(--f-serif)' }}>
+                        AI Warden tone · <b style={{ color: modeInfo.color, fontStyle: 'normal', fontFamily: 'var(--f-display)' }}>{modeInfo.tone}</b>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Danger Level</div>
+                  <DangerLevel key={DANGER_INDEX[sceneState.flags.dangerLevel]} />
+                </div>
+                <div>
+                  <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Threat Clocks</div>
+                  {sceneState.threatClocks.length > 0 ? (
+                    <div className="fw-threat-grid">
+                      {sceneState.threatClocks.map(tc => {
+                        const pct = tc.current / tc.max;
+                        const triggered = tc.current >= tc.max;
+                        const sz = 120, r = 50, cx = sz / 2, cy = sz / 2;
+                        const segs = Array.from({ length: tc.max }, (_, i) => {
+                          const a1 = (i / tc.max) * Math.PI * 2 - Math.PI / 2;
+                          const a2 = ((i + 1) / tc.max) * Math.PI * 2 - Math.PI / 2;
+                          const x1 = cx + Math.cos(a1) * r, y1 = cy + Math.sin(a1) * r;
+                          const x2 = cx + Math.cos(a2) * r, y2 = cy + Math.sin(a2) * r;
+                          const clr = pct < 0.5 ? '#A8A29E' : pct < 0.75 ? '#F59E0B' : pct < 1 ? '#F87171' : 'var(--blood-bright)';
+                          return <path key={i} d={`M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 0 1 ${x2} ${y2} Z`} fill={i < tc.current ? clr : 'var(--bg-deep)'} stroke="var(--bg)" strokeWidth="2" />;
+                        });
+                        return (
+                          <div key={tc.id} className={'fw-threat-card' + (triggered ? ' triggered' : '')}>
+                            <div className="fw-threat-clock-svg">
+                              <svg viewBox={`0 0 ${sz} ${sz}`} width={sz} height={sz}>
+                                {segs}
+                                <circle cx={cx} cy={cy} r={r * 0.55} fill="var(--surface-2)" stroke="var(--border)" />
+                                <text x={cx} y={cy + 5} textAnchor="middle" fill="var(--text)" fontFamily="Cinzel" fontSize="18">{tc.current}/{tc.max}</text>
+                              </svg>
+                            </div>
+                            <div className="fw-display" style={{ fontSize: 13, color: triggered ? 'var(--blood-bright)' : 'var(--text)', textAlign: 'center', marginTop: 8 }}>{tc.name}</div>
+                            <div style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic', fontFamily: 'var(--f-serif)', textAlign: 'center', marginTop: 4, lineHeight: 1.4 }}>
+                              {triggered ? <span style={{ color: 'var(--blood-bright)' }}>TRIGGERED · {tc.triggerEvent}</span> : <>"{tc.triggerEvent}"</>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <ThreatClocks />
+                  )}
+                </div>
+                <div>
+                  <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Reality Stability</div>
+                  <RealityStability />
+                </div>
+                <div>
+                  <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Objectives</div>
+                  {sceneState.objectives.length > 0 ? (
+                    <div className="fw-objs">
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {sceneState.objectives.map(obj => (
+                          <div key={obj.id} className={'fw-obj-row ' + obj.status}>
+                            <div className={'fw-obj-mark ' + obj.status}>
+                              {obj.status === 'completed' && Icon('check', { size: 12 })}
+                              {obj.status === 'failed' && Icon('x', { size: 12 })}
+                              {obj.status === 'active' && <span className="fw-obj-pulse" />}
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 13, color: obj.status === 'failed' ? 'var(--blood-bright)' : obj.status === 'completed' ? 'var(--success)' : 'var(--text)', textDecoration: obj.status === 'completed' ? 'line-through' : 'none' }}>
+                                {obj.description}
+                              </div>
+                            </div>
+                            <span className={'fw-obj-state ' + obj.status}>{obj.status}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <ObjectivesList />
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div><div className="fw-eyebrow" style={{ marginBottom: 8 }}>Scene Mode</div><SceneModeBadges /></div>
+                <div><div className="fw-eyebrow" style={{ marginBottom: 8 }}>Danger Level</div><DangerLevel /></div>
+                <div><div className="fw-eyebrow" style={{ marginBottom: 8 }}>Threat Clocks</div><ThreatClocks /></div>
+                <div><div className="fw-eyebrow" style={{ marginBottom: 8 }}>Reality Stability</div><RealityStability /></div>
+                <div><div className="fw-eyebrow" style={{ marginBottom: 8 }}>Objectives</div><ObjectivesList /></div>
+              </>
+            )}
           </>
         )}
 
+        {/* ── JOURNAL TAB ── */}
         {tab === 'journal' && (
           <>
-            <div>
-              <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Session Log</div>
-              <JournalFullView />
+            <div className="fw-card" style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="fw-eyebrow" style={{ marginBottom: 4 }}>Add Note</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {(['memory', 'clue', 'quest_update', 'recap'] as EngineJournalEntry['type'][]).map(t => {
+                  const key = (ENGINE_TO_ENTRY_TYPE[t] ?? 'memory') as EntryTypeKey;
+                  const info = ENTRY_TYPES[key];
+                  return (
+                    <button key={t} onClick={() => setNoteType(t)}
+                      className={'fw-journal-filter' + (noteType === t ? ' active' : '')}
+                      style={{ borderColor: noteType === t ? info.color : 'var(--border-soft)', color: noteType === t ? info.color : 'var(--text-3)', background: noteType === t ? info.color + '11' : 'transparent', fontSize: 10.5 }}>
+                      {Icon(info.icon, { size: 10 })} {info.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <input className="fw-input" placeholder="Title…" value={noteTitle} onChange={e => setNoteTitle(e.target.value)} style={{ fontSize: 13 }} />
+              <textarea className="fw-input" placeholder="Content (optional)…" value={noteBody} onChange={e => setNoteBody(e.target.value)} style={{ fontSize: 12, minHeight: 60, resize: 'vertical' }} />
+              <button className="fw-btn fw-btn-gold fw-btn-sm" onClick={handleAddNote} style={{ alignSelf: 'flex-end' }}>
+                {Icon('plus', { size: 11 })} Add Entry
+              </button>
             </div>
-            <div>
-              <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Recent Entries</div>
-              <JournalTimeline />
-            </div>
+            {journalEntries.length > 0 ? (
+              <div>
+                <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Entries ({journalEntries.length})</div>
+                <div className="fw-journal-timeline">
+                  {[...journalEntries].reverse().map(entry => {
+                    const typeKey = (ENGINE_TO_ENTRY_TYPE[entry.type] ?? 'memory') as EntryTypeKey;
+                    const t = ENTRY_TYPES[typeKey];
+                    return (
+                      <div key={entry.id} className="fw-journal-row" style={{ borderLeftColor: t.color }}>
+                        <div className="fw-journal-row-head">
+                          <span className="fw-journal-icon" style={{ background: t.color + '22', borderColor: t.color, color: t.color }}>{Icon(t.icon, { size: 12 })}</span>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 13, color: 'var(--text)', fontFamily: 'var(--f-display)', letterSpacing: '0.02em' }}>{entry.title}</span>
+                              <span className="fw-pill" style={{ fontSize: 9, padding: '0 5px', borderColor: t.color + '55', color: t.color, background: t.color + '11' }}>{t.label}</span>
+                            </div>
+                            <div style={{ fontSize: 10.5, color: 'var(--text-4)', fontFamily: 'var(--f-mono)' }}>{new Date(entry.createdAt).toLocaleString()}</div>
+                          </div>
+                        </div>
+                        {entry.content && <p className="fw-serif" style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.55, fontStyle: 'italic', paddingLeft: 32, marginTop: 4 }}>{entry.content}</p>}
+                        {entry.tags.length > 0 && (
+                          <div style={{ display: 'flex', gap: 4, marginTop: 6, paddingLeft: 32, flexWrap: 'wrap' }}>
+                            {entry.tags.map(tag => <span key={tag} className="fw-pill dim" style={{ fontSize: 9, padding: '0 5px' }}>#{tag}</span>)}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div><div className="fw-eyebrow" style={{ marginBottom: 8 }}>Session Log</div><JournalFullView /></div>
+                <div><div className="fw-eyebrow" style={{ marginBottom: 8 }}>Recent Entries</div><JournalTimeline /></div>
+              </>
+            )}
           </>
         )}
 
+        {/* ── COMPANION TAB ── */}
         {tab === 'companion' && (
           <>
-            <div>
-              <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Active Companions</div>
-              <CompanionCard />
-            </div>
-            <div>
-              <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Behavior · Control</div>
-              <BehaviorControl />
-            </div>
-            <div>
-              <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Loyalty Meter</div>
-              <LoyaltyMeter />
-            </div>
+            {companions.length > 0 ? (
+              <div>
+                <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Active Companions ({companions.length})</div>
+                <div className="fw-comp-grid">
+                  {companions.map(c => {
+                    const lTier = loyaltyTier(c.loyalty.current);
+                    const initials = c.name.split(' ').map(x => x[0]).join('').slice(0, 2).toUpperCase();
+                    const typeColor = c.type === 'beast' ? '#22C55E' : c.type === 'npc' ? '#A271FF' : c.type === 'summon' ? '#5EEAD4' : '#EAC074';
+                    return (
+                      <div key={c.id} className={'fw-comp-card' + (c.isActive ? '' : ' dim')}>
+                        <div className="fw-comp-portrait" style={{ background: `linear-gradient(135deg,${typeColor}33,#15101f)`, borderColor: typeColor }}>
+                          <span className="fw-display" style={{ fontSize: 22, color: 'var(--text)' }}>{initials}</span>
+                          <span className="fw-comp-type-pill" style={{ background: typeColor, color: 'rgba(0,0,0,0.7)' }}>{c.type}</span>
+                        </div>
+                        <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <div className="fw-display" style={{ fontSize: 14, color: 'var(--text)' }}>{c.name}</div>
+                          <div className="fw-stat-bar">
+                            <span className="lbl">HP</span>
+                            <div className="fw-bar hp bar"><i style={{ width: `${(c.characterSnapshot.hitPoints / c.characterSnapshot.maxHitPoints) * 100}%` }} /></div>
+                            <span className="num">{c.characterSnapshot.hitPoints}/{c.characterSnapshot.maxHitPoints}</span>
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, fontFamily: 'var(--f-mono)', fontSize: 10.5, color: 'var(--text-3)' }}>
+                            <span>AC <b style={{ color: 'var(--text)' }}>{c.characterSnapshot.armorClass}</b></span>
+                            <span>SPD <b style={{ color: 'var(--text)' }}>{c.characterSnapshot.speed}</b></span>
+                          </div>
+                          <div className="fw-loyalty-mini">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginBottom: 3 }}>
+                              <span style={{ color: 'var(--text-3)' }}>Loyalty</span>
+                              <span style={{ color: lTier.color, fontFamily: 'var(--f-mono)' }}>{c.loyalty.current} · {lTier.label}</span>
+                            </div>
+                            <div className="fw-loyalty-bar"><div style={{ width: c.loyalty.current + '%', background: lTier.color }} /></div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <span className="fw-pill dim" style={{ fontSize: 9.5 }}>{c.behavior}</span>
+                            <span className="fw-pill dim" style={{ fontSize: 9.5 }}>{c.controlMode}</span>
+                            {!c.isActive && <span className="fw-pill" style={{ fontSize: 9.5, color: 'var(--text-4)' }}>Dormant</span>}
+                          </div>
+                          <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                            <button className="fw-btn fw-btn-ghost fw-btn-sm" onClick={() => dispatchLoyaltyChange(c.id, -5)}>{Icon('minus', { size: 10 })} −5</button>
+                            <button className="fw-btn fw-btn-gold fw-btn-sm" onClick={() => dispatchLoyaltyChange(c.id, 5)}>{Icon('plus', { size: 10 })} +5</button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div><div className="fw-eyebrow" style={{ marginBottom: 8 }}>Active Companions</div><CompanionCard /></div>
+                <div><div className="fw-eyebrow" style={{ marginBottom: 8 }}>Behavior · Control</div><BehaviorControl /></div>
+                <div><div className="fw-eyebrow" style={{ marginBottom: 8 }}>Loyalty Meter</div><LoyaltyMeter /></div>
+              </>
+            )}
           </>
         )}
 
+        {/* ── RELATIONS TAB ── */}
         {tab === 'relations' && (
           <>
-            <div>
-              <div className="fw-eyebrow" style={{ marginBottom: 8 }}>NPC Affinity</div>
-              <AffinityCard />
-            </div>
-            <div>
-              <div className="fw-eyebrow" style={{ marginBottom: 8 }}>All NPCs</div>
-              <RelationshipPanel />
-            </div>
-            <div>
-              <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Affinity History</div>
-              <AffinityHistory />
-            </div>
+            {relationships.length > 0 ? (
+              <div>
+                <div className="fw-eyebrow" style={{ marginBottom: 8 }}>NPC Affinity ({relationships.length})</div>
+                <div className="fw-rel-list">
+                  {relationships.map(rec => {
+                    const t = affinityTier(rec.affinity);
+                    const initials = rec.npcName.split(' ').map(x => x[0]).join('').slice(0, 2).toUpperCase();
+                    return (
+                      <div key={rec.id} className="fw-rel-row" style={{ borderColor: t.color + '33' }}>
+                        <span className="fw-avatar" style={{ background: 'var(--surface-2)', borderColor: t.color }}>{initials}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                            <span style={{ fontSize: 13, color: 'var(--text)', fontFamily: 'var(--f-display)', letterSpacing: '0.02em' }}>{rec.npcName}</span>
+                            <span className="fw-pill" style={{ background: t.color + '22', borderColor: t.color, color: t.color, fontSize: 9, padding: '0 6px' }}>{t.label}</span>
+                          </div>
+                          {rec.npcRole && <div style={{ fontSize: 10.5, color: 'var(--text-3)', fontStyle: 'italic', fontFamily: 'var(--f-serif)' }}>{rec.npcRole}</div>}
+                        </div>
+                        <div className="fw-rel-bar">
+                          <span className="fw-rel-bar-track">
+                            <span className="fw-rel-bar-mid" />
+                            <span className="fw-rel-bar-marker" style={{ left: `${(rec.affinity + 100) / 2}%`, background: t.color, boxShadow: `0 0 8px ${t.color}` }} />
+                          </span>
+                          <span style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: t.color, minWidth: 32, textAlign: 'right' }}>{rec.affinity > 0 ? '+' : ''}{rec.affinity}</span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                          <button className="fw-btn fw-btn-ghost fw-btn-sm" style={{ padding: '2px 6px', fontSize: 10 }} onClick={() => onAdjustAffinity(rec.characterId, rec.npcId, rec.npcName, -5, 'Manual adjustment')}>{Icon('minus', { size: 9 })}</button>
+                          <button className="fw-btn fw-btn-gold fw-btn-sm" style={{ padding: '2px 6px', fontSize: 10 }} onClick={() => onAdjustAffinity(rec.characterId, rec.npcId, rec.npcName, 5, 'Manual adjustment')}>{Icon('plus', { size: 9 })}</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div><div className="fw-eyebrow" style={{ marginBottom: 8 }}>NPC Affinity</div><AffinityCard /></div>
+                <div><div className="fw-eyebrow" style={{ marginBottom: 8 }}>All NPCs</div><RelationshipPanel /></div>
+                <div><div className="fw-eyebrow" style={{ marginBottom: 8 }}>Affinity History</div><AffinityHistory /></div>
+              </>
+            )}
           </>
         )}
 

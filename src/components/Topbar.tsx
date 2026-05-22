@@ -17,6 +17,8 @@ const CRUMBS: Record<AppStage, [string, string]> = {
   game: ['At the Table', 'Session'],
   bestiary: ['The Stacks', 'Bestiary'],
   library: ['The Stacks', 'Campaign Library'],
+  'campaign-creator': ['The Forge', 'Campaign Creator'],
+  'ai-campaign-generator': ['The Forge', 'AI Campaign Generator'],
   settings: ["The Scribe's Desk", 'Settings'],
 };
 
@@ -57,9 +59,6 @@ export function Topbar({ onRequestSettings, onSignOut, stage, user }: TopbarProp
       </div>
       <button type="button" className="fw-btn fw-btn-ghost fw-btn-sm">
         {Icon('scroll', { size: 11 })} Bestiary
-      </button>
-      <button type="button" className="fw-btn fw-btn-icon fw-btn-ghost" aria-label="Notices">
-        {Icon('bell', { size: 14 })}
       </button>
       {user ? (
         <div className="fw-topbar-account">

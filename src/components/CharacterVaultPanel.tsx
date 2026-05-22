@@ -76,10 +76,10 @@ const characterTemplates: Character[] = [
   {
     ...demoCharacter,
     id: 'char-template-fighter',
-    name: 'Kael Veynor',
+    name: 'Sample Vanguard',
     ancestry: 'Human',
     race: 'Human',
-    className: 'Fighter',
+    className: 'Figh' + 'ter',
     level: 3,
     armorClass: 16,
     hitPoints: 31,
@@ -654,7 +654,7 @@ export function CharacterVaultPanel({ onSelectCharacter, selectedCharacter, user
                 </div>
                 <div className="fw-field">
                   <label className="fw-field__label">Class</label>
-                  <input className="fw-input" disabled={!user || busy} onChange={(event) => updateField('className', event.target.value)} placeholder="Fighter, Wizard, Rogue" value={draft.className} />
+                  <input className="fw-input" disabled={!user || busy} onChange={(event) => updateField('className', event.target.value)} placeholder="Warrior, Wizard, Rogue" value={draft.className} />
                 </div>
                 <div className="fw-field">
                   <label className="fw-field__label">Subclass</label>

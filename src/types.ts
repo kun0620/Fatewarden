@@ -357,6 +357,10 @@ export type AiConfirmAction = {
   note?: string;
 };
 
+export type AiDmPresetId = 'balanced' | 'grim' | 'heroic' | 'mystery';
+
+export type AiDmRequestMode = 'reply' | 'recap' | 'session_start' | 'dice_result';
+
 export type RollMode = 'normal' | 'advantage' | 'disadvantage';
 
 export type RollType = 'free' | 'skill' | 'save' | 'initiative';
@@ -379,19 +383,49 @@ export type GameSession = {
   id: string;
   title: string;
   joinCode: string;
+  roomCode?: string;
   createdAt: string;
   updatedAt?: string;
   createdBy?: string;
+  hostId?: string;
   status?: 'draft' | 'active' | 'ended';
+  mode?: 'ai_dm' | 'campaign';
+  preset?: string;
+  campaignId?: string;
+  choiceMode?: CoopChoiceMode;
+  diceRollerMode?: CoopDiceRollerMode;
   playMode: SessionPlayMode;
   phase: GamePhase;
   theme: SessionTheme;
   rules: SessionRules;
   combatState: EncounterState | null;
   partySize: number;
+  maxPlayers?: number;
   allowAiDm: boolean;
   visibility: RoomVisibility;
   ruleStrictness: RuleStrictness;
+  dmPreset?: AiDmPresetId;
+  sessionRecap?: string;
+  lastAutosavedAt?: string;
+  endedAt?: string;
+  roomCodeExpiresAt?: string;
+};
+
+export type CoopChoiceMode = 'host' | 'vote';
+export type CoopDiceRollerMode = 'host' | 'highest_stat' | 'all_best' | 'all_worst';
+export type SessionMemberRole = 'host' | 'player';
+export type SessionMemberStatus = 'online' | 'offline' | 'kicked';
+
+export type SessionMember = {
+  id: string;
+  sessionId: string;
+  playerId: string;
+  characterId?: string;
+  role: SessionMemberRole;
+  status: SessionMemberStatus;
+  lastSeen: string;
+  joinedAt: string;
+  updatedAt?: string;
 };
 
 export type CombatantType = 'player' | 'enemy';

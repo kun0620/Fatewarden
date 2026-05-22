@@ -2,6 +2,7 @@ import type { User } from '@supabase/supabase-js';
 import { Icon } from './ui/Icons';
 import { FateSeal } from './ui/Brand';
 import type { AppStage } from '../lib/appFlow';
+import { NotificationCenter } from './NotificationCenter';
 
 type RailBtnProps = {
   icon: string;
@@ -90,10 +91,10 @@ export function AppRail({ activeStage, hasActiveSession, user, onNavigate, onSig
       <RailBtn icon="users" label="Vault" active={activeStage === 'char-vault' || activeStage === 'char-wizard'} onClick={() => onNavigate('char-vault')} />
       <RailBtn icon="crown" label="DM" active={activeStage === 'dm-dashboard'} onClick={() => onNavigate('dm-dashboard')} />
       <RailBtn icon="skull" label="Bestiary" active={activeStage === 'bestiary'} onClick={() => onNavigate('bestiary')} />
-      <RailBtn icon="book" label="Library" active={activeStage === 'library'} onClick={() => onNavigate('library')} />
+      <RailBtn icon="book" label="Library" active={activeStage === 'library' || activeStage === 'campaign-creator' || activeStage === 'ai-campaign-generator'} onClick={() => onNavigate('library')} />
       <RailBtn icon="map" label="World" disabled />
       <span style={{ flex: 1 }} />
-      <RailBtn icon="bell" label="Notices" badge="3" />
+      <NotificationCenter user={user} variant="rail" onNavigate={onNavigate} />
       <RailBtn icon="cog" label="Settings" active={activeStage === 'settings'} onClick={() => onNavigate('settings')} />
       <RailBtn icon="logout" label="Logout" onClick={onSignOut} />
       <div style={{ marginTop: 6 }}>

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import type { User } from '@supabase/supabase-js';
-import { applyLongRest, applyShortRest } from '../engine/character/rest';
 import { recalculateCharacter } from '../lib/characterDerived';
 import { canLevelUp } from '../lib/characterProgression';
 import { listVaultCharacters, saveVaultCharacter } from '../lib/characters';
 import { abilityLabels, abilityModifier, formatModifier, skillAbilityMap } from '../lib/rules';
+import { uploadUserImage } from '../lib/storage';
+import { useGameStore } from '../store/useGameStore';
 import type { AbilityKey, Character, Item, SpellSlotState, VaultCharacter } from '../types';
 import { CharacterSheetView } from './CharacterSheetView';
 import { LevelUpModal } from './LevelUpModal';
@@ -438,6 +439,9 @@ export function CharacterSheetPage({ user, onBack }: CharacterSheetPageProps) {
   const [error, setError] = useState('');
   const [editOpen, setEditOpen] = useState(false);
   const [levelUpOpen, setLevelUpOpen] = useState(false);
+  const dispatch = useGameStore((state) => state.dispatch);
+  const eventMeta = useGameStore((state) => state.eventMeta);
+  const setActiveCharacter = useGameStore((state) => state.setActiveCharacter);
 
   useEffect(() => {
     let cancelled = false;
@@ -468,6 +472,10 @@ export function CharacterSheetPage({ user, onBack }: CharacterSheetPageProps) {
     return raw ? recalculateCharacter(raw) : null;
   }, [characters, selectedId]);
 
+  useEffect(() => {
+    setActiveCharacter(selectedCharacter);
+  }, [selectedCharacter, setActiveCharacter]);
+
   const derived = selectedCharacter?.systemData.derivedStats;
   const hpMax = Math.max(1, selectedCharacter?.maxHitPoints ?? 1);
   const hpCurrent = Math.max(0, Math.min(selectedCharacter?.hitPoints ?? 0, hpMax));
@@ -496,28 +504,80 @@ export function CharacterSheetPage({ user, onBack }: CharacterSheetPageProps) {
 
   async function adjustHp(delta: number) {
     if (!selectedCharacter) return;
-    await persistCharacter(
-      {
-        ...selectedCharacter,
-        hitPoints: Math.max(0, Math.min(selectedCharacter.maxHitPoints, selectedCharacter.hitPoints + delta)),
-      },
-      'Hit points updated.',
-    );
+    setActiveCharacter(selectedCharacter);
+    const amount = Math.abs(delta);
+    const result = delta < 0
+      ? dispatch({
+          ...eventMeta(selectedCharacter.id),
+          type: 'apply_damage',
+          targetId: selectedCharacter.id,
+          amount,
+          notes: 'Character sheet HP adjustment',
+        })
+      : dispatch({
+          ...eventMeta(selectedCharacter.id),
+          type: 'recover_hp',
+          targetId: selectedCharacter.id,
+          amount,
+          recoveryKind: 'healing',
+          notes: 'Character sheet HP adjustment',
+        });
+    if (result.failed.length) {
+      setError(result.failed.join(' '));
+      return;
+    }
+    if (result.character) await persistCharacter(result.character, 'Hit points updated.');
   }
 
   async function healFull() {
     if (!selectedCharacter) return;
-    await persistCharacter({ ...selectedCharacter, hitPoints: selectedCharacter.maxHitPoints }, 'Hit points restored.');
+    const amount = Math.max(0, selectedCharacter.maxHitPoints - selectedCharacter.hitPoints);
+    if (!amount) return;
+    setActiveCharacter(selectedCharacter);
+    const result = dispatch({
+      ...eventMeta(selectedCharacter.id),
+      type: 'recover_hp',
+      targetId: selectedCharacter.id,
+      amount,
+      recoveryKind: 'healing',
+      notes: 'Character sheet full heal',
+    });
+    if (result.failed.length) {
+      setError(result.failed.join(' '));
+      return;
+    }
+    if (result.character) await persistCharacter(result.character, 'Hit points restored.');
   }
 
   async function takeShortRest() {
     if (!selectedCharacter) return;
-    await persistCharacter(applyShortRest(selectedCharacter, 1), 'Short rest applied.');
+    setActiveCharacter(selectedCharacter);
+    const result = dispatch({
+      ...eventMeta(selectedCharacter.id),
+      type: 'SHORT_REST',
+      characterId: selectedCharacter.id,
+      hitDiceSpent: 1,
+    });
+    if (result.failed.length) {
+      setError(result.failed.join(' '));
+      return;
+    }
+    if (result.character) await persistCharacter(result.character, 'Short rest applied.');
   }
 
   async function takeLongRest() {
     if (!selectedCharacter) return;
-    await persistCharacter(applyLongRest(selectedCharacter), 'Long rest applied.');
+    setActiveCharacter(selectedCharacter);
+    const result = dispatch({
+      ...eventMeta(selectedCharacter.id),
+      type: 'LONG_REST',
+      characterId: selectedCharacter.id,
+    });
+    if (result.failed.length) {
+      setError(result.failed.join(' '));
+      return;
+    }
+    if (result.character) await persistCharacter(result.character, 'Long rest applied.');
   }
 
   function levelUpReason(character: Character) {
@@ -819,6 +879,16 @@ export function CharacterSheetPage({ user, onBack }: CharacterSheetPageProps) {
           character={selectedCharacter}
           disabled={saving}
           onClose={() => setEditOpen(false)}
+          onUploadPortrait={async (file) => {
+            const uploaded = await uploadUserImage({
+              bucket: 'portraits',
+              file,
+              ownerKind: 'character',
+              ownerId: selectedCharacter.id.startsWith('char-demo') ? undefined : selectedCharacter.id,
+              user,
+            });
+            return uploaded.publicUrl;
+          }}
           onSave={async (nextCharacter) => {
             await persistCharacter(nextCharacter, 'Sheet edits saved.');
             setEditOpen(false);

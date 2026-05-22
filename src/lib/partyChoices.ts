@@ -156,6 +156,23 @@ export async function castVoteInDb(
   if (error) throw error;
 }
 
+export async function resolvePartyChoiceInDb(
+  choiceId: string,
+  selectedOptionId: string,
+  status: Extract<PartyChoice['status'], 'resolved' | 'expired'> = 'resolved',
+): Promise<void> {
+  const client = requireClient();
+  const { error } = await client
+    .from('party_choices')
+    .update({
+      resolved_choice_id: selectedOptionId,
+      status,
+    })
+    .eq('id', choiceId);
+
+  if (error) throw error;
+}
+
 export async function getActivePartyChoice(sessionId: string): Promise<PartyChoice | null> {
   const choiceRow = await fetchLatestChoice(sessionId);
   if (!choiceRow) return null;

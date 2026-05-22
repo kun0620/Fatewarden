@@ -4,6 +4,8 @@ import type { User } from '@supabase/supabase-js';
 import { AuthPanel } from './components/AuthPanel';
 import { MainMenu } from './components/MainMenu';
 import { CampaignLibrary } from './components/CampaignLibrary';
+import CampaignCreator from './components/CampaignCreator';
+import { AiCampaignGenerator } from './components/AiCampaignGenerator';
 import { SettingsPage } from './components/SettingsPage';
 import { RoomSetupPage } from './components/RoomSetupPage';
 import { LobbyScreen } from './components/LobbyScreen';
@@ -17,6 +19,7 @@ import { Topbar } from './components/Topbar';
 import { CombatMode } from './components/CombatMode';
 import { Icon } from './components/ui/Icons';
 import { PartyChoicePanel } from './components/PartyChoicePanel';
+import { NarrativePanel } from './components/NarrativePanel';
 import { useAuthFlow } from './hooks/useAuthFlow';
 import { useAiDm } from './hooks/useAiDm';
 import { useCharacterSync } from './hooks/useCharacterSync';
@@ -28,26 +31,42 @@ import { createEventQueueState, processEventQueue, type EventRuntimeState } from
 import type { GameEvent } from './engine/events/types';
 import { getGamePhaseDefinition } from './lib/gamePhases';
 import { createEmptyInventory } from './lib/inventory';
+import { AI_DM_PRESETS, normalizeAiDmPresetId } from './lib/aiDm';
 import { requestAiDmReply, sendSessionMessage } from './lib/messages';
 import { getPlayModeDefinition } from './lib/playModes';
 import { getSessionThemeDefinition } from './lib/sessionThemes';
-import { subscribeToSessionUpdates, updateSessionCombatState } from './lib/sessions';
+import { saveCampaignCreatorDraft } from './lib/campaignDraft';
+import { sendNotification } from './lib/notifications';
+import {
+  ensureSessionMember,
+  joinGameSession,
+  kickSessionMember,
+  listSessionMembers,
+  startMultiplayerSession,
+  subscribeToSessionMembers,
+  subscribeToSessionUpdates,
+  updateSessionAiState,
+  updateSessionCombatState,
+  updateSessionPresence,
+} from './lib/sessions';
 import { useGameStore } from './store/useGameStore';
 import { computeAppStage, getGateSteps, isGateStage } from './lib/appFlow';
 import { hasSupabaseConfig, supabase } from './lib/supabase';
 import type {
   AiConfirmAction,
+  AiDmPresetId,
   Character,
   Combatant,
   DiceRoll,
   EncounterState,
   GamePhase,
   GameSession,
+  SessionMember,
   StoryMessage,
 } from './types';
 
 type MobilePanel = 'quest' | 'party' | 'inventory' | 'map';
-type LeftSidebarTab = 'party' | 'character' | 'inventory' | 'quests';
+type LeftSidebarTab = 'party' | 'character' | 'inventory' | 'quests' | 'narrative';
 type RightSidebarTab = 'dice' | 'combat' | 'ai' | 'rules' | 'tools';
 
 const prototypeParty = [
@@ -271,9 +290,11 @@ function PrototypeStoryFeed({
 
 function PrototypeLeftPanel({
   character,
+  members,
   tab,
 }: {
   character: Character;
+  members?: SessionMember[];
   tab: LeftSidebarTab;
 }) {
   if (tab === 'character') {
@@ -486,18 +507,47 @@ function PrototypeLeftPanel({
     );
   }
 
+  const liveMembers = (members ?? []).filter((member) => member.status !== 'kicked');
+  const partyRows = liveMembers.length
+    ? liveMembers.map((member, index) => {
+        const isYou = member.characterId === character.id || member.playerId === character.userId;
+        const lastSeen = Date.parse(member.lastSeen);
+        const offline = member.status === 'offline' || (Number.isFinite(lastSeen) && Date.now() - lastSeen > 300_000);
+        const name = isYou ? character.name : member.role === 'host' ? 'Host Warden' : `Player ${member.playerId.slice(0, 4).toUpperCase()}`;
+        const hpPct = isYou && character.maxHitPoints > 0
+          ? Math.max(0, Math.min(100, Math.round((character.hitPoints / character.maxHitPoints) * 100)))
+          : offline ? 22 : 78;
+
+        return {
+          initials: isYou ? storyInitials(character.name || 'You') : member.role === 'host' ? 'DM' : member.playerId.slice(0, 2).toUpperCase(),
+          name,
+          role: `${member.role === 'host' ? 'Host' : 'Player'} - ${offline ? 'offline' : 'online'}`,
+          hp: isYou ? `${character.hitPoints}/${character.maxHitPoints}` : offline ? '--/--' : 'ready',
+          hpPct,
+          ac: isYou ? character.armorClass : 10,
+          slots: isYou ? '1/2' : '',
+          you: isYou,
+          down: isYou ? character.hitPoints <= 0 : false,
+          tone: offline ? 'blood' : member.role === 'host' ? 'gold' : 'violet',
+          offline,
+          turn: index === 0,
+        };
+      })
+    : prototypeParty;
+
   return (
     <div className="fw-proto-panel">
       <div className="fw-proto-section-title">Initiative - Round 3</div>
-      {prototypeParty.map((member, index) => (
+      {partyRows.map((member, index) => (
         <div className={`fw-proto-party-card ${member.you ? 'you' : ''} ${member.down ? 'down' : ''}`} key={member.name}>
-          {index === 0 ? <i className="turn" /> : null}
+          {'turn' in member ? member.turn ? <i className="turn" /> : null : index === 0 ? <i className="turn" /> : null}
           <div className={`fw-avatar ${member.tone}`}>{member.initials}</div>
           <div>
             <div className="fw-proto-party-name">
               <strong>{member.name}</strong>
               {member.you ? <span className="fw-pill gold">You</span> : null}
               {member.down ? <span className="fw-pill blood">Down</span> : null}
+              {'offline' in member && member.offline ? <span className="fw-pill dim">Offline</span> : null}
             </div>
             <small>{member.role}</small>
             <div className="fw-proto-hp">
@@ -519,9 +569,13 @@ function PrototypeLeftPanel({
 }
 
 function PrototypeRightPanel({
+  aiPresetId,
+  onAiPresetSelect,
   onOpenCombat,
   tab,
 }: {
+  aiPresetId: AiDmPresetId;
+  onAiPresetSelect: (presetId: AiDmPresetId) => void;
   onOpenCombat: () => void;
   tab: RightSidebarTab;
 }) {
@@ -605,8 +659,15 @@ function PrototypeRightPanel({
         <div>
           <div className="fw-proto-section-title">Tone</div>
           <div className="fw-ai-tone-grid">
-            {['Balanced', 'Grim', 'Heroic', 'Mystery'].map((tone, index) => (
-              <button className={index === 0 ? 'active' : ''} key={tone} type="button">{tone}</button>
+            {AI_DM_PRESETS.map((preset) => (
+              <button
+                className={preset.id === aiPresetId ? 'active' : ''}
+                key={preset.id}
+                onClick={() => onAiPresetSelect(preset.id)}
+                type="button"
+              >
+                {preset.shortLabel}
+              </button>
             ))}
           </div>
         </div>
@@ -814,6 +875,12 @@ function applyRuntimeCharacterToCombatant(combatant: Combatant, runtimeCharacter
   };
 }
 
+function asPersistedCharacterId(characterId: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(characterId)
+    ? characterId
+    : null;
+}
+
 export function App() {
   const [storyMessages, setStoryMessages] = useState<StoryMessage[]>(hasSupabaseConfig ? [] : demoMessages);
   const [localPhase, setLocalPhase] = useState<GamePhase>('setup');
@@ -826,6 +893,8 @@ export function App() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [pendingRoomSetup, setPendingRoomSetup] = useState(false);
   const [pendingLibrary, setPendingLibrary] = useState(false);
+  const [pendingCampaignCreator, setPendingCampaignCreator] = useState(false);
+  const [pendingAiCampaignGenerator, setPendingAiCampaignGenerator] = useState(false);
   const [pendingSettings, setPendingSettings] = useState(false);
   const [pendingLobby, setPendingLobby] = useState(false);
   const [pendingCharSheet, setPendingCharSheet] = useState(false);
@@ -834,12 +903,14 @@ export function App() {
   const [pendingDmDash, setPendingDmDash] = useState(false);
   const [pendingBestiary, setPendingBestiary] = useState(false);
   const [combatActive, setCombatActive] = useState(false);
+  const [aiDmPresetId, setAiDmPresetId] = useState<AiDmPresetId>('balanced');
   const [aiPanelBusy, setAiPanelBusy] = useState(false);
   const [pendingConfirmAction, setPendingConfirmAction] = useState<AiConfirmAction | null>(null);
   const [pendingConfirmSourceMessage, setPendingConfirmSourceMessage] = useState<StoryMessage | null>(null);
   const [dismissedConfirmActionKeys, setDismissedConfirmActionKeys] = useState<Set<string>>(new Set());
+  const [sessionMembers, setSessionMembers] = useState<SessionMember[]>([]);
 
-  const { authSession, authLoading, user, signOut: authSignOut } = useAuthFlow();
+  const { authSession, authLoading, authError, user, signOut: authSignOut } = useAuthFlow();
   const {
     activeSession,
     setActiveSession,
@@ -857,6 +928,29 @@ export function App() {
     completeCharacterEntry,
     switchTable,
   } = useSessionFlow();
+  const membershipSession = activeSession ?? pendingSession;
+
+  useEffect(() => {
+    if (!user || activeSession || pendingSession || !hasSupabaseConfig) return;
+
+    const match = window.location.pathname.match(/^\/join\/([A-Za-z0-9]{6})\/?$/);
+    if (!match) return;
+
+    let cancelled = false;
+    void joinGameSession(match[1], user)
+      .then((session) => {
+        if (cancelled) return;
+        window.history.replaceState(null, '', '/');
+        requestEnterSession(session, user);
+      })
+      .catch((error) => {
+        console.warn('Could not join session from link', error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSession, pendingSession, requestEnterSession, user]);
 
   const { persistCharacter, saveLocalCharacter } = useCharacterSync(
     activeSession,
@@ -874,10 +968,102 @@ export function App() {
     setStoryMessages,
   );
 
+  useEffect(() => {
+    setAiDmPresetId(normalizeAiDmPresetId(activeSession?.dmPreset));
+  }, [activeSession?.dmPreset]);
+
+  useEffect(() => {
+    if (!activeSession || !supabase || activeSession.status === 'ended') return;
+
+    const autosaveTimer = window.setInterval(() => {
+      void updateSessionAiState(activeSession.id, { markAutosaved: true }).catch((error) => {
+        console.warn('Could not autosave AI DM session state', error);
+      });
+    }, 300_000);
+
+    return () => window.clearInterval(autosaveTimer);
+  }, [activeSession?.id, activeSession?.status]);
+
+  useEffect(() => {
+    if (!membershipSession || !user || !supabase) {
+      setSessionMembers([]);
+      return;
+    }
+
+    const persistedCharacterId = asPersistedCharacterId(character.id);
+    let cancelled = false;
+    const refreshMembers = () => {
+      void listSessionMembers(membershipSession.id)
+        .then((members) => {
+          if (!cancelled) setSessionMembers(members);
+        })
+        .catch((error) => {
+          console.warn('Could not load session members', error);
+        });
+    };
+
+    void ensureSessionMember(membershipSession.id, user, persistedCharacterId)
+      .then(refreshMembers)
+      .catch((error) => {
+        console.warn('Could not register session member', error);
+        refreshMembers();
+      });
+
+    const channel = subscribeToSessionMembers(membershipSession.id, (members) => {
+      if (!cancelled) setSessionMembers(members);
+    });
+    const heartbeat = window.setInterval(() => {
+      void updateSessionPresence(membershipSession.id, user, 'online', persistedCharacterId).catch((error) => {
+        console.warn('Could not update session presence', error);
+      });
+    }, 60_000);
+    const handleVisibilityChange = () => {
+      void updateSessionPresence(
+        membershipSession.id,
+        user,
+        document.visibilityState === 'visible' ? 'online' : 'offline',
+        persistedCharacterId,
+      ).catch((error) => {
+        console.warn('Could not update session visibility presence', error);
+      });
+    };
+
+    refreshMembers();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(heartbeat);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      void updateSessionPresence(membershipSession.id, user, 'offline', persistedCharacterId).catch(() => undefined);
+      void channel.unsubscribe();
+    };
+  }, [membershipSession?.id, character.id, user]);
+
+  const handleAiPresetSelect = useCallback(
+    (presetId: AiDmPresetId) => {
+      setAiDmPresetId(presetId);
+      if (!activeSession || !supabase) return;
+
+      void updateSessionAiState(activeSession.id, {
+        dmPreset: presetId,
+        markAutosaved: true,
+      }).catch((error) => {
+        console.warn('Could not persist AI DM preset', error);
+      });
+    },
+    [activeSession],
+  );
+
   const partyChoiceState = useGameStore((state) => state.partyChoiceState);
   const dispatchGameEvent = useGameStore((state) => state.dispatch);
   const sceneState = useGameStore((state) => state.sceneState);
   const setSceneState = useGameStore((state) => state.setSceneState);
+  const companionState = useGameStore((state) => state.companionState);
+  const journalState = useGameStore((state) => state.journalState);
+  const relationshipState = useGameStore((state) => state.relationshipState);
+  const addJournalEntry = useGameStore((state) => state.addJournalEntry);
+  const adjustAffinity = useGameStore((state) => state.adjustAffinity);
 
   // Initialize default sceneState when entering a session (GameSession has no sceneState field)
   useEffect(() => {
@@ -932,6 +1118,8 @@ export function App() {
     pendingSession,
     pendingRoomSetup,
     pendingLibrary,
+    pendingCampaignCreator,
+    pendingAiCampaignGenerator,
     pendingSettings,
     pendingLobby,
     pendingCharSheet,
@@ -945,6 +1133,8 @@ export function App() {
   const returnToMainMenu = useCallback(() => {
     setPendingRoomSetup(false);
     setPendingLibrary(false);
+    setPendingCampaignCreator(false);
+    setPendingAiCampaignGenerator(false);
     setPendingSettings(false);
     setPendingLobby(false);
     setPendingCharSheet(false);
@@ -964,14 +1154,21 @@ export function App() {
       setPendingSession(session);
       setPendingCharWizard(false);
       setPendingLobby(true);
+      if (user && supabase) {
+        void ensureSessionMember(session.id, user, sessionCharacter.id).catch((error) => {
+          console.warn('Could not attach character to session member', error);
+        });
+      }
     },
-    [setCharacter, setCharacterStatus, setEncounter, setPendingSession],
+    [setCharacter, setCharacterStatus, setEncounter, setPendingSession, user],
   );
 
   const navigateTo = useCallback(
-    (target: 'menu' | 'game' | 'char-sheet' | 'char-vault' | 'char-wizard' | 'dm-dashboard' | 'bestiary' | 'library' | 'settings') => {
+    (target: 'menu' | 'game' | 'char-sheet' | 'char-vault' | 'char-wizard' | 'dm-dashboard' | 'bestiary' | 'library' | 'campaign-creator' | 'ai-campaign-generator' | 'settings') => {
       setPendingRoomSetup(false);
       setPendingLibrary(false);
+      setPendingCampaignCreator(false);
+      setPendingAiCampaignGenerator(false);
       setPendingSettings(false);
       setPendingLobby(false);
       setPendingCharSheet(false);
@@ -1000,6 +1197,12 @@ export function App() {
         case 'library':
           setPendingLibrary(true);
           break;
+        case 'campaign-creator':
+          setPendingCampaignCreator(true);
+          break;
+        case 'ai-campaign-generator':
+          setPendingAiCampaignGenerator(true);
+          break;
         case 'settings':
           setPendingSettings(true);
           break;
@@ -1015,6 +1218,8 @@ export function App() {
   const openCharacterSheet = useCallback(() => {
     setPendingRoomSetup(false);
     setPendingLibrary(false);
+    setPendingCampaignCreator(false);
+    setPendingAiCampaignGenerator(false);
     setPendingSettings(false);
     setPendingLobby(false);
     setPendingCharVault(false);
@@ -1038,6 +1243,8 @@ export function App() {
       if (pendingSession) setPendingSession(null);
       if (pendingRoomSetup) setPendingRoomSetup(false);
       if (pendingLibrary) setPendingLibrary(false);
+      if (pendingCampaignCreator) setPendingCampaignCreator(false);
+      if (pendingAiCampaignGenerator) setPendingAiCampaignGenerator(false);
       if (pendingSettings) setPendingSettings(false);
       if (pendingLobby) setPendingLobby(false);
       if (pendingCharSheet) setPendingCharSheet(false);
@@ -1046,7 +1253,7 @@ export function App() {
       if (pendingDmDash) setPendingDmDash(false);
       if (pendingBestiary) setPendingBestiary(false);
     }
-  }, [user, pendingSession, pendingRoomSetup, pendingLibrary, pendingSettings, pendingLobby, pendingCharSheet, pendingCharVault, pendingCharWizard, pendingDmDash, pendingBestiary]);
+  }, [user, pendingSession, pendingRoomSetup, pendingLibrary, pendingCampaignCreator, pendingAiCampaignGenerator, pendingSettings, pendingLobby, pendingCharSheet, pendingCharVault, pendingCharWizard, pendingDmDash, pendingBestiary]);
 
   const { openingSceneBusy, hasOpeningScene, askAiToOpenScene, askAiForRestSummary } = useAiDm(
     activeSession,
@@ -1146,6 +1353,29 @@ export function App() {
         const { sendSessionMessage } = await import('./lib/messages');
         const message = await sendSessionMessage(activeSession.id, 'system', 'Combat', body, metadata);
         setStoryMessages((current) => addUniqueMessage(current, message));
+
+        if (metadata.action === 'turn_started') {
+          const activeCombatant = metadata.activeCombatant as Partial<Combatant> | undefined;
+          const activeId = typeof activeCombatant?.id === 'string' ? activeCombatant.id : '';
+          const activeName = typeof activeCombatant?.name === 'string' ? activeCombatant.name : 'your character';
+          const member = sessionMembers.find((nextMember) => {
+            if (!nextMember.characterId) return false;
+            return activeId === nextMember.characterId || activeId === `pc-${nextMember.characterId}` || activeId.includes(nextMember.characterId);
+          });
+          if (member?.playerId) {
+            void sendNotification({
+              recipientUserIds: [member.playerId],
+              sessionId: activeSession.id,
+              type: 'turn_reminder',
+              title: "It's your turn",
+              body: `It's your turn in combat: ${activeName}.`,
+              metadata: {
+                sessionId: activeSession.id,
+                encounterId: typeof metadata.encounterId === 'string' ? metadata.encounterId : undefined,
+              },
+            }).catch((error) => console.warn('Could not send turn reminder notification', error));
+          }
+        }
       } catch (error) {
         setStoryMessages((current) =>
           addUniqueMessage(current, {
@@ -1158,7 +1388,7 @@ export function App() {
         );
       }
     },
-    [activeSession, user],
+    [activeSession, sessionMembers, user],
   );
 
   const handleShortRest = useCallback(
@@ -1433,6 +1663,9 @@ export function App() {
           character,
           encounter,
           aiMode: 'adventure',
+          requestMode: 'reply',
+          dmPresetId: aiDmPresetId,
+          sessionRecap: activeSession.sessionRecap,
           partySummary: `${character.name}, level ${character.level} ${character.ancestry} ${character.className}`,
         });
         setStoryMessages((current) => addUniqueMessage(current, aiMessage));
@@ -1440,7 +1673,7 @@ export function App() {
         setAiPanelBusy(false);
       }
     },
-    [activeSession, character, currentPhase, encounter, storyMessages, user],
+    [activeSession, aiDmPresetId, character, currentPhase, encounter, storyMessages, user],
   );
 
   const handleAiPanelConfirmAction = useCallback(
@@ -1465,6 +1698,14 @@ export function App() {
   }, [pendingConfirmAction, pendingConfirmSourceMessage]);
 
   function handleSwitchTable() {
+    if (activeSession && supabase) {
+      void updateSessionAiState(activeSession.id, { markAutosaved: true }).catch((error) => {
+        console.warn('Could not autosave session before leaving table', error);
+      });
+      if (user) {
+        void updateSessionPresence(activeSession.id, user, 'offline', asPersistedCharacterId(character.id)).catch(() => undefined);
+      }
+    }
     setPendingRoomSetup(false);
     switchTable();
   }
@@ -1479,7 +1720,7 @@ export function App() {
   if (appStage === 'login' || !user) {
     return (
       <main className="fw-login-wrap">
-        <AuthPanel loading={authLoading} user={user} />
+        <AuthPanel authError={authError} loading={authLoading} user={user} />
       </main>
     );
   }
@@ -1497,16 +1738,22 @@ export function App() {
               setPendingRoomSetup(false);
               setPendingSession(null);
               setPendingSettings(false);
+              setPendingCampaignCreator(false);
+              setPendingAiCampaignGenerator(false);
               setPendingLibrary(true);
             }}
             onRequestSettings={() => {
               setPendingRoomSetup(false);
               setPendingSession(null);
               setPendingLibrary(false);
+              setPendingCampaignCreator(false);
+              setPendingAiCampaignGenerator(false);
               setPendingSettings(true);
             }}
             onRequestRoomSetup={() => {
               setPendingLibrary(false);
+              setPendingCampaignCreator(false);
+              setPendingAiCampaignGenerator(false);
               setPendingSettings(false);
               setPendingSession(null);
               setRoomModal(null);
@@ -1538,9 +1785,34 @@ export function App() {
           <CampaignLibrary
             user={user}
             onBack={returnToMainMenu}
+            onCreateCampaign={() => {
+              setPendingLibrary(false);
+              setPendingCampaignCreator(true);
+            }}
+            onGenerateCampaign={() => {
+              setPendingLibrary(false);
+              setPendingAiCampaignGenerator(true);
+            }}
             onEnterSession={(session) => requestEnterSession(session, user)}
           />
         );
+      }
+
+      if (appStage === 'ai-campaign-generator') {
+        return (
+          <AiCampaignGenerator
+            user={user}
+            onBack={() => navigateTo('library')}
+            onImportCampaign={(campaign) => {
+              saveCampaignCreatorDraft(campaign);
+              navigateTo('campaign-creator');
+            }}
+          />
+        );
+      }
+
+      if (appStage === 'campaign-creator') {
+        return <CampaignCreator user={user} onBack={() => navigateTo('library')} />;
       }
 
       if (appStage === 'settings') {
@@ -1561,16 +1833,35 @@ export function App() {
       }
 
       if (appStage === 'lobby') {
+        const lobbySession = pendingSession ?? activeSession ?? undefined;
+        const lobbyIsHost = Boolean(lobbySession && user && (lobbySession.hostId === user.id || lobbySession.createdBy === user.id));
+
         return (
           <LobbyScreen
             user={user}
+            session={lobbySession}
+            members={sessionMembers}
+            isHost={lobbyIsHost}
             onBack={() => {
               setPendingLobby(false);
             }}
             onEnterGame={() => {
-              if (pendingSession) {
-                completeCharacterEntry(pendingSession, character);
-              }
+              if (!lobbySession) return;
+              void (async () => {
+                const nextSession = lobbyIsHost
+                  ? await startMultiplayerSession(lobbySession.id).catch((error) => {
+                      console.warn('Could not start multiplayer session', error);
+                      return lobbySession;
+                    })
+                  : lobbySession;
+                completeCharacterEntry(nextSession, character);
+              })();
+            }}
+            onKickMember={(playerId) => {
+              if (!lobbySession || !lobbyIsHost) return;
+              void kickSessionMember(lobbySession.id, playerId).catch((error) => {
+                console.warn('Could not kick session member', error);
+              });
             }}
           />
         );
@@ -1676,7 +1967,9 @@ export function App() {
     );
   }
 
-  const isSessionHost = Boolean(activeSession?.createdBy && user?.id && activeSession.createdBy === user.id);
+  const isSessionHost = Boolean(
+    activeSession && user?.id && (activeSession.hostId ?? activeSession.createdBy) === user.id,
+  );
   const activeObjectives = (sceneState?.objectives ?? []).filter((objective) => objective.status === 'active');
   const unresolvedObjectives = (sceneState?.objectives ?? []).filter((objective) => objective.status !== 'completed');
   const threatClocks = sceneState?.threatClocks ?? [];
@@ -1750,6 +2043,7 @@ export function App() {
                     { id: 'character', label: 'You', icon: 'user' },
                     { id: 'inventory', label: 'Inventory', icon: 'bag' },
                     { id: 'quests', label: 'Quests', icon: 'scroll' },
+                    { id: 'narrative', label: 'Narrative', icon: 'book' },
                   ].map((tab) => (
                     <button
                       className={`fw-tab ${leftSidebarTab === tab.id ? 'active' : ''}`}
@@ -1764,8 +2058,23 @@ export function App() {
                   ))}
                 </div>
 
-                <div className="fw-game-scroll">
-                  <PrototypeLeftPanel character={character} tab={leftSidebarTab} />
+                <div className="fw-game-scroll" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  {leftSidebarTab === 'narrative' ? (
+                    <NarrativePanel
+                      sceneState={sceneState}
+                      companions={companionState.companions}
+                      journalEntries={journalState.entries}
+                      relationships={relationshipState.records}
+                      onDispatch={(event) => { dispatchGameEvent(event); }}
+                      onAddJournalEntry={(entry) => { addJournalEntry({ ...entry, id: crypto.randomUUID(), createdAt: Date.now() }); }}
+                      onAdjustAffinity={adjustAffinity}
+                      characterId={character.id}
+                      sessionId={activeSession?.id ?? 'local'}
+                      isHost={isSessionHost}
+                    />
+                  ) : (
+                    <PrototypeLeftPanel character={character} members={sessionMembers} tab={leftSidebarTab} />
+                  )}
                 </div>
               </aside>
 
@@ -1935,7 +2244,12 @@ export function App() {
                 </div>
 
                 <div className="fw-game-scroll">
-                  <PrototypeRightPanel onOpenCombat={() => setCombatActive(true)} tab={rightSidebarTab} />
+                  <PrototypeRightPanel
+                    aiPresetId={aiDmPresetId}
+                    onAiPresetSelect={handleAiPresetSelect}
+                    onOpenCombat={() => setCombatActive(true)}
+                    tab={rightSidebarTab}
+                  />
                 </div>
               </aside>
             </section>

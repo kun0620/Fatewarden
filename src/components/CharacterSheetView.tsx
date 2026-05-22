@@ -19,6 +19,7 @@ type CharacterSheetViewProps = {
   character: Character;
   disabled?: boolean;
   onClose: () => void;
+  onUploadPortrait?: (file: File) => Promise<string>;
   onSave?: (character: Character) => Promise<void>;
   status?: string;
 };
@@ -67,11 +68,13 @@ export function CharacterSheetView({
   character,
   disabled = false,
   onClose,
+  onUploadPortrait,
   onSave,
   status,
 }: CharacterSheetViewProps) {
   const [draft, setDraft] = useState(character);
   const [saving, setSaving] = useState(false);
+  const [uploadingPortrait, setUploadingPortrait] = useState(false);
 
   useEffect(() => {
     setDraft(character);
@@ -122,6 +125,17 @@ export function CharacterSheetView({
       personalityTraits: draft.personalityTraits.map((item) => item.trim()).filter(Boolean),
     }));
     setSaving(false);
+  }
+
+  async function handlePortraitUpload(file: File | undefined) {
+    if (!file || !onUploadPortrait) return;
+    setUploadingPortrait(true);
+    try {
+      const publicUrl = await onUploadPortrait(file);
+      updateField('portraitUrl', publicUrl);
+    } finally {
+      setUploadingPortrait(false);
+    }
   }
 
   return (
@@ -185,6 +199,12 @@ export function CharacterSheetView({
                   placeholder="https://..."
                   value={draft.portraitUrl}
                 />
+                {onUploadPortrait ? (
+                  <label className="fw-btn fw-btn--ghost" style={{ marginTop: 8, justifyContent: 'center' }}>
+                    {uploadingPortrait ? 'Uploading...' : 'Upload portrait'}
+                    <input accept="image/jpeg,image/png,image/webp" hidden onChange={(event) => void handlePortraitUpload(event.target.files?.[0])} type="file" />
+                  </label>
+                ) : null}
               </div>
 
               <div className="fw-card">

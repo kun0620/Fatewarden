@@ -28,8 +28,8 @@ export const visibilityOptions: Array<{ id: RoomVisibility; label: string; descr
   { id: 'private', label: 'Private', description: 'เฉพาะคนที่ host เชิญ' },
 ];
 
-export const PARTY_SIZE_MIN = 1;
-export const PARTY_SIZE_MAX = 8;
+export const PARTY_SIZE_MIN = 2;
+export const PARTY_SIZE_MAX = 5;
 
 export function getDefaultRoomSetup(): RoomSetupDraft {
   return {

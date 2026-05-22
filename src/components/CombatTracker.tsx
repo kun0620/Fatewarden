@@ -76,6 +76,7 @@ export function CombatTracker({
   const [hpDraftMode, setHpDraftMode] = useState<'damage' | 'healing' | null>(null);
   const [showConditionPicker, setShowConditionPicker] = useState(false);
   const [showEnemyForm, setShowEnemyForm] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [attackTargetId, setAttackTargetId] = useState('');
   const [attackBonus, setAttackBonus] = useState(5);
   const [attackDamage, setAttackDamage] = useState(6);
@@ -511,7 +512,7 @@ export function CombatTracker({
         <div className="fw-combat-panel__meta">
           <span className="fw-pill blood">Round {activeEncounter.round}</span>
           <span className="fw-caption">Surprise: none</span>
-          <button className="fw-btn fw-btn--ghost fw-btn--sm" type="button" aria-label="Combat settings">
+          <button className="fw-btn fw-btn--ghost fw-btn--sm" type="button" aria-label="Combat settings" onClick={() => setShowSettings(!showSettings)}>
             <Settings size={14} aria-hidden="true" />
           </button>
         </div>

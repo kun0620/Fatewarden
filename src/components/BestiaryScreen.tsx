@@ -89,7 +89,7 @@ const BEASTS: Beast[] = [
   { id: 'cinder-rat', n: 'Cinder-rat Swarm', cr: 1, xp: 200, type: 'Beast', subtype: 'Swarm', size: 'Medium', env: ['Crypt'], tags: ['Swarm'], source: 'Core 5e / Adapted' },
   { id: 'black-censer', n: 'The Black Censer', cr: 6, xp: 2300, type: 'Object', subtype: 'Hazard', size: 'Large', env: ['Chapel'], tags: ['Boss', 'Object'], source: 'Volume Seven / Ch. 3' },
   { id: 'septine-warden', n: 'Septine Warden', cr: 3, xp: 700, type: 'Humanoid', subtype: 'Patrol', size: 'Medium', env: ['Ysavir', 'Chapel'], tags: ['Faction'], source: 'Volume Seven / Bestiary' },
-  { id: 'lira-vael', n: 'Lira Vael', cr: '-', xp: 0, type: 'Humanoid', subtype: 'Civilian', size: 'Medium', env: ['The Reach'], tags: ['NPC'], source: "Custom / Aedric's player" },
+  { id: 'lira-vael', n: 'Lira Vael', cr: '-', xp: 0, type: 'Humanoid', subtype: 'Civilian', size: 'Medium', env: ['The Reach'], tags: ['NPC'], source: "Custom / player character" },
   { id: 'halric-dale', n: 'Halric Dale', cr: 5, xp: 0, type: 'Humanoid', subtype: 'Ally', size: 'Medium', env: ['-'], tags: ['NPC', 'PC'], source: 'Custom / party' },
 ];
 

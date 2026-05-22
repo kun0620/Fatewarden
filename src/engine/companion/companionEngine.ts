@@ -56,6 +56,7 @@ function abilityModifier(score: number) {
 }
 
 function loyaltyTier(current: number): CompanionTier {
+  if (current <= 0) return 'betrayal';
   if (current <= 24) return 'hostile';
   if (current <= 49) return 'neutral';
   if (current <= 74) return 'friendly';
@@ -92,6 +93,7 @@ export function createCompanion(
       current: 50,
       tier: 'neutral',
     },
+    controlMode: 'auto',
     resources: [],
     isActive: true,
     createdAt: Date.now(),

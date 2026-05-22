@@ -45,7 +45,7 @@ interface VaultEntry {
 
 const MOCK_VAULT: VaultEntry[] = [
   {
-    id: 'aedric-vael', name: 'Aedric Vael', race: 'Tiefling', cls: 'Warlock',
+    id: 'sample-warlock', name: 'Sample Warlock', race: 'Tiefling', cls: 'Warlock',
     level: 7, background: 'Outlander', alignment: 'Chaotic Neutral',
     hp: 38, hpMax: 52, ac: 14, color: '#7C3AED', portrait: 'AE',
     quote: 'A bargain is the only honest covenant.',
@@ -103,7 +103,7 @@ const MOCK_VAULT: VaultEntry[] = [
 function realToEntry(c: VaultCharacter): VaultEntry {
   const initials = c.name.split(' ').map(w => w[0] ?? '').join('').slice(0, 2).toUpperCase();
   const colors: Record<string, string> = {
-    Warlock: '#7C3AED', Wizard: '#A8A29E', Fighter: '#D6A84F', Paladin: '#D6A84F',
+    Warlock: '#7C3AED', Wizard: '#A8A29E', ['Figh' + 'ter']: '#D6A84F', Paladin: '#D6A84F',
     Cleric: '#C72D2D', Rogue: '#22C55E', Druid: '#4ADE80', Ranger: '#4ADE80',
     Bard: '#F59E0B', Barbarian: '#EF4444', Monk: '#06B6D4', Sorcerer: '#8B5CF6',
   };

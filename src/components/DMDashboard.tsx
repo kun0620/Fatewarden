@@ -61,8 +61,8 @@ function ThreadRow({ heat, title, sub }: { heat: 'hot' | 'warm' | 'cold'; title:
 
 function Header({ dmName, onBack }: { dmName: string; onBack: () => void }) {
   const party = [
-    { i: 'AE', n: 'Aedric Vael', c: 'Warlock 7', st: 'Ready', color: '#7C3AED', ok: true },
-    { i: 'KI', n: 'Kessra', c: 'Fighter 7', st: 'Ready', color: '#D6A84F', ok: true },
+    { i: 'AE', n: 'Sample Warlock', c: 'Warlock 7', st: 'Ready', color: '#7C3AED', ok: true },
+    { i: 'KI', n: 'Kessra', c: 'Martial 7', st: 'Ready', color: '#D6A84F', ok: true },
     { i: 'MT', n: 'Mirenna', c: 'Druid 7', st: 'Ready', color: '#22C55E', ok: true },
     { i: 'HD', n: 'Halric', c: 'Cleric 6', st: 'Unconscious', color: '#A8A29E', ok: false },
   ];
@@ -182,7 +182,7 @@ function OverviewSection() {
         <Card>
           <CardHead icon="scroll" title="DM Notes" right={<button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">{Icon('sparkles', { size: 11 })} Suggest</button>} />
           <div style={{ padding: 14 }}>
-            <textarea className="fw-textarea" rows={6} defaultValue={"REMEMBER: The Cinder-Reeve does not speak in present tense. Always past or future.\n\nIf Aedric tries to bargain, he must invoke the brass collar. The Reeve will refuse twice before listening.\n\nMirenna's elk = 13 HP left. Do not forget."} />
+            <textarea className="fw-textarea" rows={6} defaultValue={"REMEMBER: The Cinder-Reeve does not speak in present tense. Always past or future.\n\nIf the warlock tries to bargain, he must invoke the brass collar. The Reeve will refuse twice before listening.\n\nMirenna's elk = 13 HP left. Do not forget."} />
           </div>
         </Card>
       </div>
@@ -191,7 +191,7 @@ function OverviewSection() {
         <Card style={{ borderColor: 'rgba(124,58,237,0.3)' }}>
           <CardHead icon="lock" title="Player Secrets" right={<span className="fw-pill" style={{ background: 'rgba(124,58,237,0.15)', borderColor: 'var(--arcane)', color: 'var(--arcane-bright)', fontSize: 9 }}>DM only</span>} />
           <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12.5, fontFamily: 'var(--f-serif)', lineHeight: 1.5 }}>
-            <SecretRow who="Aedric" detail="The Cinder-Reeve is his sister's true patron, not his." />
+            <SecretRow who="Warlock" detail="The Cinder-Reeve is his sister's true patron, not his." />
             <SecretRow who="Kessra" detail="Owes a debt to the Brass Sept. They will collect this Act." />
             <SecretRow who="Mirenna" detail="Her elk is the wandering soul of her grandmother." />
             <SecretRow who="Halric" detail="If he dies tonight, Solm will resurrect him at a cost." />
@@ -221,7 +221,7 @@ function OverviewSection() {
           <CardHead icon="scroll" title="Open Threads" right={<span style={{ fontSize: 11, color: 'var(--text-3)' }}>5 active</span>} />
           <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <ThreadRow heat="hot" title="Bone-tablet / 2 of 3 fragments" sub="Touched session 14" />
-            <ThreadRow heat="warm" title="Aedric's collar / who else can see it?" sub="Promised reveal Act III" />
+            <ThreadRow heat="warm" title="The warlock's collar / who else can see it?" sub="Promised reveal Act III" />
             <ThreadRow heat="warm" title="Brass Sept's collector" sub="Should appear by S18" />
             <ThreadRow heat="cold" title="Lira's letter / unsent" sub="Player-driven" />
             <ThreadRow heat="cold" title="The wandering elk's first name" sub="Mirenna does not know yet" />
@@ -315,7 +315,7 @@ function InitiativeSection() {
           {[
             ['22', 'Kessra', 'Ally', true],
             ['19', 'Cinder-Reeve', 'Boss', false],
-            ['17', 'Aedric', 'Ally', true],
+            ['17', 'Warlock', 'Ally', true],
             ['14', 'Mirenna', 'Ally', true],
             ['8', 'Halric (down)', 'Ally', true],
           ].map(([ini, name, kind, ally]) => (
@@ -345,7 +345,7 @@ function NpcsSection() {
   const npcs = [
     ['The Cinder-Reeve', 'Patron / Antagonist', 'Brass-rasping. Past or future, never present.', 'Patient', true],
     ['Halric Dale', 'Party Cleric / Down', 'Northern lilt, careful breaths.', 'Bleeding', false],
-    ['Mother Censer', "Aedric's old kin", 'Whisper-soft, mother-sharp.', 'Watchful', false],
+    ['Mother Censer', "The warlock's old kin", 'Whisper-soft, mother-sharp.', 'Watchful', false],
     ["Brask of Brask's Hold", 'Innkeep / Ally', 'Slow, fond, often drunk.', 'Worried', false],
     ['Lira Vael', 'Sister / Off-screen', 'Bright, fast, terrible at lying.', 'Unaware', false],
     ['Septine warden', 'Faction / Neutral', 'Liturgical. Speaks in benedictions.', 'Curious', false],
@@ -386,7 +386,7 @@ function ScenesSection() {
   const handouts = [
     ['Binding circle / drafted map', 'Image / PNG / 1.2 MB', 'auto on beat 3', 'hex'],
     ['Bone-tablet rubbing #2', 'Image / WebP / 0.8 MB', 'manual', 'scroll'],
-    ['Letter: Lira to Aedric', 'Document / MD', 'DM only / drop after combat', 'mail'],
+    ['Letter: Lira to the warlock', 'Document / MD', 'DM only / drop after combat', 'mail'],
     ['Ysavir-under quick map', 'Image / JPG / 2.4 MB', 'shared on entry', 'map'],
   ] as const;
 

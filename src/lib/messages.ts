@@ -6,6 +6,8 @@ import type {
   AiChoiceIntent,
   AiConfirmAction,
   AiConfirmActionType,
+  AiDmPresetId,
+  AiDmRequestMode,
   AiSuggestedRoll,
   Character,
   EncounterState,
@@ -14,6 +16,7 @@ import type {
   SceneFlow,
   StoryMessage,
 } from '../types';
+import { AI_CONTEXT_CHAR_BUDGET, normalizeAiDmPresetId, normalizeAiDmRequestMode } from './aiDm';
 import { supabase } from './supabase';
 
 type MessageRow = {
@@ -33,10 +36,12 @@ type AiRulesContext = {
   aiMode?: 'adventure' | 'debug';
   latestScene?: SceneFlow | null;
   partySummary?: string;
+  dmPresetId?: AiDmPresetId;
+  requestMode?: AiDmRequestMode;
+  sessionRecap?: string;
 };
 
 const AI_DM_TIMEOUT_MS = 45_000;
-const AI_CONTEXT_CHAR_BUDGET = 6_000;
 
 function requireClient() {
   if (!supabase) {
@@ -620,12 +625,20 @@ export async function requestAiDmReply(
   const client = requireClient();
   const sceneContext = useGameStore.getState().getSceneContext();
   const aiContextMessages = buildAiContext(recentMessages);
+  const dmPresetId = normalizeAiDmPresetId(rulesContext?.dmPresetId ?? rulesContext?.session?.dmPreset);
+  const requestMode = normalizeAiDmRequestMode(rulesContext?.requestMode);
   const { data, error } = await withTimeout(
     client.functions.invoke('ai-dm', {
       body: {
         sessionId,
         characterName,
         message,
+        dmPresetId,
+        requestMode,
+        smartContext: {
+          budget: AI_CONTEXT_CHAR_BUDGET,
+          includedMessages: aiContextMessages.length,
+        },
         sceneContext: sceneContext ?? null,
         recentMessages: aiContextMessages.map((item) => ({
           author: item.author,
@@ -638,6 +651,9 @@ export async function requestAiDmReply(
               playMode: rulesContext.session?.playMode,
               gamePhase: rulesContext.gamePhase ?? rulesContext.session?.phase,
               aiMode: rulesContext.aiMode ?? 'adventure',
+              requestMode,
+              dmPresetId,
+              sessionRecap: rulesContext.sessionRecap ?? rulesContext.session?.sessionRecap ?? '',
               rules: rulesContext.session?.rules,
               theme: rulesContext.session?.theme,
               character: rulesContext.character
@@ -680,6 +696,8 @@ export async function requestAiDmReply(
   return sendSessionMessage(sessionId, 'dm', 'Dungeon Master', reply.body, {
     kind,
     aiMode: rulesContext?.aiMode ?? 'adventure',
+    requestMode,
+    dmPresetId,
     confirmActions: reply.confirmActions,
     choices: reply.choices,
     scene: reply.scene,

@@ -4,7 +4,7 @@ export type CompanionBehavior = 'aggressive' | 'defensive' | 'support' | 'passiv
 
 export type CompanionLoyalty = {
   current: number;
-  tier: 'hostile' | 'neutral' | 'friendly' | 'devoted';
+  tier: 'betrayal' | 'hostile' | 'neutral' | 'friendly' | 'devoted';
 };
 
 export type CompanionResource = {
@@ -31,6 +31,7 @@ export type CompanionSheet = {
   };
   behavior: CompanionBehavior;
   loyalty: CompanionLoyalty;
+  controlMode: 'auto' | 'manual';
   resources: CompanionResource[];
   isActive: boolean;
   createdAt: number;

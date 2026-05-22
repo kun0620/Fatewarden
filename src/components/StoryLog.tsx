@@ -1,4 +1,4 @@
-import { Bot, Radio, Send } from 'lucide-react';
+import { Bot, Flag, Radio, Send } from 'lucide-react';
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { hasSupabaseConfig, supabase } from '../lib/supabase';
@@ -24,10 +24,13 @@ import { createPartyChoiceInDb } from '../lib/partyChoices';
 import { createPartyChoice } from '../engine/party/partyChoiceEngine';
 import { useGameStore } from '../store/useGameStore';
 import { Tooltip } from './ui/Tooltip';
+import { ReportContentModal } from './ReportContentModal';
+import type { ReportTarget } from '../lib/reports';
 import type {
   AbilityKey,
   AiChoice,
   AiConfirmAction,
+  AiDmRequestMode,
   AiSuggestedRoll,
   Character,
   DiceRoll,
@@ -616,6 +619,7 @@ export function StoryLog({
   const [appliedActions, setAppliedActions] = useState<Set<string>>(new Set());
   const [selectedChoices, setSelectedChoices] = useState<Set<string>>(new Set());
   const [completedRolls, setCompletedRolls] = useState<Set<string>>(new Set());
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
   const customChoiceInputRef = useRef<HTMLInputElement>(null);
   const composerInputRef = useRef<HTMLInputElement>(null);
 
@@ -673,7 +677,7 @@ export function StoryLog({
     };
   }, [activeSession, initialMessages, onMessagesChange, user]);
 
-  async function askAiForMessage(body: string, latestMessages: StoryMessage[]) {
+  async function askAiForMessage(body: string, latestMessages: StoryMessage[], requestMode: AiDmRequestMode = 'reply') {
     if (!activeSession || !user || !supabase) return;
 
     setStatus('AI DM thinking');
@@ -687,6 +691,9 @@ export function StoryLog({
         character,
         encounter,
         aiMode: 'adventure',
+        requestMode,
+        dmPresetId: activeSession.dmPreset,
+        sessionRecap: activeSession.sessionRecap,
         latestScene: getLatestSceneFlow(latestMessages),
         partySummary: `${character.name}, level ${character.level} ${character.ancestry} ${character.className}`,
       });
@@ -887,6 +894,7 @@ export function StoryLog({
       await askAiForMessage(
         `ผลการทอย: ${body}\nจงบรรยายผลตาม success/partial/failure ถ้ามี DC และเสนอทางเลือกถัดไป`,
         latestMessages,
+        'dice_result',
       );
     } catch (error) {
       setCompletedRolls((current) => {
@@ -968,11 +976,11 @@ export function StoryLog({
       <div className="fw-storylog-topbar">
         <div className="fw-storylog-brand">✦ FATEWARDEN ✦</div>
         <nav className="fw-storylog-nav" aria-label="Story navigation">
-          <button className="fw-storylog-nav__item fw-storylog-nav__item--active" type="button">Journal</button>
-          <button className="fw-storylog-nav__item" type="button">Bestiary</button>
-          <button className="fw-storylog-nav__item" type="button">Grimoire</button>
-          <button className="fw-storylog-nav__item" type="button">Rituals</button>
-          <button className="fw-storylog-nav__item" type="button">Vault</button>
+          <button className="fw-storylog-nav__item fw-storylog-nav__item--active" disabled title="Journal is the active story log view." type="button">Journal</button>
+          <button className="fw-storylog-nav__item" disabled title="Bestiary navigation is not wired yet." type="button">Bestiary</button>
+          <button className="fw-storylog-nav__item" disabled title="Grimoire navigation is not wired yet." type="button">Grimoire</button>
+          <button className="fw-storylog-nav__item" disabled title="Rituals navigation is not wired yet." type="button">Rituals</button>
+          <button className="fw-storylog-nav__item" disabled title="Vault navigation is not wired yet." type="button">Vault</button>
         </nav>
         <span className="fw-storylog-status">
           <Radio size={13} aria-hidden="true" />
@@ -984,6 +992,23 @@ export function StoryLog({
         <p>Scene</p>
         <h2>{sceneTitle}</h2>
         <p className="fw-storylog-scene__objective">{sceneObjective}</p>
+        {activeSession && user ? (
+          <button
+            className="fw-btn fw-btn--ghost"
+            onClick={() =>
+              setReportTarget({
+                kind: 'session',
+                sessionId: activeSession.id,
+                title: activeSession.title ?? sceneTitle,
+                content: `${sceneTitle}\n${sceneObjective}`,
+              })
+            }
+            type="button"
+          >
+            <Flag size={13} aria-hidden="true" />
+            Report session
+          </button>
+        ) : null}
       </div>
 
       <div className="fw-log">
@@ -1033,6 +1058,25 @@ export function StoryLog({
                 <span className="fw-msg__who">{message.author}</span>
                 <span className="fw-msg__tag">{kind.toString().replace('_', ' ')}</span>
                 <time>{message.createdAt}</time>
+                {activeSession && user ? (
+                  <button
+                    className="fw-btn fw-btn--ghost"
+                    onClick={() =>
+                      setReportTarget({
+                        kind: 'message',
+                        sessionId: activeSession.id,
+                        messageId: message.id,
+                        title: kind.toString().replace('_', ' '),
+                        author: message.author,
+                        content: message.body,
+                      })
+                    }
+                    type="button"
+                  >
+                    <Flag size={12} aria-hidden="true" />
+                    Report
+                  </button>
+                ) : null}
               </div>
               {kind === 'ai_pending' ? (
                 <span className="fw-storylog-thinking">
@@ -1147,6 +1191,11 @@ export function StoryLog({
           </button>
         </form>
       </div>
+      <ReportContentModal
+        target={reportTarget}
+        onClose={() => setReportTarget(null)}
+        onSubmitted={() => setStatus('Report sent')}
+      />
     </section>
   );
 }

@@ -7,6 +7,10 @@ import type { RaceRuntime } from '../engine/races/raceRuntime';
 import type { GameEvent } from '../engine/events/types';
 import type { PartyChoice, PartyChoiceState } from '../engine/party/partyChoiceTypes';
 import type { CompanionSheet, CompanionState } from '../engine/companion/companionTypes';
+import { addEntry, removeEntry } from '../engine/journal/journalEngine';
+import type { JournalEntry, JournalState } from '../engine/journal/journalTypes';
+import { adjustAffinity as adjustAffinityEngine } from '../engine/relationship/relationshipEngine';
+import type { RelationshipState } from '../engine/relationship/relationshipTypes';
 import {
   processPartyChoiceCreated,
   processPartyChoiceResolved,
@@ -57,6 +61,8 @@ type GameStoreState = {
   sceneState: SceneState | null;
   companionState: CompanionState;
   partyChoiceState: PartyChoiceState;
+  journalState: JournalState;
+  relationshipState: RelationshipState;
   activeCharacter: Character | null;
   classRuntime: Character['systemData']['classRuntime'] | null;
   raceRuntime: RaceRuntime | null;
@@ -72,6 +78,9 @@ type GameStoreState = {
   setPartyChoiceAiResponder: (responder: ((input: string) => void | Promise<void>) | null) => void;
   setActiveCharacter: (character: Character | null) => void;
   getSceneContext: () => ReturnType<typeof buildSceneContext> | null;
+  addJournalEntry: (entry: JournalEntry) => void;
+  removeJournalEntry: (entryId: string) => void;
+  adjustAffinity: (characterId: string, npcId: string, npcName: string, delta: number, reason: string) => void;
   eventMeta: (characterId: string) => {
     id: string;
     sessionId: string;
@@ -219,6 +228,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     activeChoice: null,
     history: [],
   },
+  journalState: { entries: [] },
+  relationshipState: { records: [] },
   activeCharacter: null,
   classRuntime: null,
   raceRuntime: null,
@@ -263,6 +274,14 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       },
     })),
   setPartyChoiceAiResponder: (responder) => set({ partyChoiceAiResponder: responder }),
+  addJournalEntry: (entry) =>
+    set((state) => ({ journalState: addEntry(state.journalState, entry) })),
+  removeJournalEntry: (entryId) =>
+    set((state) => ({ journalState: removeEntry(state.journalState, entryId) })),
+  adjustAffinity: (characterId, npcId, npcName, delta, reason) =>
+    set((state) => ({
+      relationshipState: adjustAffinityEngine(state.relationshipState, characterId, npcId, npcName, delta, reason),
+    })),
   setActiveCharacter: (character) =>
     set({
       activeCharacter: character,

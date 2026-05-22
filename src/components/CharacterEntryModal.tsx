@@ -731,7 +731,7 @@ export function CharacterEntryModal({ session, user, onCancel, onEnter }: Charac
                         <input
                           className="fw-input"
                           onChange={(event) => updateDraft('name', event.target.value)}
-                          placeholder="Aedric Vael"
+                          placeholder="Rowan Vael"
                           value={draft.name}
                         />
                       </label>

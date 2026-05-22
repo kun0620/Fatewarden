@@ -1,5 +1,18 @@
 import type { User } from '@supabase/supabase-js';
 import { supabase } from './supabase';
+import { uploadUserImage } from './storage';
+
+export type UserSettings = {
+  language: 'th' | 'en';
+  theme: 'vigil' | 'frost' | 'ash';
+  soundEnabled: boolean;
+  defaultDmPreset: 'dark_fantasy' | 'storyteller' | 'horror' | 'heroic';
+  hpCalculation: 'roll' | 'average';
+  autoSave: boolean;
+  defaultDiceRoller: 'manual' | 'auto';
+  combatAutomation: 'full_manual' | 'semi_auto' | 'full_auto';
+  partyChoiceTimeout: 30 | 60 | 120 | null;
+};
 
 export type UserProfile = {
   id: string;
@@ -7,6 +20,9 @@ export type UserProfile = {
   username: string;
   displayName: string;
   avatarUrl: string;
+  settings: UserSettings;
+  bannedAt?: string;
+  banReason?: string;
   usernameChangedAt?: string;
   deletedAt?: string;
   deleteAfter?: string;
@@ -20,6 +36,9 @@ type ProfileRow = {
   username?: string | null;
   display_name?: string | null;
   avatar_url?: string | null;
+  settings?: Partial<UserSettings> | null;
+  banned_at?: string | null;
+  ban_reason?: string | null;
   username_changed_at?: string | null;
   deleted_at?: string | null;
   delete_after?: string | null;
@@ -39,12 +58,65 @@ export const AVATAR_PRESETS = [
 ] as const;
 
 const USERNAME_RE = /^[a-z][a-z0-9_]{2,19}$/;
-const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
-const AVATAR_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const PROFILE_SELECT = 'id,email,username,display_name,avatar_url,settings,banned_at,ban_reason,username_changed_at,deleted_at,delete_after,created_at,updated_at';
+export const DEFAULT_USER_SETTINGS: UserSettings = {
+  language: 'en',
+  theme: 'vigil',
+  soundEnabled: true,
+  defaultDmPreset: 'dark_fantasy',
+  hpCalculation: 'average',
+  autoSave: true,
+  defaultDiceRoller: 'manual',
+  combatAutomation: 'semi_auto',
+  partyChoiceTimeout: 60,
+};
 
 function requireClient() {
   if (!supabase) throw new Error('Supabase is not configured.');
   return supabase;
+}
+
+function isLanguage(value: unknown): value is UserSettings['language'] {
+  return value === 'th' || value === 'en';
+}
+
+function isTheme(value: unknown): value is UserSettings['theme'] {
+  return value === 'vigil' || value === 'frost' || value === 'ash';
+}
+
+function isDmPreset(value: unknown): value is UserSettings['defaultDmPreset'] {
+  return value === 'dark_fantasy' || value === 'storyteller' || value === 'horror' || value === 'heroic';
+}
+
+function isHpCalculation(value: unknown): value is UserSettings['hpCalculation'] {
+  return value === 'roll' || value === 'average';
+}
+
+function isDiceRoller(value: unknown): value is UserSettings['defaultDiceRoller'] {
+  return value === 'manual' || value === 'auto';
+}
+
+function isCombatAutomation(value: unknown): value is UserSettings['combatAutomation'] {
+  return value === 'full_manual' || value === 'semi_auto' || value === 'full_auto';
+}
+
+function isPartyChoiceTimeout(value: unknown): value is UserSettings['partyChoiceTimeout'] {
+  return value === 30 || value === 60 || value === 120 || value === null;
+}
+
+export function normalizeUserSettings(value: unknown): UserSettings {
+  const raw = value && typeof value === 'object' ? value as Partial<UserSettings> : {};
+  return {
+    language: isLanguage(raw.language) ? raw.language : DEFAULT_USER_SETTINGS.language,
+    theme: isTheme(raw.theme) ? raw.theme : DEFAULT_USER_SETTINGS.theme,
+    soundEnabled: typeof raw.soundEnabled === 'boolean' ? raw.soundEnabled : DEFAULT_USER_SETTINGS.soundEnabled,
+    defaultDmPreset: isDmPreset(raw.defaultDmPreset) ? raw.defaultDmPreset : DEFAULT_USER_SETTINGS.defaultDmPreset,
+    hpCalculation: isHpCalculation(raw.hpCalculation) ? raw.hpCalculation : DEFAULT_USER_SETTINGS.hpCalculation,
+    autoSave: typeof raw.autoSave === 'boolean' ? raw.autoSave : DEFAULT_USER_SETTINGS.autoSave,
+    defaultDiceRoller: isDiceRoller(raw.defaultDiceRoller) ? raw.defaultDiceRoller : DEFAULT_USER_SETTINGS.defaultDiceRoller,
+    combatAutomation: isCombatAutomation(raw.combatAutomation) ? raw.combatAutomation : DEFAULT_USER_SETTINGS.combatAutomation,
+    partyChoiceTimeout: isPartyChoiceTimeout(raw.partyChoiceTimeout) ? raw.partyChoiceTimeout : DEFAULT_USER_SETTINGS.partyChoiceTimeout,
+  };
 }
 
 export function normalizeUsername(value: string) {
@@ -85,6 +157,9 @@ function mapProfile(row: ProfileRow, user: User): UserProfile {
     username: row.username ?? fallbackUsername(user),
     displayName: row.display_name ?? user.user_metadata?.displayName ?? row.username ?? fallbackUsername(user),
     avatarUrl: row.avatar_url ?? user.user_metadata?.avatarUrl ?? '',
+    settings: normalizeUserSettings(row.settings ?? user.user_metadata?.settings),
+    bannedAt: row.banned_at ?? undefined,
+    banReason: row.ban_reason ?? undefined,
     usernameChangedAt: row.username_changed_at ?? undefined,
     deletedAt: row.deleted_at ?? undefined,
     deleteAfter: row.delete_after ?? undefined,
@@ -97,7 +172,7 @@ export async function getProfile(user: User): Promise<UserProfile> {
   const client = requireClient();
   const { data, error } = await client
     .from('profiles')
-    .select('id,email,username,display_name,avatar_url,username_changed_at,deleted_at,delete_after,created_at,updated_at')
+    .select(PROFILE_SELECT)
     .eq('id', user.id)
     .maybeSingle();
 
@@ -118,6 +193,7 @@ export function metadataProfile(user: User): UserProfile {
     username,
     displayName: user.user_metadata?.displayName ?? user.user_metadata?.name ?? username,
     avatarUrl: user.user_metadata?.avatarUrl ?? '',
+    settings: normalizeUserSettings(user.user_metadata?.settings),
   };
 }
 
@@ -129,7 +205,7 @@ export async function ensureProfile(user: User, options: { username?: string; di
 
   const existing = await client
     .from('profiles')
-    .select('id,email,username,display_name,avatar_url,username_changed_at,deleted_at,delete_after,created_at,updated_at')
+    .select(PROFILE_SELECT)
     .eq('id', user.id)
     .maybeSingle();
 
@@ -148,13 +224,14 @@ export async function ensureProfile(user: User, options: { username?: string; di
     username,
     display_name: displayName || username,
     avatar_url: user.user_metadata?.avatarUrl ?? null,
+    settings: normalizeUserSettings(user.user_metadata?.settings),
     username_changed_at: new Date().toISOString(),
   };
 
   const { data, error } = await client
     .from('profiles')
     .insert(row)
-    .select('id,email,username,display_name,avatar_url,username_changed_at,deleted_at,delete_after,created_at,updated_at')
+    .select(PROFILE_SELECT)
     .single();
 
   if (error) {
@@ -167,6 +244,7 @@ export async function ensureProfile(user: User, options: { username?: string; di
       username,
       displayName: displayName || username,
       avatarUrl: row.avatar_url ?? '',
+      settings: row.settings,
     },
   });
 
@@ -212,7 +290,7 @@ export async function updateProfile(
     .from('profiles')
     .update(next)
     .eq('id', user.id)
-    .select('id,email,username,display_name,avatar_url,username_changed_at,deleted_at,delete_after,created_at,updated_at')
+    .select(PROFILE_SELECT)
     .single();
 
   if (error) throw error;
@@ -221,23 +299,24 @@ export async function updateProfile(
   return mapProfile(data as ProfileRow, user);
 }
 
-export async function uploadAvatar(user: User, file: File) {
+export async function updateUserSettings(user: User, settings: UserSettings) {
   const client = requireClient();
-  if (!AVATAR_TYPES.has(file.type)) throw new Error('Avatar must be JPG, PNG, or WebP.');
-  if (file.size > MAX_AVATAR_BYTES) throw new Error('Avatar must be 2MB or smaller.');
-
-  const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
-  const path = `${user.id}/${crypto.randomUUID()}.${ext}`;
-  const { error } = await client.storage.from('avatars').upload(path, file, {
-    cacheControl: '3600',
-    upsert: true,
-    contentType: file.type,
-  });
+  const normalized = normalizeUserSettings(settings);
+  const { data, error } = await client
+    .from('profiles')
+    .update({ settings: normalized })
+    .eq('id', user.id)
+    .select(PROFILE_SELECT)
+    .single();
   if (error) throw error;
+  await client.auth.updateUser({ data: { settings: normalized, language: normalized.language, theme: normalized.theme } });
+  return mapProfile(data as ProfileRow, user);
+}
 
-  const { data } = client.storage.from('avatars').getPublicUrl(path);
-  await updateProfile(user, { avatarUrl: data.publicUrl });
-  return data.publicUrl;
+export async function uploadAvatar(user: User, file: File) {
+  const uploaded = await uploadUserImage({ bucket: 'avatars', file, ownerKind: 'profile', ownerId: user.id, user });
+  await updateProfile(user, { avatarUrl: uploaded.publicUrl });
+  return uploaded.publicUrl;
 }
 
 export async function sendPasswordReset(email: string) {

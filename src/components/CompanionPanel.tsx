@@ -55,7 +55,6 @@ function toIsoNow() {
 export function CompanionPanel({ sessionId, currentUserId, isHost }: CompanionPanelProps) {
   const companionState = useGameStore((state) => state.companionState);
   const dispatch = useGameStore((state) => state.dispatch);
-  const updateCompanion = useGameStore((state) => state.updateCompanion);
   const [isSummonOpen, setIsSummonOpen] = useState(false);
   const [summonDraft, setSummonDraft] = useState<SummonDraft>({
     name: 'Shadow Hound',
@@ -130,14 +129,6 @@ export function CompanionPanel({ sessionId, currentUserId, isHost }: CompanionPa
       delta,
       reason,
     });
-  }
-
-  function setBehavior(companion: CompanionSheet, behavior: CompanionBehavior) {
-    updateCompanion({ ...companion, behavior });
-  }
-
-  function toggleActive(companion: CompanionSheet) {
-    updateCompanion({ ...companion, isActive: !companion.isActive });
   }
 
   return (
@@ -254,8 +245,8 @@ export function CompanionPanel({ sessionId, currentUserId, isHost }: CompanionPa
                   <label className="fw-field__label">Behavior</label>
                   <select
                     className="fw-select"
-                    disabled={!canControl}
-                    onChange={(event) => setBehavior(companion, event.target.value as CompanionBehavior)}
+                    disabled
+                    title="Behavior changes do not have an existing companion event yet."
                     value={companion.behavior}
                   >
                     {behaviorOptions.map((option) => (
@@ -292,7 +283,7 @@ export function CompanionPanel({ sessionId, currentUserId, isHost }: CompanionPa
               </div>
 
               <div style={{ display: 'flex', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)' }}>
-                <button className="fw-btn fw-btn--ghost fw-btn--sm" disabled={!canControl} onClick={() => toggleActive(companion)} type="button">
+                <button className="fw-btn fw-btn--ghost fw-btn--sm" disabled title="Active toggle does not have an existing companion event yet." type="button">
                   <UserRound size={14} aria-hidden="true" />
                   {companion.isActive ? 'Active' : 'Inactive'}
                 </button>

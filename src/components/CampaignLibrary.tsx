@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { Icon } from './ui/Icons';
+import { downloadCampaignExport, listOwnedCampaignExports } from '../lib/dataExport';
 import { listJoinedSessions } from '../lib/sessions';
 import type { GamePhase, GameSession } from '../types';
 
 type CampaignLibraryProps = {
   user: User;
   onBack: () => void;
+  onCreateCampaign: () => void;
+  onGenerateCampaign: () => void;
   onEnterSession: (session: GameSession) => void;
 };
 
@@ -68,10 +71,11 @@ function Card({
   );
 }
 
-export function CampaignLibrary({ onBack, onEnterSession, user }: CampaignLibraryProps) {
+export function CampaignLibrary({ onBack, onCreateCampaign, onEnterSession, onGenerateCampaign, user }: CampaignLibraryProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sessions, setSessions] = useState<GameSession[]>([]);
+  const [campaignExports, setCampaignExports] = useState<Awaited<ReturnType<typeof listOwnedCampaignExports>>>([]);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<LibraryFilter>('All');
   const [sort, setSort] = useState<LibrarySort>('recent');
@@ -81,9 +85,11 @@ export function CampaignLibrary({ onBack, onEnterSession, user }: CampaignLibrar
     let alive = true;
     setLoading(true);
     setError(null);
-    listJoinedSessions()
-      .then((rows) => {
-        if (alive) setSessions(rows);
+    Promise.all([listJoinedSessions(), listOwnedCampaignExports(user)])
+      .then(([sessionRows, campaignRows]) => {
+        if (!alive) return;
+        setSessions(sessionRows);
+        setCampaignExports(campaignRows);
       })
       .catch((nextError) => {
         if (!alive) return;
@@ -165,8 +171,8 @@ export function CampaignLibrary({ onBack, onEnterSession, user }: CampaignLibrar
             <div className="sub">Every tale you've kept. Resume, fork, or shelve.</div>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            <button className="fw-btn fw-btn-ghost" disabled type="button">{Icon('scroll', { size: 12 })} Import campaign</button>
-            <button className="fw-btn fw-btn-gold" onClick={onBack} type="button">{Icon('plus', { size: 12 })} New Campaign</button>
+            <button className="fw-btn fw-btn-ghost" onClick={onGenerateCampaign} type="button">{Icon('wand', { size: 12 })} AI Generator</button>
+            <button className="fw-btn fw-btn-gold" onClick={onCreateCampaign} type="button">{Icon('plus', { size: 12 })} New Campaign</button>
           </div>
         </header>
 
@@ -328,6 +334,37 @@ export function CampaignLibrary({ onBack, onEnterSession, user }: CampaignLibrar
                 </button>
               </div>
             ))}
+          </div>
+        </Card>
+
+        <Card elev style={{ marginTop: 16 }}>
+          <div className="fw-card-head">
+            <div>
+              <div className="fw-eyebrow">Campaign JSON</div>
+              <h2 className="fw-display" style={{ fontSize: 16, margin: 0 }}>Owned drafts</h2>
+            </div>
+            <span className="fw-pill fw-pill-dim">{campaignExports.length} saved</span>
+          </div>
+          <div className="fw-card-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {campaignExports.length ? (
+              campaignExports.map((campaign) => (
+                <div key={campaign.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center', padding: '8px 0', borderTop: '1px solid var(--border-soft)' }}>
+                  <div>
+                    <div className="fw-display" style={{ fontSize: 13 }}>{campaign.title}</div>
+                    <div className="fw-serif" style={{ color: 'var(--text-3)', fontSize: 12, fontStyle: 'italic' }}>
+                      Updated {formatRelativeDate(campaign.updated_at ?? campaign.created_at ?? new Date().toISOString())}
+                    </div>
+                  </div>
+                  <button className="fw-btn fw-btn-ghost fw-btn-sm" onClick={() => downloadCampaignExport(campaign)} type="button">
+                    Export JSON
+                  </button>
+                </div>
+              ))
+            ) : (
+              <div className="fw-serif" style={{ color: 'var(--text-3)', fontSize: 12, fontStyle: 'italic' }}>
+                Campaign Creator drafts saved to Supabase will appear here for JSON export.
+              </div>
+            )}
           </div>
         </Card>
       </div>

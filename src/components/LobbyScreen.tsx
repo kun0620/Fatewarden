@@ -1,12 +1,18 @@
 import { useState } from 'react';
 import type { User } from '@supabase/supabase-js';
+import type { GameSession, SessionMember } from '../types';
+import { getSessionJoinLink } from '../lib/sessions';
 import { FateSeal } from './ui/Brand';
 import { Icon } from './ui/Icons';
 
 type LobbyScreenProps = {
   user: User;
+  session?: GameSession;
+  members?: SessionMember[];
+  isHost?: boolean;
   onBack: () => void;
   onEnterGame: () => void;
+  onKickMember?: (playerId: string) => void;
 };
 
 type ChatMessage = {
@@ -128,7 +134,26 @@ function SeatCard({ seat }: { seat: Seat }) {
   );
 }
 
-export function LobbyScreen({ user, onBack, onEnterGame }: LobbyScreenProps) {
+function memberToSeat(member: SessionMember, user: User, ready: boolean, mic: boolean): Seat {
+  const you = member.playerId === user.id;
+  const offline = member.status === 'offline';
+  const name = you ? user.email?.split('@')[0] || 'You' : member.role === 'host' ? 'Host Warden' : `Player ${member.playerId.slice(0, 4).toUpperCase()}`;
+
+  return {
+    kind: 'player',
+    initials: name.slice(0, 2).toUpperCase(),
+    name,
+    role: `${member.role === 'host' ? 'Host' : 'Player'}${offline ? ' - offline' : ''}`,
+    color: member.role === 'host' ? '#D6A84F' : offline ? '#A8A29E' : '#7C3AED',
+    you,
+    ready: you ? ready : !offline,
+    mic: you ? mic : !offline,
+    ping: offline ? 999 : you ? 24 : 42,
+    note: offline ? 'Disconnected. Host may remove after 5 min.' : undefined,
+  };
+}
+
+export function LobbyScreen({ user, session, members = [], isHost = false, onBack, onEnterGame, onKickMember }: LobbyScreenProps) {
   const [ready, setReady] = useState(false);
   const [mic, setMic] = useState(true);
   const [vol, setVol] = useState(70);
@@ -143,14 +168,21 @@ export function LobbyScreen({ user, onBack, onEnterGame }: LobbyScreenProps) {
 
   const youName = user.email?.split('@')[0] || 'You';
   const youInitials = youName.slice(0, 2).toUpperCase();
-  const seats: Seat[] = [
-    { kind: 'player', initials: youInitials, name: youName, role: 'Warlock 7', color: '#7C3AED', you: true, ready, mic, ping: 24 },
-    { kind: 'player', initials: 'KI', name: 'Kessra Ironwake', role: 'Fighter 7', color: '#D6A84F', ready: true, mic: true, ping: 18 },
-    { kind: 'player', initials: 'MT', name: 'Mirenna Thornhart', role: 'Druid 7', color: '#22C55E', ready: true, mic: true, ping: 42 },
-    { kind: 'player', initials: 'HD', name: 'Halric Dale', role: 'Cleric 6', color: '#A8A29E', ready: false, mic: false, ping: 86, down: true, note: 'Unconscious in fiction. Ready to roll.' },
-    { kind: 'empty', note: 'Open seat / invite link' },
-    { kind: 'spectator', initials: 'BR', name: 'Brask', role: 'Spectator', color: '#D6A84F', mic: false },
-  ];
+  const activeMembers = members.filter((member) => member.status !== 'kicked');
+  const maxPlayers = session?.maxPlayers ?? session?.partySize ?? 4;
+  const realSeats = activeMembers.map((member) => memberToSeat(member, user, ready, mic));
+  const seats: Seat[] = realSeats.length
+    ? [
+        ...realSeats,
+        ...Array.from({ length: Math.max(0, maxPlayers - realSeats.length) }, () => ({ kind: 'empty' as const, note: 'Open seat / invite link' })),
+      ]
+    : [
+        { kind: 'player', initials: youInitials, name: youName, role: 'Warlock 7', color: '#7C3AED', you: true, ready, mic, ping: 24 },
+        { kind: 'empty', note: 'Open seat / invite link' },
+      ];
+  const roomCode = session?.roomCode ?? session?.joinCode ?? 'YSAV92';
+  const roomTitle = session?.title || 'The Gilded Tomb';
+  const shareLink = getSessionJoinLink(roomCode);
 
   const readyCount = seats.filter((seat) => seat.kind === 'player' && seat.ready).length;
   const totalPlayers = seats.filter((seat) => seat.kind === 'player').length;
@@ -179,7 +211,7 @@ export function LobbyScreen({ user, onBack, onEnterGame }: LobbyScreenProps) {
                   <span style={{ width: 5, height: 5, borderRadius: 50, background: 'currentColor' }} /> Live in 14m
                 </span>
               </div>
-              <h1 className="fw-display" style={{ fontSize: 28, color: 'var(--text)', lineHeight: 1.1, letterSpacing: '0.04em' }}>The Gilded Tomb</h1>
+              <h1 className="fw-display" style={{ fontSize: 28, color: 'var(--text)', lineHeight: 1.1, letterSpacing: '0.04em' }}>{roomTitle}</h1>
               <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <span className="fw-pill">{Icon('dice', { size: 10 })} Classic D&amp;D 5e</span>
                 <span className="fw-pill">{Icon('flame', { size: 10 })} Dark Fantasy</span>
@@ -190,16 +222,16 @@ export function LobbyScreen({ user, onBack, onEnterGame }: LobbyScreenProps) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'var(--bg-deep)', border: '1px solid var(--border)', borderRadius: 6 }}>
                 <span className="fw-eyebrow" style={{ fontSize: 9.5 }}>Code</span>
-                <span style={{ fontFamily: 'var(--f-mono)', color: 'var(--gold-bright)', letterSpacing: '0.2em', fontSize: 14 }}>YSAV-9217</span>
-                <button className="fw-btn fw-btn-icon fw-btn-ghost fw-btn-sm" type="button">{Icon('copy', { size: 11 })}</button>
+                <span style={{ fontFamily: 'var(--f-mono)', color: 'var(--gold-bright)', letterSpacing: '0.2em', fontSize: 14 }}>{roomCode}</span>
+                <button className="fw-btn fw-btn-icon fw-btn-ghost fw-btn-sm" type="button" onClick={() => void navigator.clipboard?.writeText(roomCode)}>{Icon('copy', { size: 11 })}</button>
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button" onClick={onBack}>{Icon('chevL', { size: 11 })} Back</button>
-                <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">{Icon('link', { size: 11 })} Share link</button>
+                <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button" onClick={() => void navigator.clipboard?.writeText(shareLink)}>{Icon('link', { size: 11 })} Share link</button>
                 <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">{Icon('cog', { size: 11 })}</button>
               </div>
               <div style={{ fontSize: 10.5, color: 'var(--text-4)', fontFamily: 'var(--f-mono)' }}>
-                {readyCount}/{totalPlayers} ready / 4 players / 1 spectator
+                {readyCount}/{totalPlayers} ready / {maxPlayers} players
               </div>
             </div>
           </div>
@@ -413,8 +445,21 @@ export function LobbyScreen({ user, onBack, onEnterGame }: LobbyScreenProps) {
               </div>
             </div>
 
-            <button className="fw-btn fw-btn-gold fw-btn-lg" type="button" style={{ justifyContent: 'center', opacity: readyCount >= 3 ? 1 : 0.5 }} onClick={onEnterGame}>
-              {Icon('play', { size: 14 })} Host: Begin Session ({readyCount}/{totalPlayers})
+            {isHost && activeMembers.some((member) => member.status === 'offline') ? (
+              <button
+                className="fw-btn fw-btn-ghost fw-btn-sm"
+                type="button"
+                style={{ justifyContent: 'center' }}
+                onClick={() => {
+                  const offlineMember = activeMembers.find((member) => member.status === 'offline');
+                  if (offlineMember) onKickMember?.(offlineMember.playerId);
+                }}
+              >
+                {Icon('x', { size: 11 })} Remove offline player
+              </button>
+            ) : null}
+            <button className="fw-btn fw-btn-gold fw-btn-lg" type="button" style={{ justifyContent: 'center', opacity: isHost || ready ? 1 : 0.7 }} onClick={onEnterGame}>
+              {Icon('play', { size: 14 })} {isHost ? `Host: Begin Session (${readyCount}/${totalPlayers})` : 'Enter when host begins'}
             </button>
             <div style={{ fontSize: 10.5, color: 'var(--text-4)', textAlign: 'center', marginTop: -10, fontFamily: 'var(--f-serif)', fontStyle: 'italic' }}>
               Halric&apos;s player marked unconscious-as-narrative. We may begin.

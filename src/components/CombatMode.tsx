@@ -50,16 +50,6 @@ const MAP_W = 22;
 const MAP_H = 14;
 const CELL = 34;
 
-const INITIAL_TOKENS: CombatToken[] = [
-  { id: 'aedric', name: 'Aedric Vael', x: 5, y: 8, hp: 38, hpMax: 52, ac: 16, init: 19, color: '#d6a84f', you: true, conditions: [{ k: 'Hex ward', buff: true }] },
-  { id: 'kessra', name: 'Kessra', x: 4, y: 6, hp: 26, hpMax: 26, ac: 14, init: 17, color: '#7c3aed' },
-  { id: 'mirenna', name: 'Mirenna', x: 6, y: 5, hp: 31, hpMax: 38, ac: 15, init: 14, color: '#22c55e' },
-  { id: 'halric', name: 'Halric Dale', x: 7, y: 9, hp: 9, hpMax: 44, ac: 18, init: 11, color: '#60a5fa', conditions: [{ k: 'Frightened', bad: true }] },
-  { id: 'reeve', name: 'Cinder-Reeve', x: 16, y: 6, hp: 86, hpMax: 110, ac: 17, init: 18, color: '#991b1b', foe: true, boss: true, conditions: [{ k: 'Burning', bad: true }] },
-  { id: 'spear-a', name: 'Brass Spear A', x: 14, y: 5, hp: 22, hpMax: 28, ac: 15, init: 13, color: '#b45309', foe: true },
-  { id: 'spear-b', name: 'Brass Spear B', x: 18, y: 8, hp: 0, hpMax: 28, ac: 15, init: 7, color: '#b45309', foe: true, down: true, conditions: [{ k: 'Down', bad: true }] },
-];
-
 const TOOLS = [
   { id: 'cursor', icon: 'compass', label: 'Select' },
   { id: 'measure', icon: 'zap', label: 'Measure' },
@@ -90,10 +80,10 @@ function tokenFromEncounter(encounter: EncounterState, activeCharacterId?: strin
 }
 
 export function CombatMode({ activeCharacterId, encounter, onDispatchCombatEvent, onExit }: CombatModeProps) {
-  const [localTokens, setTokens] = useState<CombatToken[]>(INITIAL_TOKENS);
-  const [selectedId, setSelectedId] = useState('aedric');
+  const [localTokens, setTokens] = useState<CombatToken[]>([]);
+  const [selectedId, setSelectedId] = useState('');
   const [tool, setTool] = useState('cursor');
-  const [round, setRound] = useState(3);
+  const [round, setRound] = useState(1);
   const [turnIdx, setTurnIdx] = useState(0);
   const [actionState, setActionState] = useState<ActionState>({ action: false, bonus: false, reaction: false, moveUsed: 0 });
   const [flow, setFlow] = useState<FlowState>(null);
@@ -104,23 +94,13 @@ export function CombatMode({ activeCharacterId, encounter, onDispatchCombatEvent
   );
   const tokens = encounterTokens ?? localTokens;
 
-  const launchAttack = (weapon: AttackFlowState['weapon']) => {
-    if (actionState.action) return;
-    setFlow({ kind: 'attack', weapon });
-  };
-
-  const launchSpell = (spell: SpellFlowState['spell']) => {
-    if (spell.cost === '1A' && actionState.action) return;
-    if (spell.cost === '1BA' && actionState.bonus) return;
-    setFlow({ kind: 'spell', spell });
-  };
-
   const order = useMemo(() => [...tokens].sort((a, b) => b.init - a.init), [tokens]);
   const currentTurnIdx = encounter ? encounter.activeIndex : turnIdx;
   const current = order[currentTurnIdx] ?? order[0];
   const selected = tokens.find((token) => token.id === selectedId) ?? order[0];
   const isYourTurn = Boolean(selected?.you && current?.id === selected.id);
   const moveLeft = Math.max(0, 30 - actionState.moveUsed);
+  const quickAmount = selected ? Math.max(1, Math.ceil(selected.hpMax * 0.1)) : 1;
 
   const moveCells = useMemo(() => {
     if (!selected?.you || !isYourTurn || moveLeft <= 0) return new Set<string>();
@@ -144,6 +124,7 @@ export function CombatMode({ activeCharacterId, encounter, onDispatchCombatEvent
       setSelectedId(token.id);
       return;
     }
+    if (!selected) return;
     if (!selected?.you || !isYourTurn || !moveCells.has(`${x}:${y}`)) return;
     const dist = Math.max(Math.abs(x - selected.x), Math.abs(y - selected.y)) * 5;
     if (encounter && onDispatchCombatEvent) {
@@ -165,6 +146,7 @@ export function CombatMode({ activeCharacterId, encounter, onDispatchCombatEvent
   };
 
   const endTurn = () => {
+    if (!selected || !order.length) return;
     if (encounter && onDispatchCombatEvent) {
       void onDispatchCombatEvent({
         id: crypto.randomUUID(),
@@ -187,6 +169,7 @@ export function CombatMode({ activeCharacterId, encounter, onDispatchCombatEvent
   };
 
   const applyDamage = (amount: number) => {
+    if (!selected) return;
     if (encounter && onDispatchCombatEvent) {
       void onDispatchCombatEvent({
         id: crypto.randomUUID(),
@@ -204,6 +187,7 @@ export function CombatMode({ activeCharacterId, encounter, onDispatchCombatEvent
   };
 
   const heal = (amount: number) => {
+    if (!selected) return;
     if (encounter && onDispatchCombatEvent) {
       void onDispatchCombatEvent({
         id: crypto.randomUUID(),
@@ -315,8 +299,6 @@ export function CombatMode({ activeCharacterId, encounter, onDispatchCombatEvent
             current={current}
             isYourTurn={isYourTurn}
             moveLeft={moveLeft}
-            onAttack={launchAttack}
-            onSpell={launchSpell}
             onAction={() => setActionState((state) => ({ ...state, action: true }))}
             onDash={() => setActionState((state) => ({ ...state, action: true, moveUsed: Math.max(0, state.moveUsed - 30) }))}
             onEndTurn={endTurn}
@@ -324,7 +306,11 @@ export function CombatMode({ activeCharacterId, encounter, onDispatchCombatEvent
         </section>
 
         <aside className="fw-token-inspector">
-          <TokenInspector token={selected} onDamage={() => applyDamage(7)} onHeal={() => heal(8)} />
+          {selected ? (
+            <TokenInspector token={selected} onDamage={() => applyDamage(quickAmount)} onHeal={() => heal(quickAmount)} />
+          ) : (
+            <div className="fw-empty">No combatant selected.</div>
+          )}
         </aside>
       </div>
 
@@ -366,8 +352,6 @@ function TurnHud({
   current,
   isYourTurn,
   moveLeft,
-  onAttack,
-  onSpell,
   onAction,
   onDash,
   onEndTurn,
@@ -376,8 +360,6 @@ function TurnHud({
   current?: CombatToken;
   isYourTurn: boolean;
   moveLeft: number;
-  onAttack: (weapon: AttackFlowState['weapon']) => void;
-  onSpell: (spell: SpellFlowState['spell']) => void;
   onAction: () => void;
   onDash: () => void;
   onEndTurn: () => void;
@@ -388,11 +370,11 @@ function TurnHud({
         <span className={current?.foe ? 'fw-turn-dot foe' : 'fw-turn-dot'} />
         <div>
           <div className="fw-eyebrow">Now Acting</div>
-          <div className="fw-display" style={{ color: 'var(--text)', fontSize: 16 }}>{current?.name}</div>
+          <div className="fw-display" style={{ color: 'var(--text)', fontSize: 16 }}>{current?.name ?? 'No active combatant'}</div>
         </div>
         <span style={{ flex: 1 }} />
         <span className="fw-serif" style={{ color: 'var(--text-3)', fontStyle: 'italic' }}>
-          {current?.foe ? 'Hold breath. The Reeve does not blink.' : 'Wait for your turn.'}
+          {current ? (current.foe ? 'Enemy turn.' : 'Wait for your turn.') : 'Create or join an encounter to start combat.'}
         </span>
       </div>
     );
@@ -402,7 +384,7 @@ function TurnHud({
     <div className="fw-turn-hud yours">
       <div className="fw-turn-title">
         <div className="fw-eyebrow" style={{ color: 'var(--gold)' }}>Your Turn</div>
-        <div className="fw-display">Aedric Vael</div>
+        <div className="fw-display">{current?.name ?? 'Your character'}</div>
       </div>
       <div className="fw-action-budget">
         <BudgetSlot label="Action" used={actionState.action} icon="sword" />
@@ -415,9 +397,9 @@ function TurnHud({
         </div>
       </div>
       <div className="fw-quick-actions">
-        <button className="fw-btn fw-btn-gold" disabled={actionState.action} type="button" onClick={() => onAttack({ n: 'Staff of Cinder-Reeve', dmg: '1d8+4 fire', toHit: 7 })}>{Icon('flame', { size: 12 })} Attack <span className="fw-mini-cost">1A</span></button>
-        <button className="fw-btn fw-btn-arcane" disabled={actionState.action} type="button" onClick={() => onSpell({ n: 'Eldritch Blast', lvl: 'Cantrip', cost: '1A', toHit: 7 })}>{Icon('flame', { size: 12 })} Blast <span className="fw-mini-cost">1A</span></button>
-        <button className="fw-btn fw-btn-ghost" disabled={actionState.bonus} type="button" onClick={() => onSpell({ n: 'Hex', lvl: '1', cost: '1BA', curse: true })}>{Icon('skull', { size: 12 })} Hex <span className="fw-mini-cost">1BA</span></button>
+        <button className="fw-btn fw-btn-gold" disabled title="Character attack actions are not wired to runtime action data yet." type="button">{Icon('flame', { size: 12 })} Attack <span className="fw-mini-cost">1A</span></button>
+        <button className="fw-btn fw-btn-arcane" disabled title="Character spell actions are not wired to runtime spell data yet." type="button">{Icon('flame', { size: 12 })} Blast <span className="fw-mini-cost">1A</span></button>
+        <button className="fw-btn fw-btn-ghost" disabled title="Character bonus actions are not wired to runtime action data yet." type="button">{Icon('skull', { size: 12 })} Hex <span className="fw-mini-cost">1BA</span></button>
         <button className="fw-btn fw-btn-ghost" disabled={actionState.action} type="button" onClick={onDash}>{Icon('arrowR', { size: 12 })} Dash</button>
       </div>
       <button className="fw-btn fw-btn-blood fw-btn-lg" type="button" onClick={onEndTurn}>
@@ -472,8 +454,8 @@ function TokenInspector({ token, onDamage, onHeal }: { token: CombatToken; onDam
       <div className="fw-token-actions">
         <button className="fw-btn fw-btn-blood fw-btn-sm" type="button" onClick={onDamage}>{Icon('minus', { size: 11 })} Damage</button>
         <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button" onClick={onHeal}>{Icon('heart', { size: 11 })} Heal</button>
-        <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">{Icon('sparkles', { size: 11 })} Condition</button>
-        <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">{Icon('eye', { size: 11 })} Statblock</button>
+        <button className="fw-btn fw-btn-ghost fw-btn-sm" disabled title="Condition picker is not wired to an existing event yet." type="button">{Icon('sparkles', { size: 11 })} Condition</button>
+        <button className="fw-btn fw-btn-ghost fw-btn-sm" disabled title="Statblock view is not wired yet." type="button">{Icon('eye', { size: 11 })} Statblock</button>
       </div>
     </div>
   );

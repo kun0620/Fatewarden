@@ -48,21 +48,21 @@ export interface GameTableProps {
   combatView?: React.ReactNode;
 }
 
-// ─── Mock party (fallback if real party not available) ───────────────────────
+// ─── Helper: Convert character to party member display ───────────────────────
 
-const PARTY_MOCK = [
-  { id: 1, name: 'Aedric Vael',      cls: 'Warlock',  lvl: 7, hp: 38, hpMax: 52, ac: 14, you: true,  color: '#7C3AED', initials: 'AE' },
-  { id: 2, name: 'Kessra Ironwake',  cls: 'Fighter',  lvl: 7, hp: 64, hpMax: 70, ac: 19,             color: '#D6A84F', initials: 'KI' },
-  { id: 3, name: 'Mirenna Thornhart',cls: 'Druid',    lvl: 7, hp: 41, hpMax: 56, ac: 16,             color: '#22C55E', initials: 'MT' },
-  { id: 4, name: 'Halric Dale',      cls: 'Cleric',   lvl: 6, hp: 0,  hpMax: 48, ac: 18, down: true, color: '#A8A29E', initials: 'HD' },
-];
-
-const SUGGESTIONS_MOCK = [
-  'Step inside the warding circle.',
-  'Speak to the held shadow.',
-  'Disrupt the binding deliberately.',
-  'Search the chapel for the missing censer-chain.',
-];
+function charToPartyMember(char: Character): PartyMember {
+  return {
+    id: parseInt(char.id.split('-')[0], 10) || 1,
+    name: char.name,
+    cls: char.className,
+    lvl: char.level,
+    hp: char.hitPoints,
+    hpMax: char.maxHitPoints,
+    ac: char.armorClass,
+    color: '#7C3AED',
+    initials: char.name.split(' ').map(x => x[0]).join('').slice(0, 2).toUpperCase(),
+  };
+}
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -80,16 +80,15 @@ export function GameTable({
   onToggleCombat,
   combatView,
 }: GameTableProps) {
-  const { sceneState, combatState } = useGameStore();
+  const { sceneState, combatState, activeCharacter, setActiveCharacter } = useGameStore();
+  const tableCharacter = character ?? activeCharacter;
 
   const [leftTab,      setLeftTab]      = useState<LeftTab>('party');
   const [rightTab,     setRightTab]     = useState<RightTab>('dice');
   const [storyTab,     setStoryTab]     = useState<StoryTab>('story');
   const [actionDraft,  setActionDraft]  = useState('');
   const [pendingChange, setPendingChange] = useState<PendingChange | null>(null);
-  const [diceResult,   setDiceResult]   = useState<DiceResult>({
-    die: '1d20', value: 17, bonus: '+3', target: 15, kind: 'success',
-  });
+  const [diceResult,   setDiceResult]   = useState<DiceResult | null>(null);
   const [rolling, setRolling] = useState(false);
   const [aiOn,    setAiOn]    = useState(true);
   const [aiTone,  setAiTone]  = useState('Balanced');
@@ -103,14 +102,17 @@ export function GameTable({
   };
 
   const rollDie = () => {
+    if (!character) return;
     setRolling(true);
+    const profBonus = character.systemData?.proficiencyBonus;
+    const bonus = typeof profBonus === 'number' ? profBonus : 0;
     setTimeout(() => {
       const v = 1 + Math.floor(Math.random() * 20);
-      const bonus = 3;
       const total = v + bonus;
+      const dc = 10;
       const kind: DiceResult['kind'] =
-        v === 20 ? 'crit' : v === 1 ? 'fumble' : total >= 15 ? 'success' : 'failure';
-      const result: DiceResult = { die: '1d20', value: v, bonus: '+3', target: 15, kind };
+        v === 20 ? 'crit' : v === 1 ? 'fumble' : total >= dc ? 'success' : 'failure';
+      const result: DiceResult = { die: '1d20', value: v, bonus: `+${bonus}`, target: dc, kind };
       setDiceResult(result);
       onDiceRoll?.(result);
       setRolling(false);
@@ -131,7 +133,7 @@ export function GameTable({
         combatMode={combatMode}
         onToggleCombat={() => onToggleCombat?.(!combatMode)}
         onLeave={onLeave}
-        party={PARTY_MOCK}
+        party={tableCharacter ? [charToPartyMember(tableCharacter)] : []}
       />
 
       <div style={{
@@ -158,25 +160,26 @@ export function GameTable({
               { id: 'bag',    label: 'Inventory',  icon: 'bag'    },
               { id: 'quests', label: 'Quests',     icon: 'scroll' },
             ] as { id: LeftTab; label: string; icon: string }[]).map(t => (
-              <div
+              <button
                 key={t.id}
+                type="button"
                 className={'fw-tab ' + (leftTab === t.id ? 'active' : '')}
                 onClick={() => setLeftTab(t.id)}
                 style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 8px', flex: 1, justifyContent: 'center' }}
               >
                 {Icon(t.icon, { size: 11 })} {t.label}
-              </div>
+              </button>
             ))}
           </div>
 
           <div className="fw-scroll" style={{ flex: 1, padding: 14 }}>
-            {leftTab === 'party'  && <GtPartyPanel  party={PARTY_MOCK} onAttack={handleChange} />}
-            {leftTab === 'char'   && <GtCharPanel   character={character} />}
-            {leftTab === 'bag'    && (character
-              ? <InventoryPanel character={character} onUpdateCharacter={onUpdateCharacter ?? (() => {})} />
+            {leftTab === 'party'  && <GtPartyPanel  party={tableCharacter ? [charToPartyMember(tableCharacter)] : []} onAttack={handleChange} />}
+            {leftTab === 'char'   && <GtCharPanel   character={tableCharacter} />}
+            {leftTab === 'bag'    && (tableCharacter
+              ? <InventoryPanel character={tableCharacter} onUpdateCharacter={onUpdateCharacter ?? ((nextCharacter) => setActiveCharacter(nextCharacter))} />
               : <GtInventoryStub onUse={handleChange} />
             )}
-            {leftTab === 'quests' && <GtQuestsPanel />}
+            {leftTab === 'quests' && <GtQuestsPanel quests={[]} />}
           </div>
         </aside>
 
@@ -198,21 +201,22 @@ export function GameTable({
                   { id: 'chat',  label: 'Table Chat',  icon: 'users'  },
                   { id: 'lore',  label: 'Lore',        icon: 'book'   },
                 ] as { id: StoryTab; label: string; icon: string }[]).map(t => (
-                  <div
+                  <button
                     key={t.id}
+                    type="button"
                     className={'fw-tab ' + (storyTab === t.id ? 'active' : '')}
                     onClick={() => setStoryTab(t.id)}
                     style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                   >
                     {Icon(t.icon, { size: 11 })} {t.label}
-                  </div>
+                  </button>
                 ))}
                 <span style={{ flex: 1, borderBottom: '1px solid var(--border-soft)' }} />
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBlock: 4 }}>
                   <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
                     Session — · ongoing
                   </span>
-                  <button className="fw-btn fw-btn-icon fw-btn-ghost fw-btn-sm">
+                  <button className="fw-btn fw-btn-icon fw-btn-ghost fw-btn-sm" disabled title="Story search is not wired yet." type="button">
                     {Icon('search', { size: 12 })}
                   </button>
                 </div>
@@ -227,13 +231,13 @@ export function GameTable({
                 ) : messages.map((msg, i) => (
                   <GtStoryEntry key={msg.id ?? i} message={msg} />
                 ))}
-                <GtRollRequest dice={diceResult} onRoll={rollDie} rolling={rolling} />
+                {diceResult && <GtRollRequest dice={diceResult} onRoll={rollDie} rolling={rolling} />}
               </div>
 
               <GtActionInput
                 value={actionDraft}
                 setValue={setActionDraft}
-                suggestions={SUGGESTIONS_MOCK}
+                suggestions={[]}
                 onSend={handleSend}
                 onRollDice={rollDie}
               />
@@ -256,20 +260,21 @@ export function GameTable({
               { id: 'ai',     label: 'AI Warden', icon: 'wand'   },
               { id: 'tools',  label: 'Tools',     icon: 'cog'    },
             ] as { id: RightTab; label: string; icon: string }[]).map(t => (
-              <div
+              <button
                 key={t.id}
+                type="button"
                 className={'fw-tab ' + (rightTab === t.id ? 'active' : '')}
                 onClick={() => setRightTab(t.id)}
                 style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '10px 6px', flex: 1, justifyContent: 'center', fontSize: 10 }}
               >
                 {Icon(t.icon, { size: 11 })} {t.label}
-              </div>
+              </button>
             ))}
           </div>
 
           <div className="fw-scroll" style={{ flex: 1, padding: 14 }}>
-            {rightTab === 'dice'   && <GtDicePanel result={diceResult} onRoll={rollDie} rolling={rolling} />}
-            {rightTab === 'combat' && <GtCombatPanel encounter={combatState} onChange={handleChange} />}
+            {rightTab === 'dice'   && diceResult && <GtDicePanel result={diceResult} onRoll={rollDie} rolling={rolling} />}
+            {rightTab === 'combat' && <GtCombatPanel encounter={combatState} actorId={tableCharacter?.id ?? user.id} onChange={handleChange} />}
             {rightTab === 'ai'     && <GtAIDMPanel on={aiOn} setOn={setAiOn} tone={aiTone} setTone={setAiTone} strict={aiStrict} setStrict={setAiStrict} onChange={handleChange} />}
             {rightTab === 'tools'  && <GtToolsPanel />}
           </div>
@@ -290,7 +295,7 @@ interface SessionBannerProps {
   combatMode: boolean;
   onToggleCombat: () => void;
   onLeave: () => void;
-  party: typeof PARTY_MOCK;
+  party: PartyMember[];
 }
 
 function GtSessionBanner({ session, combatMode, onToggleCombat, onLeave, party }: SessionBannerProps) {
@@ -337,7 +342,7 @@ function GtSessionBanner({ session, combatMode, onToggleCombat, onLeave, party }
       </button>
 
       <div style={{ display: 'flex', marginRight: 4, marginLeft: 8 }}>
-        {party.slice(0, 4).map((p, i) => (
+        {party.slice(0, 4).map((p: PartyMember, i: number) => (
           <div
             key={p.id}
             className={'fw-avatar sm ' + (p.you ? 'dm' : '')}
@@ -350,9 +355,9 @@ function GtSessionBanner({ session, combatMode, onToggleCombat, onLeave, party }
       </div>
 
       <div style={{ display: 'flex', gap: 6 }}>
-        <button className="fw-btn fw-btn-icon fw-btn-ghost">{Icon('mic',    { size: 14 })}</button>
-        <button className="fw-btn fw-btn-icon fw-btn-ghost">{Icon('volume', { size: 14 })}</button>
-        <button className="fw-btn fw-btn-icon fw-btn-ghost">{Icon('kebab',  { size: 14 })}</button>
+        <button className="fw-btn fw-btn-icon fw-btn-ghost" disabled title="Voice controls are not wired yet." type="button">{Icon('mic',    { size: 14 })}</button>
+        <button className="fw-btn fw-btn-icon fw-btn-ghost" disabled title="Audio controls are not wired yet." type="button">{Icon('volume', { size: 14 })}</button>
+        <button className="fw-btn fw-btn-icon fw-btn-ghost" disabled title="Table menu is not wired yet." type="button">{Icon('kebab',  { size: 14 })}</button>
       </div>
     </div>
   );
@@ -367,6 +372,8 @@ interface PartyMember {
 }
 
 function GtPartyPanel({ party, onAttack }: { party: PartyMember[]; onAttack: (c: PendingChange) => void }) {
+  const firstTarget = party[0];
+  const quickDamage = firstTarget ? Math.max(1, Math.ceil(firstTarget.hpMax * 0.1)) : 0;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div className="fw-eyebrow" style={{ marginBottom: 2 }}>Party</div>
@@ -403,8 +410,8 @@ function GtPartyPanel({ party, onAttack }: { party: PartyMember[]; onAttack: (c:
           </div>
         </div>
       ))}
-      <button className="fw-btn fw-btn-ghost fw-btn-sm" style={{ justifyContent: 'center' }}
-        onClick={() => onAttack({ kind: 'damage', target: 'Aedric', amount: 7, source: 'Brass spear hit' })}>
+      <button className="fw-btn fw-btn-ghost fw-btn-sm" disabled={!firstTarget} style={{ justifyContent: 'center' }}
+        onClick={() => firstTarget && onAttack({ kind: 'damage', target: firstTarget.name, amount: quickDamage, source: 'Incoming attack' })}>
         {Icon('alert', { size: 11 })} Simulate incoming damage
       </button>
     </div>
@@ -414,13 +421,20 @@ function GtPartyPanel({ party, onAttack }: { party: PartyMember[]; onAttack: (c:
 // ─── Left: Character Panel ────────────────────────────────────────────────────
 
 function GtCharPanel({ character }: { character: Character | null }) {
-  const name     = character?.name ?? 'Aedric Vael';
-  const cls      = character?.className ?? 'Warlock';
-  const lvl      = character?.level ?? 7;
-  const race     = character?.race ?? 'Tiefling';
-  const hp       = character?.hitPoints ?? 38;
-  const hpMax    = character?.maxHitPoints ?? 52;
-  const ac       = character?.armorClass ?? 14;
+  if (!character) {
+    return (
+      <div style={{ color: 'var(--text-3)', fontSize: 12, textAlign: 'center', padding: 20 }}>
+        No character selected
+      </div>
+    );
+  }
+  const name     = character.name;
+  const cls      = character.className;
+  const lvl      = character.level;
+  const race     = character.race || character.ancestry;
+  const hp       = character.hitPoints;
+  const hpMax    = character.maxHitPoints;
+  const ac       = character.armorClass;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -452,16 +466,24 @@ function GtCharPanel({ character }: { character: Character | null }) {
 
 // ─── Left: Inventory Stub (STEP 4 will replace this) ─────────────────────────
 
-function GtInventoryStub({ onUse }: { onUse: (c: PendingChange) => void }) {
+interface InventoryItem {
+  id: string;
+  n: string;
+  tag: string;
+  icon: string;
+  action?: boolean;
+}
+
+function GtInventoryStub({ onUse, items }: { onUse: (c: PendingChange) => void; items?: InventoryItem[] }) {
+  const displayItems = items ?? [];
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div className="fw-eyebrow" style={{ marginBottom: 4 }}>Inventory</div>
-      {[
-        { id: 'staff',  n: 'Staff of the Cinder-Reeve', tag: 'Pact weapon · 1d8 fire', icon: 'flame',    action: true },
-        { id: 'potion', n: "Healer's Potion",            tag: '2d4+2 HP · standard',    icon: 'potion',   action: true },
-        { id: 'key',    n: 'Brass censer-key',           tag: 'Binding-resonance trinket', icon: 'sparkles' },
-        { id: 'tablet', n: 'Bone-tablet fragment',       tag: 'Embers arc clue',         icon: 'scroll'   },
-      ].map(it => (
+      {displayItems.length === 0 ? (
+        <div style={{ color: 'var(--text-3)', fontSize: 12 }}>No items</div>
+      ) : (
+        displayItems.map(it => (
         <div key={it.id} style={{ display: 'flex', gap: 8, padding: '8px 10px', background: 'var(--surface)', border: '1px solid var(--border-soft)', borderRadius: 6 }}>
           <span style={{ color: 'var(--gold)', display: 'grid', placeItems: 'center', width: 24 }}>{Icon(it.icon, { size: 13 })}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -470,33 +492,27 @@ function GtInventoryStub({ onUse }: { onUse: (c: PendingChange) => void }) {
           </div>
           {it.action && (
             <button className="fw-btn fw-btn-gold fw-btn-sm"
-              onClick={() => onUse({ kind: 'use-item', item: it.n, amount: '2d4+2 HP' })}
+              onClick={() => onUse({ kind: 'use-item', item: it.n, amount: it.tag })}
               style={{ fontSize: 10.5, padding: '3px 8px' }}>
               Use
             </button>
           )}
         </div>
-      ))}
+      )))}
     </div>
   );
 }
 
 // ─── Left: Quests Panel ───────────────────────────────────────────────────────
 
-function GtQuestsPanel() {
-  const quests = [
-    { title: 'The Gilded Tomb', kind: 'Main', active: true,
-      steps: [
-        { d: 'Reach the chapel beneath Ysavir.', done: true },
-        { d: 'Confront the Cinder-Reeve.', done: true },
-        { d: 'Decide the fate of the held shadow.', done: false, current: true },
-        { d: 'Recover the brass censer-chain.', done: false },
-      ] },
-    { title: 'The Bone-tablet', kind: 'Side', active: false,
-      steps: [{ d: 'Reassemble three fragments.', done: false, progress: '2 / 3' }, { d: "Find the tablet's reader.", done: false }] },
-    { title: 'A Letter to Lira', kind: 'Personal', active: false,
-      steps: [{ d: 'Write a letter, then never send it.', done: false }] },
-  ];
+function GtQuestsPanel({ quests }: { quests: any[] }) {
+  if (!quests || quests.length === 0) {
+    return (
+      <div style={{ color: 'var(--text-3)', fontSize: 12, textAlign: 'center', padding: 20 }}>
+        No quests loaded
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -511,7 +527,7 @@ function GtQuestsPanel() {
             <div className="fw-display" style={{ fontSize: 13, color: 'var(--text)' }}>{q.title}</div>
           </div>
           <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {q.steps.map((s, si) => (
+            {q.steps.map((s: any, si: number) => (
               <li key={si} style={{ display: 'flex', gap: 8, fontSize: 12, lineHeight: 1.4, fontFamily: 'var(--f-serif)', color: s.done ? 'var(--text-3)' : ('current' in s && s.current) ? 'var(--gold-bright)' : 'var(--text-2)' }}>
                 <span style={{ width: 14, height: 14, borderRadius: 50, border: '1px solid ' + (s.done ? 'var(--gold-deep)' : ('current' in s && s.current) ? 'var(--gold-bright)' : 'var(--border)'), background: s.done ? 'rgba(214,168,79,0.2)' : 'transparent', display: 'grid', placeItems: 'center', color: 'var(--gold-bright)', flexShrink: 0, marginTop: 2 }}>
                   {s.done && Icon('check', { size: 9 })}
@@ -529,9 +545,9 @@ function GtQuestsPanel() {
 
 // ─── Center: Scene Header ─────────────────────────────────────────────────────
 
-function GtSceneHeader({ sceneState }: { sceneState: { name?: string; description?: string } | null }) {
-  const title = sceneState?.name ?? 'Chapel of the Gilded Censer';
-  const desc  = sceneState?.description ?? 'A low chapel built into the under-cathedral. The brazen censer above the altar still burns — barely.';
+function GtSceneHeader({ sceneState }: { sceneState: { name?: string; location?: string; description?: string } | null }) {
+  const title = sceneState?.name ?? sceneState?.location ?? 'No scene loaded';
+  const desc  = sceneState?.description ?? 'Scene state is not available yet.';
 
   return (
     <div style={{ padding: '18px 28px 0', position: 'relative' }}>
@@ -619,8 +635,8 @@ function GtRollRequest({ dice, onRoll, rolling }: { dice: DiceResult; onRoll: ()
           </svg>
           Roll {dice.die}{dice.bonus}
         </button>
-        <button className="fw-btn fw-btn-ghost">Adv</button>
-        <button className="fw-btn fw-btn-ghost">Dis</button>
+        <button className="fw-btn fw-btn-ghost" disabled title="Advantage mode is not wired to the dice roller yet." type="button">Adv</button>
+        <button className="fw-btn fw-btn-ghost" disabled title="Disadvantage mode is not wired to the dice roller yet." type="button">Dis</button>
       </div>
     </div>
   );
@@ -669,7 +685,7 @@ function GtActionInput({ value, setValue, suggestions, onSend, onRollDice }: Act
               { id: 'act',   label: 'Act',            icon: 'sword' },
               { id: 'aside', label: 'Aside (DM only)', icon: 'eye'  },
             ] as { id: ActionMode; label: string; icon: string }[]).map(t => (
-              <button key={t.id} onClick={() => setMode(t.id)}
+              <button key={t.id} onClick={() => setMode(t.id)} type="button"
                 className="fw-btn fw-btn-ghost fw-btn-sm"
                 style={{ padding: '3px 8px', fontSize: 11, color: mode === t.id ? 'var(--gold-bright)' : 'var(--text-3)', borderColor: mode === t.id ? 'var(--gold-deep)' : 'transparent', background: mode === t.id ? 'rgba(214,168,79,0.08)' : 'transparent' }}>
                 {Icon(t.icon, { size: 10 })} {t.label}
@@ -686,8 +702,8 @@ function GtActionInput({ value, setValue, suggestions, onSend, onRollDice }: Act
           />
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <button className="fw-btn fw-btn-icon fw-btn-ghost" onClick={onRollDice}>{Icon('dice', { size: 14 })}</button>
-          <button className="fw-btn fw-btn-icon fw-btn-ghost">{Icon('sparkles', { size: 14 })}</button>
+          <button className="fw-btn fw-btn-icon fw-btn-ghost" onClick={onRollDice} type="button">{Icon('dice', { size: 14 })}</button>
+          <button className="fw-btn fw-btn-icon fw-btn-ghost" disabled title="AI suggestion insert is not wired yet." type="button">{Icon('sparkles', { size: 14 })}</button>
         </div>
         <button className="fw-btn fw-btn-gold fw-btn-lg" style={{ height: '100%' }} onClick={onSend}>
           {Icon('send', { size: 13 })} Commit
@@ -711,6 +727,7 @@ function GtDicePanel({ result, onRoll, rolling }: { result: DiceResult; onRoll: 
     k === 'crit' ? 'var(--gold-bright)' : k === 'fumble' ? 'var(--blood-bright)' : 'var(--text)';
   const labelByKind = (k: DiceResult['kind']) =>
     k === 'crit' ? 'Critical.' : k === 'success' ? 'Success.' : k === 'fumble' ? 'Fumble.' : 'Failure.';
+  const total = result.value + (Number.parseInt(result.bonus, 10) || 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -723,7 +740,7 @@ function GtDicePanel({ result, onRoll, rolling }: { result: DiceResult; onRoll: 
           <span style={{ fontSize: 22, color: 'var(--text-3)' }}> {result.bonus}</span>
         </div>
         <div style={{ marginTop: 4, fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--text-3)' }}>
-          = {result.value + 3} vs DC {result.target}
+          = {total} vs DC {result.target}
         </div>
         <div style={{ marginTop: 6, fontFamily: 'var(--f-serif)', fontStyle: 'italic', fontSize: 13, color: colorByKind(result.kind) }}>
           {labelByKind(result.kind)}
@@ -736,13 +753,13 @@ function GtDicePanel({ result, onRoll, rolling }: { result: DiceResult; onRoll: 
           <span className="fw-eyebrow">Quick Dice</span>
           <div className="fw-seg">
             {['Normal', 'Adv', 'Dis'].map(o => (
-              <button key={o} className="fw-seg-btn">{o}</button>
+              <button key={o} className="fw-seg-btn" disabled={o !== 'Normal'} title={o === 'Normal' ? undefined : 'Advantage modes are not wired yet.'} type="button">{o}</button>
             ))}
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
           {DICE_FACES.map(d => (
-            <button key={d.n} onClick={d.primary ? onRoll : undefined}
+            <button key={d.n} disabled={!d.primary} onClick={d.primary ? onRoll : undefined} type="button" title={d.primary ? undefined : `${d.n} rolling is not wired yet.`}
               className="fw-btn"
               style={{ padding: '12px 0', justifyContent: 'center', flexDirection: 'column', gap: 0, background: d.primary ? 'linear-gradient(180deg, #2A1F3D, #15101f)' : 'var(--surface-2)', borderColor: d.primary ? 'var(--gold-deep)' : 'var(--border-soft)', color: d.primary ? 'var(--gold-bright)' : 'var(--text-2)', boxShadow: d.primary ? '0 0 16px -4px rgba(214,168,79,0.3)' : 'none' }}>
               <span className="fw-display" style={{ fontSize: 16, letterSpacing: '0.06em' }}>{d.n}</span>
@@ -756,11 +773,11 @@ function GtDicePanel({ result, onRoll, rolling }: { result: DiceResult; onRoll: 
       <div>
         <div className="fw-eyebrow" style={{ marginBottom: 6 }}>Saved Rolls</div>
         {[
-          { n: 'Eldritch Blast',   d: '2d10 + 4 · force',  icon: 'flame' },
-          { n: 'Persuasion (CHA)', d: '1d20 + 6',           icon: 'users' },
-          { n: 'Death Save',       d: '1d20',               icon: 'skull', blood: true },
+          { n: 'Primary attack',   d: 'Character action',   icon: 'flame' },
+          { n: 'Social check',     d: 'Ability check',      icon: 'users' },
+          { n: 'Death save',       d: 'Saving throw',       icon: 'skull', blood: true },
         ].map((r, i) => (
-          <button key={i} className="fw-btn fw-btn-ghost" style={{ width: '100%', justifyContent: 'flex-start', padding: '8px 10px', marginBottom: 4, fontSize: 12 }}>
+          <button key={i} className="fw-btn fw-btn-ghost" disabled title="Saved rolls are not wired yet." type="button" style={{ width: '100%', justifyContent: 'flex-start', padding: '8px 10px', marginBottom: 4, fontSize: 12 }}>
             <span style={{ color: r.blood ? 'var(--blood-bright)' : 'var(--gold)' }}>{Icon(r.icon, { size: 12 })}</span>
             <span style={{ flex: 1, textAlign: 'left' }}>{r.n}</span>
             <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10.5, color: 'var(--text-3)' }}>{r.d}</span>
@@ -775,10 +792,14 @@ function GtDicePanel({ result, onRoll, rolling }: { result: DiceResult; onRoll: 
 
 interface CombatPanelProps {
   encounter: EncounterState | null;
+  actorId: string;
   onChange: (c: PendingChange) => void;
 }
 
-function GtCombatPanel({ encounter, onChange }: CombatPanelProps) {
+function GtCombatPanel({ encounter, actorId, onChange }: CombatPanelProps) {
+  const dispatch = useGameStore((state) => state.dispatch);
+  const eventMeta = useGameStore((state) => state.eventMeta);
+
   if (!encounter) {
     return (
       <div style={{ textAlign: 'center', padding: 24 }}>
@@ -790,9 +811,54 @@ function GtCombatPanel({ encounter, onChange }: CombatPanelProps) {
     );
   }
 
-  const combatants = encounter.combatants ?? [];
-  const activeIdx  = encounter.activeIndex ?? 0;
-  const round      = encounter.round ?? 1;
+  const activeEncounter = encounter;
+  const combatants = activeEncounter.combatants ?? [];
+  const activeIdx  = activeEncounter.activeIndex ?? 0;
+  const round      = activeEncounter.round ?? 1;
+  const activeCombatant = combatants[activeIdx] ?? combatants[0];
+  const quickAmount = activeCombatant ? Math.max(1, Math.ceil(activeCombatant.maxHitPoints * 0.1)) : 0;
+
+  function dispatchTargetChange(kind: 'damage' | 'heal') {
+    if (!activeCombatant) return;
+    const meta = {
+      ...eventMeta(actorId),
+      sessionId: activeEncounter.id,
+      actorId,
+      targetId: activeCombatant.id,
+    };
+    if (kind === 'damage') {
+      dispatch({
+        ...meta,
+        type: 'apply_damage',
+        amount: quickAmount,
+      });
+    } else {
+      dispatch({
+        ...meta,
+        type: 'recover_hp',
+        amount: quickAmount,
+        recoveryKind: 'healing',
+      });
+    }
+    onChange({
+      kind,
+      target: activeCombatant.name,
+      amount: quickAmount,
+      source: kind === 'damage' ? 'Combat panel quick damage' : 'Combat panel quick heal',
+    });
+  }
+
+  function advanceTurn() {
+    if (!activeCombatant) return;
+    dispatch({
+      ...eventMeta(actorId),
+      type: 'COMBAT_ADVANCE_TURN',
+      sessionId: activeEncounter.id,
+      actorId,
+      targetId: activeCombatant.id,
+      direction: 1,
+    });
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -801,7 +867,7 @@ function GtCombatPanel({ encounter, onChange }: CombatPanelProps) {
           <span style={{ width: 6, height: 6, borderRadius: 50, background: 'currentColor' }} /> Round {round}
         </span>
         <span style={{ flex: 1 }} />
-        <button className="fw-btn fw-btn-icon fw-btn-ghost fw-btn-sm">{Icon('chevR', { size: 12 })}</button>
+        <button className="fw-btn fw-btn-icon fw-btn-ghost fw-btn-sm" disabled={!activeCombatant} onClick={advanceTurn} type="button">{Icon('chevR', { size: 12 })}</button>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -818,17 +884,17 @@ function GtCombatPanel({ encounter, onChange }: CombatPanelProps) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-        <button className="fw-btn fw-btn-blood" style={{ justifyContent: 'center' }} onClick={() => onChange({ kind: 'damage', target: 'Party', amount: 7, source: 'Enemy attack' })}>
+        <button className="fw-btn fw-btn-blood" disabled={!activeCombatant} style={{ justifyContent: 'center' }} onClick={() => dispatchTargetChange('damage')} type="button">
           {Icon('minus', { size: 12 })} Damage
         </button>
-        <button className="fw-btn fw-btn-ghost" style={{ justifyContent: 'center' }} onClick={() => onChange({ kind: 'heal', target: 'Party', amount: 9, source: "Healer's potion" })}>
+        <button className="fw-btn fw-btn-ghost" disabled={!activeCombatant} style={{ justifyContent: 'center' }} onClick={() => dispatchTargetChange('heal')} type="button">
           {Icon('heart', { size: 12 })} Heal
         </button>
-        <button className="fw-btn fw-btn-ghost" style={{ justifyContent: 'center' }}>{Icon('sparkles', { size: 12 })} Condition</button>
-        <button className="fw-btn fw-btn-ghost" style={{ justifyContent: 'center' }}>{Icon('plus',     { size: 12 })} NPC</button>
+        <button className="fw-btn fw-btn-ghost" disabled title="Condition picker is not wired yet." type="button" style={{ justifyContent: 'center' }}>{Icon('sparkles', { size: 12 })} Condition</button>
+        <button className="fw-btn fw-btn-ghost" disabled title="NPC creation is not wired yet." type="button" style={{ justifyContent: 'center' }}>{Icon('plus',     { size: 12 })} NPC</button>
       </div>
 
-      <button className="fw-btn fw-btn-gold" style={{ justifyContent: 'center' }}>
+      <button className="fw-btn fw-btn-gold" disabled={!activeCombatant} onClick={advanceTurn} type="button" style={{ justifyContent: 'center' }}>
         End Turn {Icon('chevR', { size: 12 })}
       </button>
     </div>
@@ -886,7 +952,7 @@ function GtAIDMPanel({ on, setOn, tone, setTone, strict, setStrict, onChange }: 
           { icon: 'users',    name: 'Voice NPC',            desc: 'Speak as the scene NPC.'       },
           { icon: 'map',      name: 'Random Encounter',     desc: 'By current region.'            },
         ].map(a => (
-          <button key={a.name} className="fw-btn fw-btn-ghost" disabled={!on}
+          <button key={a.name} className="fw-btn fw-btn-ghost" disabled title={on ? 'AI Warden actions are not wired here yet.' : 'AI Warden is off.'} type="button"
             style={{ width: '100%', padding: '8px 10px', justifyContent: 'flex-start', textAlign: 'left', borderColor: 'rgba(124,58,237,0.25)', marginBottom: 4 }}>
             <span style={{ color: 'var(--arcane-bright)' }}>{Icon(a.icon, { size: 12 })}</span>
             <div style={{ flex: 1, lineHeight: 1.2 }}>
@@ -920,7 +986,7 @@ function GtToolsPanel() {
             { icon: 'map',    label: 'Map'      },
             { icon: 'layers', label: 'Handouts' },
           ].map(t => (
-            <button key={t.label} className="fw-btn fw-btn-ghost" style={{ flexDirection: 'column', padding: '10px 6px', gap: 4 }}>
+            <button key={t.label} className="fw-btn fw-btn-ghost" disabled title="Session tool is not wired yet." type="button" style={{ flexDirection: 'column', padding: '10px 6px', gap: 4 }}>
               <span style={{ color: 'var(--gold)' }}>{Icon(t.icon, { size: 14 })}</span>
               <span style={{ fontSize: 11 }}>{t.label}</span>
             </button>

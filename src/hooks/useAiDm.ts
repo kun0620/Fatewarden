@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { addUniqueMessage } from '../components/StoryLog';
 import { requestAiDmReply } from '../lib/messages';
+import { updateSessionAiState } from '../lib/sessions';
 import { hasSupabaseConfig, supabase } from '../lib/supabase';
 import type { Character, EncounterState, GameSession, StoryMessage } from '../types';
 
@@ -80,6 +81,9 @@ export function useAiDm(
           character,
           encounter,
           aiMode: 'adventure',
+          requestMode: 'session_start',
+          dmPresetId: activeSession.dmPreset,
+          sessionRecap: activeSession.sessionRecap,
           partySummary: `${character.name}, level ${character.level} ${character.ancestry} ${character.className}`,
         });
         onMessagesChange((current) => addUniqueMessage(current, message));
@@ -122,6 +126,9 @@ export function useAiDm(
           character,
           encounter,
           aiMode: 'adventure',
+          requestMode: 'recap',
+          dmPresetId: activeSession.dmPreset,
+          sessionRecap: activeSession.sessionRecap,
           partySummary: `${character.name}, level ${character.level} ${character.ancestry} ${character.className}`,
         },
       );
@@ -134,6 +141,12 @@ export function useAiDm(
           },
         }),
       );
+      await updateSessionAiState(activeSession.id, {
+        sessionRecap: message.body,
+        markAutosaved: true,
+      }).catch((saveError) => {
+        console.warn('Could not persist AI DM recap', saveError);
+      });
     } catch (error) {
       onMessagesChange((current) =>
         addUniqueMessage(current, {

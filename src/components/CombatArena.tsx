@@ -1,5 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Icon } from './ui/Icons';
+import { useGameStore } from '../store/useGameStore';
+import type { Character } from '../types';
 
 /* ── Constants ───────────────────────────────────────────────────────────────── */
 
@@ -79,24 +81,69 @@ const LIGHTS: Light[] = [
   { x: 18, y: 11, r: 2.5, color: 'torch' },
 ];
 
-const INITIAL_TOKENS: CombatToken[] = [
-  { id: 'reeve',   name: 'Cinder-Reeve',  x: 11, y: 4,  color: '#991B1B', foe: true,  hp: 120, hpMax: 120, ac: 17, init: 19, conditions: [{ k: 'Brass Aegis', buff: true }], boss: true },
-  { id: 'spearA',  name: 'Brass Spear A', x: 8,  y: 6,  color: '#C72D2D', foe: true,  hp: 12,  hpMax: 22,  ac: 16, init: 15, conditions: [{ k: 'Prone', bad: true }] },
-  { id: 'spearB',  name: 'Brass Spear B', x: 14, y: 6,  color: '#C72D2D', foe: true,  hp: 22,  hpMax: 22,  ac: 16, init: 15 },
-  { id: 'kessra',  name: 'Kessra',        x: 10, y: 9,  color: '#D6A84F', ally: true, hp: 64,  hpMax: 70,  ac: 19, init: 22 },
-  { id: 'aedric',  name: 'Aedric',        x: 11, y: 11, color: '#7C3AED', ally: true, hp: 38,  hpMax: 52,  ac: 14, init: 17, you: true, conditions: [{ k: 'Concentrating · Hex', buff: true }] },
-  { id: 'mirenna', name: 'Mirenna',       x: 13, y: 11, color: '#22C55E', ally: true, hp: 41,  hpMax: 56,  ac: 16, init: 14, conditions: [{ k: 'Bless', buff: true }] },
-  { id: 'halric',  name: 'Halric',        x: 9,  y: 12, color: '#A8A29E', ally: true, hp: 0,   hpMax: 48,  ac: 18, init: 8,  down: true, conditions: [{ k: 'Unconscious', bad: true }, { k: 'Death 2✓/0✗', bad: true }] },
-];
+function combatantPosition(index: number, foe: boolean): Cell {
+  return {
+    x: foe ? 14 + (index % 5) : 5 + (index % 5),
+    y: foe ? 4 + Math.floor(index / 5) * 2 : 8 + Math.floor(index / 5) * 2,
+  };
+}
+
+function tokenFromCharacter(character: Character): CombatToken {
+  return {
+    id: `pc-${character.id}`,
+    name: character.name,
+    x: 5,
+    y: 8,
+    color: '#7C3AED',
+    ally: true,
+    you: true,
+    hp: character.hitPoints,
+    hpMax: character.maxHitPoints,
+    ac: character.armorClass,
+    init: character.systemData.derivedStats?.initiative ?? Math.floor((character.abilities.dex - 10) / 2),
+    conditions: character.activeConditions.map((condition) => ({ k: condition, bad: true })),
+    down: character.hitPoints <= 0,
+  };
+}
 
 /* ── Main Component ──────────────────────────────────────────────────────────── */
 
 export function CombatArena({ onExit, onChange }: CombatArenaProps) {
-  const [tokens,      setTokens]      = useState<CombatToken[]>(INITIAL_TOKENS);
-  const [selectedId,  setSelectedId]  = useState('aedric');
+  const { combatState, activeCharacter, dispatch, eventMeta } = useGameStore();
+
+  const playerCharacterId = activeCharacter?.id ?? '';
+  const storeTokens = useMemo(() => {
+    if (combatState?.combatants?.length) {
+      return combatState.combatants.map((c, index) => {
+        const foe = c.type !== 'player';
+        const pos = combatantPosition(index, foe);
+        return {
+          id: c.id,
+          name: c.name,
+          x: pos.x,
+          y: pos.y,
+          color: foe ? '#991B1B' : '#7C3AED',
+          foe,
+          ally: !foe,
+          you: c.characterId === playerCharacterId || c.id === playerCharacterId || c.id === `pc-${playerCharacterId}`,
+          hp: c.hitPoints,
+          hpMax: c.maxHitPoints,
+          ac: c.armorClass,
+          init: c.initiative,
+          boss: c.isBoss,
+          down: c.hitPoints <= 0 || c.status === 'dead' || c.status === 'dying',
+          conditions: c.conditions.map((condition) => ({ k: condition, bad: true })),
+        } as CombatToken;
+      });
+    }
+    return activeCharacter ? [tokenFromCharacter(activeCharacter)] : [];
+  }, [activeCharacter, combatState, playerCharacterId]);
+
+  const [tokens,      setTokens]      = useState<CombatToken[]>(storeTokens);
+  const [selectedId,  setSelectedId]  = useState(tokens.find(t => t.you)?.id ?? tokens[0]?.id ?? '');
   const [tool,        setTool]        = useState('cursor');
-  const [round,       setRound]       = useState(3);
-  const [turnIdx,     setTurnIdx]     = useState(0);
+  const [round,       setRound]       = useState(combatState?.round ?? 3);
+  const [turnIdx,     setTurnIdx]     = useState(combatState?.activeIndex ?? 0);
   const [actionState, setActionState] = useState<ActionBudget>({ action: false, bonus: false, reaction: false, moveUsed: 0 });
   const [flow,        setFlow]        = useState<FlowState>(null);
   const [hover,       setHover]       = useState<Cell | null>(null);
@@ -105,7 +152,64 @@ export function CombatArena({ onExit, onChange }: CombatArenaProps) {
   const order      = useMemo(() => [...tokens].sort((a, b) => b.init - a.init), [tokens]);
   const current    = order[turnIdx] ?? order[0];
   const selected   = tokens.find(t => t.id === selectedId) ?? null;
-  const isYourTurn = current?.id === 'aedric';
+  const isYourTurn = current?.you === true;
+
+  useEffect(() => {
+    setTokens(storeTokens);
+    setRound(combatState?.round ?? 1);
+    setTurnIdx(combatState?.activeIndex ?? 0);
+    setSelectedId((currentId) => {
+      if (storeTokens.some((token) => token.id === currentId)) return currentId;
+      return storeTokens.find((token) => token.you)?.id ?? storeTokens[0]?.id ?? '';
+    });
+  }, [combatState?.activeIndex, combatState?.round, storeTokens]);
+
+  function dispatchCombatChange(token: CombatToken, kind: 'damage' | 'heal', amount: number) {
+    if (!combatState) {
+      setTokens(ts => ts.map(t => t.id === token.id ? {
+        ...t,
+        hp: kind === 'damage' ? Math.max(0, t.hp - amount) : Math.min(t.hpMax, t.hp + amount),
+        down: kind === 'damage' ? t.hp - amount <= 0 : false,
+      } : t));
+      onChange?.({ kind, target: token.name, amount });
+      return;
+    }
+    const meta = {
+      ...eventMeta(activeCharacter?.id ?? token.id),
+      sessionId: combatState.id,
+      actorId: activeCharacter?.id ?? token.id,
+      targetId: token.id,
+    };
+    const result = kind === 'damage'
+      ? dispatch({
+          ...meta,
+          type: 'apply_damage',
+          amount,
+        })
+      : dispatch({
+          ...meta,
+          type: 'recover_hp',
+          amount,
+          recoveryKind: 'healing',
+        });
+    if (!result.failed.length) {
+      onChange?.({ kind, target: token.name, amount });
+    }
+  }
+
+  function dispatchCondition(token: CombatToken, condition: string) {
+    if (!combatState) return;
+    dispatch({
+      ...eventMeta(activeCharacter?.id ?? token.id),
+      type: 'apply_condition',
+      sessionId: combatState.id,
+      actorId: activeCharacter?.id ?? token.id,
+      targetId: token.id,
+      condition,
+      notes: 'Combat arena condition action',
+    });
+    onChange?.({ kind: 'condition', target: token.name, condition });
+  }
 
   const onCellClick = (x: number, y: number) => {
     if (tool === 'measure') {
@@ -118,6 +222,17 @@ export function CombatArena({ onExit, onChange }: CombatArenaProps) {
     if (selected?.you && isYourTurn) {
       const dist = Math.max(Math.abs(x - selected.x), Math.abs(y - selected.y)) * 5;
       if (dist <= 30 - actionState.moveUsed) {
+        if (combatState) {
+          dispatch({
+            ...eventMeta(activeCharacter?.id ?? selected.id),
+            type: 'COMBAT_MOVE',
+            sessionId: combatState.id,
+            actorId: activeCharacter?.id ?? selected.id,
+            targetId: selected.id,
+            combatantId: selected.id,
+            feet: dist,
+          });
+        }
         setTokens(ts => ts.map(t => t.id === selectedId ? { ...t, x, y } : t));
         setActionState(a => ({ ...a, moveUsed: a.moveUsed + dist }));
       }
@@ -125,20 +240,21 @@ export function CombatArena({ onExit, onChange }: CombatArenaProps) {
   };
 
   const endTurn = () => {
+    if (!order.length) return;
+    if (combatState && current) {
+      dispatch({
+        ...eventMeta(activeCharacter?.id ?? current.id),
+        type: 'COMBAT_ADVANCE_TURN',
+        sessionId: combatState.id,
+        actorId: activeCharacter?.id ?? current.id,
+        targetId: current.id,
+        direction: 1,
+      });
+    }
     setTurnIdx(i => (i + 1) % order.length);
     if (turnIdx === order.length - 1) setRound(r => r + 1);
     setActionState({ action: false, bonus: false, reaction: false, moveUsed: 0 });
     setFlow(null);
-  };
-
-  const launchAttack = (weapon: AttackWeapon) => {
-    if (actionState.action) return;
-    setFlow({ kind: 'attack', weapon, source: 'aedric', target: null });
-  };
-  const launchSpell = (spell: SpellData) => {
-    if (spell.cost === '1A' && actionState.action) return;
-    if (spell.cost === '1BA' && actionState.bonus) return;
-    setFlow({ kind: 'spell', spell, source: 'aedric', target: null });
   };
 
   return (
@@ -178,17 +294,50 @@ export function CombatArena({ onExit, onChange }: CombatArenaProps) {
             isYourTurn={isYourTurn}
             current={current}
             actionState={actionState}
-            onAttack={launchAttack}
-            onSpell={launchSpell}
             onBonus={() => !actionState.bonus && setActionState(a => ({ ...a, bonus: true }))}
-            onAction={() => !actionState.action && setActionState(a => ({ ...a, action: true }))}
-            onDash={() => !actionState.action && setActionState(a => ({ ...a, action: true, moveUsed: Math.max(0, a.moveUsed - 30) }))}
+            onAction={() => {
+              if (actionState.action) return;
+              if (combatState && current) {
+                dispatch({
+                  ...eventMeta(activeCharacter?.id ?? current.id),
+                  type: 'COMBAT_USE_ACTION',
+                  sessionId: combatState.id,
+                  actorId: activeCharacter?.id ?? current.id,
+                  targetId: current.id,
+                  combatantId: current.id,
+                  actionKind: 'action',
+                });
+              }
+              setActionState(a => ({ ...a, action: true }));
+            }}
+            onDash={() => {
+              if (actionState.action) return;
+              if (combatState && current) {
+                dispatch({
+                  ...eventMeta(activeCharacter?.id ?? current.id),
+                  type: 'COMBAT_USE_ACTION',
+                  sessionId: combatState.id,
+                  actorId: activeCharacter?.id ?? current.id,
+                  targetId: current.id,
+                  combatantId: current.id,
+                  actionKind: 'action',
+                });
+              }
+              setActionState(a => ({ ...a, action: true, moveUsed: Math.max(0, a.moveUsed - 30) }));
+            }}
             onEndTurn={endTurn}
           />
         </div>
 
         <aside className="fw-token-inspector">
-          {selected && <TokenInspector token={selected} onChange={onChange} />}
+          {selected && (
+            <TokenInspector
+              token={selected}
+              onChange={onChange}
+              onDamage={(token, amount) => dispatchCombatChange(token, 'damage', amount)}
+              onHeal={(token, amount) => dispatchCombatChange(token, 'heal', amount)}
+            />
+          )}
         </aside>
       </div>
 
@@ -201,6 +350,9 @@ export function CombatArena({ onExit, onChange }: CombatArenaProps) {
           actionState={actionState}
           setActionState={setActionState}
           onChange={onChange}
+          onApplyDamage={(target, amount, source) => {
+            dispatchCombatChange(target, 'damage', amount);
+          }}
         />
       )}
       {flow?.kind === 'spell' && (
@@ -212,6 +364,10 @@ export function CombatArena({ onExit, onChange }: CombatArenaProps) {
           actionState={actionState}
           setActionState={setActionState}
           onChange={onChange}
+          onApplyDamage={(target, amount, source) => {
+            dispatchCombatChange(target, 'damage', amount);
+          }}
+          onApplyCondition={(target, condition) => dispatchCondition(target, condition)}
         />
       )}
     </div>
@@ -518,8 +674,19 @@ function ToolBtn({ id, icon, label, tool, setTool }: {
 
 /* ── Token Inspector ─────────────────────────────────────────────────────────── */
 
-function TokenInspector({ token, onChange }: { token: CombatToken; onChange?: (c: CombatChange) => void }) {
+function TokenInspector({
+  token,
+  onChange,
+  onDamage,
+  onHeal,
+}: {
+  token: CombatToken;
+  onChange?: (c: CombatChange) => void;
+  onDamage: (token: CombatToken, amount: number) => void;
+  onHeal: (token: CombatToken, amount: number) => void;
+}) {
   const hpPct = (token.hp / token.hpMax) * 100;
+  const quickAmount = Math.max(1, Math.ceil(token.hpMax * 0.1));
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, background: token.foe ? 'rgba(153,27,27,0.10)' : 'rgba(214,168,79,0.05)', border: '1px solid ' + (token.foe ? 'rgba(153,27,27,0.35)' : 'var(--border)'), borderRadius: 8 }}>
@@ -567,15 +734,15 @@ function TokenInspector({ token, onChange }: { token: CombatToken; onChange?: (c
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
         <button className="fw-btn fw-btn-blood fw-btn-sm" style={{ justifyContent: 'center' }}
-          onClick={() => onChange?.({ kind: 'damage', target: token.name, amount: 7 })}>
+          onClick={() => onDamage(token, quickAmount)}>
           {Icon('minus', { size: 11 })} Damage
         </button>
         <button className="fw-btn fw-btn-ghost fw-btn-sm" style={{ justifyContent: 'center' }}
-          onClick={() => onChange?.({ kind: 'heal', target: token.name, amount: 8 })}>
+          onClick={() => onHeal(token, quickAmount)}>
           {Icon('heart', { size: 11 })} Heal
         </button>
-        <button className="fw-btn fw-btn-ghost fw-btn-sm" style={{ justifyContent: 'center' }}>{Icon('sparkles', { size: 11 })} Condition</button>
-        <button className="fw-btn fw-btn-ghost fw-btn-sm" style={{ justifyContent: 'center' }}>{Icon('eye', { size: 11 })} Statblock</button>
+        <button className="fw-btn fw-btn-ghost fw-btn-sm" disabled title="Condition picker is not wired to an existing event yet." type="button" style={{ justifyContent: 'center' }}>{Icon('sparkles', { size: 11 })} Condition</button>
+        <button className="fw-btn fw-btn-ghost fw-btn-sm" disabled title="Statblock view is not wired yet." type="button" style={{ justifyContent: 'center' }}>{Icon('eye', { size: 11 })} Statblock</button>
       </div>
     </div>
   );
@@ -592,12 +759,10 @@ function MiniStat({ label, v }: { label: string; v: string | number }) {
 
 /* ── Turn HUD ────────────────────────────────────────────────────────────────── */
 
-function TurnHUD({ isYourTurn, current, actionState, onAttack, onSpell, onAction, onBonus, onDash, onEndTurn }: {
+function TurnHUD({ isYourTurn, current, actionState, onAction, onBonus, onDash, onEndTurn }: {
   isYourTurn: boolean;
   current: CombatToken | undefined;
   actionState: ActionBudget;
-  onAttack: (w: AttackWeapon) => void;
-  onSpell: (s: SpellData) => void;
   onAction: () => void;
   onBonus: () => void;
   onDash: () => void;
@@ -627,7 +792,7 @@ function TurnHUD({ isYourTurn, current, actionState, onAttack, onSpell, onAction
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
         <div style={{ flexShrink: 0 }}>
           <div className="fw-eyebrow" style={{ color: 'var(--gold)', marginBottom: 2 }}>YOUR TURN</div>
-          <div className="fw-display" style={{ fontSize: 18, color: 'var(--text)' }}>Aedric Vael</div>
+          <div className="fw-display" style={{ fontSize: 18, color: 'var(--text)' }}>{current?.name ?? 'You'}</div>
         </div>
 
         <div className="fw-action-budget">
@@ -649,16 +814,13 @@ function TurnHUD({ isYourTurn, current, actionState, onAttack, onSpell, onAction
         <span style={{ flex: 1 }} />
 
         <div className="fw-quick-actions">
-          <button className="fw-btn fw-btn-gold" disabled={actionState.action}
-            onClick={() => onAttack({ n: 'Staff of Cinder-Reeve', dmg: '1d8+4 fire', toHit: 7 })}>
+          <button className="fw-btn fw-btn-gold" disabled title="Character attack actions are not wired to runtime action data yet." type="button">
             {Icon('flame', { size: 12 })} Attack <span className="fw-mini-cost">1A</span>
           </button>
-          <button className="fw-btn fw-btn-arcane" disabled={actionState.action}
-            onClick={() => onSpell({ n: 'Eldritch Blast', lvl: 'Cantrip', cost: '1A', dmg: '2d10+4', save: 'atk', toHit: 7 })}>
+          <button className="fw-btn fw-btn-arcane" disabled title="Character spell actions are not wired to runtime spell data yet." type="button">
             {Icon('flame', { size: 12 })} Blast <span className="fw-mini-cost">1A</span>
           </button>
-          <button className="fw-btn fw-btn-ghost" disabled={actionState.bonus}
-            onClick={() => onSpell({ n: 'Hex', lvl: '1', cost: '1BA', curse: true })}>
+          <button className="fw-btn fw-btn-ghost" disabled title="Character bonus actions are not wired to runtime action data yet." type="button">
             {Icon('skull', { size: 12 })} Hex <span className="fw-mini-cost">1BA</span>
           </button>
           <button className="fw-btn fw-btn-ghost" disabled={actionState.action} onClick={onDash}>
@@ -667,7 +829,7 @@ function TurnHUD({ isYourTurn, current, actionState, onAttack, onSpell, onAction
           <button className="fw-btn fw-btn-ghost" disabled={actionState.action} onClick={onAction}>
             {Icon('shield', { size: 12 })} Dodge
           </button>
-          <button className="fw-btn fw-btn-ghost">{Icon('kebab', { size: 12 })}</button>
+          <button className="fw-btn fw-btn-ghost" disabled title="More combat actions are not wired yet." type="button">{Icon('kebab', { size: 12 })}</button>
         </div>
 
         <button className="fw-btn fw-btn-blood fw-btn-lg" onClick={onEndTurn}>
@@ -712,7 +874,7 @@ function FlowModal({ title, accent, onClose, children }: {
 
 /* ── Attack Flow ─────────────────────────────────────────────────────────────── */
 
-function AttackFlow({ flow, setFlow, tokens, setTokens, actionState, setActionState, onChange }: {
+function AttackFlow({ flow, setFlow, tokens, setTokens, actionState, setActionState, onChange, onApplyDamage }: {
   flow: Extract<FlowState, { kind: 'attack' }>;
   setFlow: (f: FlowState) => void;
   tokens: CombatToken[];
@@ -720,6 +882,7 @@ function AttackFlow({ flow, setFlow, tokens, setTokens, actionState, setActionSt
   actionState: ActionBudget;
   setActionState: React.Dispatch<React.SetStateAction<ActionBudget>>;
   onChange?: (c: CombatChange) => void;
+  onApplyDamage?: (target: CombatToken, amount: number, source: string) => void;
 }) {
   const [step,      setStep]      = useState<'target' | 'hit' | 'damage'>('target');
   const [target,    setTarget]    = useState<CombatToken | null>(null);
@@ -748,7 +911,7 @@ function AttackFlow({ flow, setFlow, tokens, setTokens, actionState, setActionSt
     if (!target || !dmgRoll) return;
     setTokens(ts => ts.map(t => t.id === target.id ? { ...t, hp: Math.max(0, t.hp - dmgRoll.total) } : t));
     setActionState(a => ({ ...a, action: true }));
-    onChange?.({ kind: 'damage', target: target.name, amount: dmgRoll.total, source: flow.weapon.n });
+    onApplyDamage?.(target, dmgRoll.total, flow.weapon.n) ?? onChange?.({ kind: 'damage', target: target.name, amount: dmgRoll.total, source: flow.weapon.n });
     setFlow(null);
   };
 
@@ -856,7 +1019,7 @@ function AttackFlow({ flow, setFlow, tokens, setTokens, actionState, setActionSt
 
 /* ── Spell Cast Flow ─────────────────────────────────────────────────────────── */
 
-function SpellCastFlow({ flow, setFlow, tokens, setTokens, actionState, setActionState, onChange }: {
+function SpellCastFlow({ flow, setFlow, tokens, setTokens, actionState, setActionState, onChange, onApplyDamage, onApplyCondition }: {
   flow: Extract<FlowState, { kind: 'spell' }>;
   setFlow: (f: FlowState) => void;
   tokens: CombatToken[];
@@ -864,6 +1027,8 @@ function SpellCastFlow({ flow, setFlow, tokens, setTokens, actionState, setActio
   actionState: ActionBudget;
   setActionState: React.Dispatch<React.SetStateAction<ActionBudget>>;
   onChange?: (c: CombatChange) => void;
+  onApplyDamage?: (target: CombatToken, amount: number, source: string) => void;
+  onApplyCondition?: (target: CombatToken, condition: string) => void;
 }) {
   const [step,   setStep]   = useState<'target' | 'result'>('target');
   const [target, setTarget] = useState<CombatToken | null>(null);
@@ -891,11 +1056,11 @@ function SpellCastFlow({ flow, setFlow, tokens, setTokens, actionState, setActio
     if (isHex) {
       setTokens(ts => ts.map(t => t.id === target.id ? { ...t, conditions: [...(t.conditions ?? []), { k: 'Cursed (Hex)', bad: true }] } : t));
       setActionState(a => ({ ...a, bonus: true }));
-      onChange?.({ kind: 'condition', target: target.name, condition: 'Cursed (Hex)' });
+      onApplyCondition?.(target, 'Cursed (Hex)') ?? onChange?.({ kind: 'condition', target: target.name, condition: 'Cursed (Hex)' });
     } else {
       setTokens(ts => ts.map(t => t.id === target.id ? { ...t, hp: Math.max(0, t.hp - (result?.totalDmg ?? 0)) } : t));
       setActionState(a => ({ ...a, action: true }));
-      onChange?.({ kind: 'damage', target: target.name, amount: result?.totalDmg, source: flow.spell.n });
+      onApplyDamage?.(target, result?.totalDmg ?? 0, flow.spell.n) ?? onChange?.({ kind: 'damage', target: target.name, amount: result?.totalDmg, source: flow.spell.n });
     }
     setFlow(null);
   };

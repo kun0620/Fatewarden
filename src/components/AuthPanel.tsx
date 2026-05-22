@@ -8,6 +8,7 @@ import { Icon } from './ui/Icons';
 type AuthPanelProps = {
   user: User | null;
   loading: boolean;
+  authError?: string;
 };
 
 function LoginHero({ embers }: { embers: Array<{ id: number; delay: number; drift: number; duration: number; left: number; opacity: number; size: number }> }) {
@@ -144,7 +145,7 @@ function FacebookLogo() {
   );
 }
 
-export function AuthPanel({ loading, user }: AuthPanelProps) {
+export function AuthPanel({ authError, loading, user }: AuthPanelProps) {
   const [mode, setMode] = useState<'signin' | 'signup' | 'reset'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -319,7 +320,7 @@ export function AuthPanel({ loading, user }: AuthPanelProps) {
               <>
                 <div className="fw-field">
                   <label className="fw-label">Warden Name</label>
-                  <input className="fw-input" onChange={(e) => setWardenName(e.target.value)} placeholder="e.g. Aedric, Sister Vael..." type="text" value={wardenName} />
+                  <input className="fw-input" onChange={(e) => setWardenName(e.target.value)} placeholder="e.g. Rowan, Sister Vael..." type="text" value={wardenName} />
                 </div>
                 <div className="fw-field">
                   <label className="fw-label">Username</label>
@@ -394,9 +395,9 @@ export function AuthPanel({ loading, user }: AuthPanelProps) {
               )}
             </label> : null}
 
-            {message ? (
-              <p className={`fw-auth-message ${message.toLowerCase().includes('error') || message.toLowerCase().includes('failed') ? 'is-error' : 'is-success'}`}>
-                {message}
+            {message || authError ? (
+              <p className={`fw-auth-message ${authError || message.toLowerCase().includes('error') || message.toLowerCase().includes('failed') ? 'is-error' : 'is-success'}`}>
+                {authError || message}
               </p>
             ) : null}
 
