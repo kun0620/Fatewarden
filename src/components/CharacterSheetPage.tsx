@@ -900,8 +900,20 @@ export function CharacterSheetPage({ user, onBack }: CharacterSheetPageProps) {
       <LevelUpModal
         character={selectedCharacter}
         onCancel={() => setLevelUpOpen(false)}
-        onConfirm={async (updatedCharacter) => {
-          await persistCharacter(updatedCharacter, 'Level up saved.');
+        onConfirm={async (updatedCharacter, choices) => {
+          setActiveCharacter(selectedCharacter);
+          const result = dispatch({
+            ...eventMeta(selectedCharacter.id),
+            type: 'LEVEL_UP',
+            characterId: selectedCharacter.id,
+            newLevel: updatedCharacter.level,
+            choices,
+          });
+          if (result.failed.length) {
+            setError(result.failed.join(' '));
+            return;
+          }
+          await persistCharacter(result.character ?? updatedCharacter, 'Level up saved.');
           setLevelUpOpen(false);
         }}
         open={levelUpOpen}

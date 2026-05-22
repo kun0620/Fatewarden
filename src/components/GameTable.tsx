@@ -4,7 +4,10 @@ import { Icon } from './ui/Icons';
 import { Field, Seg, Toggle } from './ui/Primitives';
 import { useGameStore } from '../store/useGameStore';
 import { InventoryPanel } from './InventoryPanel';
-import type { Character, EncounterState, GameSession, StoryMessage } from '../types';
+import { rollDice as rollFormula } from '../engine/dice/dice';
+import { performAttackRoll } from '../engine/dice/rollEngine';
+import type { GameEvent } from '../engine/events/types';
+import type { AiConfirmAction, Character, EncounterState, GameSession, SessionMember, StoryMessage } from '../types';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -14,10 +17,14 @@ type StoryTab  = 'story' | 'chat' | 'lore';
 type ActionMode = 'speak' | 'act' | 'aside';
 
 interface DiceResult {
+  id?: string;
   die: string;
+  label?: string;
   value: number;
   bonus: string;
-  target: number;
+  target?: number;
+  total?: number;
+  rolls?: number[];
   kind: 'crit' | 'success' | 'fumble' | 'failure';
 }
 
@@ -36,12 +43,15 @@ export interface GameTableProps {
   user: User;
   activeSession: GameSession;
   character: Character | null;
+  sessionMembers?: SessionMember[];
   messages: StoryMessage[];
   onLeave: () => void;
   onSendMessage?: (text: string, mode: ActionMode) => Promise<void>;
   onDiceRoll?: (result: DiceResult) => void;
   onUpdateCharacter?: (character: Character) => void | Promise<void>;
   onCombatChange?: (change: PendingChange) => void;
+  onAskAiAction?: (text: string, mode: ActionMode) => Promise<void>;
+  onConfirmAiAction?: (action: AiConfirmAction, message: StoryMessage) => Promise<void> | void;
   combatMode?: boolean;
   onToggleCombat?: (active: boolean) => void;
   /** Slot for CombatModeView (STEP 5 will provide this) */
@@ -50,18 +60,266 @@ export interface GameTableProps {
 
 // ─── Helper: Convert character to party member display ───────────────────────
 
-function charToPartyMember(char: Character): PartyMember {
+function charToPartyMember(char: Character, member?: SessionMember): PartyMember {
   return {
-    id: parseInt(char.id.split('-')[0], 10) || 1,
+    id: member?.id ?? char.id,
+    characterId: char.id,
+    playerId: member?.playerId,
     name: char.name,
     cls: char.className,
     lvl: char.level,
     hp: char.hitPoints,
     hpMax: char.maxHitPoints,
     ac: char.armorClass,
+    conditions: [...char.activeConditions],
+    status: member?.status ?? 'online',
     color: '#7C3AED',
     initials: char.name.split(' ').map(x => x[0]).join('').slice(0, 2).toUpperCase(),
   };
+}
+
+function memberLabel(member: SessionMember, currentCharacter: Character | null) {
+  if (currentCharacter && member.characterId === currentCharacter.id) return currentCharacter.name;
+  const shortId = member.playerId.slice(0, 6).toUpperCase();
+  return member.role === 'host' ? `Host ${shortId}` : `Player ${shortId}`;
+}
+
+function combatantMatchesMember(combatant: EncounterState['combatants'][number], member: SessionMember, character: Character | null) {
+  if (member.characterId && (combatant.id === member.characterId || combatant.id === `pc-${member.characterId}` || combatant.id.includes(member.characterId))) return true;
+  if (character && member.characterId === character.id && (combatant.id === character.id || combatant.name === character.name)) return true;
+  return false;
+}
+
+function buildPartyMembers(
+  character: Character | null,
+  members: SessionMember[] | undefined,
+  combatState: EncounterState | null,
+  currentUserId: string,
+): PartyMember[] {
+  const activeMembers = (members ?? []).filter((member) => member.status !== 'kicked');
+  if (!activeMembers.length) return character ? [charToPartyMember(character)] : [];
+
+  return activeMembers.map((member) => {
+    const isYou = member.playerId === currentUserId;
+    const base = character && (member.characterId === character.id || isYou)
+      ? charToPartyMember(character, member)
+      : {
+          id: member.id,
+          characterId: member.characterId,
+          playerId: member.playerId,
+          name: memberLabel(member, character),
+          cls: member.role === 'host' ? 'Host' : 'Player',
+          lvl: 1,
+          hp: 0,
+          hpMax: 0,
+          ac: 0,
+          conditions: [],
+          status: member.status,
+          color: member.role === 'host' ? '#D6A84F' : '#7C3AED',
+          initials: memberLabel(member, character).split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(),
+        };
+    const combatant = combatState?.combatants.find((nextCombatant) => combatantMatchesMember(nextCombatant, member, character));
+    if (!combatant) return { ...base, you: isYou, down: base.hpMax > 0 && base.hp <= 0 };
+    return {
+      ...base,
+      hp: combatant.hitPoints,
+      hpMax: combatant.maxHitPoints,
+      ac: combatant.armorClass,
+      conditions: [...combatant.conditions],
+      down: combatant.hitPoints <= 0,
+      you: isYou,
+    };
+  });
+}
+
+interface SavedRoll {
+  id: string;
+  name: string;
+  detail: string;
+  icon: string;
+  bonus: number;
+  blood?: boolean;
+}
+
+interface QuestPanelItem {
+  id: string;
+  title: string;
+  detail?: string;
+  source: 'Scene' | 'Journal';
+  status: 'active' | 'completed' | 'failed';
+}
+
+function signed(value: number) {
+  return value >= 0 ? `+${value}` : String(value);
+}
+
+function classifyRoll(sides: number, total: number): DiceResult['kind'] {
+  if (sides === 20 && total === 20) return 'crit';
+  if (sides === 20 && total === 1) return 'fumble';
+  return 'success';
+}
+
+function rollQuickDie(sides: number): { total: number; rolls: number[] } {
+  if (sides === 100) {
+    const tens = rollFormula('1d10').rolls[0];
+    const ones = rollFormula('1d10').rolls[0];
+    const normalizedTens = tens === 10 ? 0 : tens;
+    const normalizedOnes = ones === 10 ? 0 : ones;
+    const total = normalizedTens === 0 && normalizedOnes === 0 ? 100 : normalizedTens * 10 + normalizedOnes;
+    return { total, rolls: [tens, ones] };
+  }
+
+  const rolled = rollFormula(`1d${sides}`);
+  return { total: rolled.subtotal, rolls: [...rolled.rolls] };
+}
+
+function buildSavedRolls(character: Character | null): SavedRoll[] {
+  if (!character) return [];
+  const proficiencyBonus = character.systemData.derivedStats?.proficiencyBonus
+    ?? character.systemData.proficiencyBonus as number | undefined
+    ?? Math.ceil(character.level / 4) + 1;
+  const abilityMod = Math.max(
+    Math.floor((character.abilities.str - 10) / 2),
+    Math.floor((character.abilities.dex - 10) / 2),
+  );
+  const equippedWeapons = character.inventory.items
+    .filter((item) => item.equipped && item.weapon)
+    .slice(0, 3)
+    .map<SavedRoll>((item) => ({
+      id: `weapon-${item.id}`,
+      name: item.name,
+      detail: `Attack ${signed(abilityMod + proficiencyBonus)}`,
+      icon: 'sword',
+      bonus: abilityMod + proficiencyBonus,
+    }));
+  const spells = (character.spellsKnown?.length ? character.spellsKnown : character.spells)
+    .slice(0, Math.max(0, 3 - equippedWeapons.length))
+    .map<SavedRoll>((spell) => ({
+      id: `spell-${spell}`,
+      name: spell,
+      detail: `Spell attack ${signed(character.systemData.derivedStats?.spellAttackBonus ?? proficiencyBonus)}`,
+      icon: 'flame',
+      bonus: character.systemData.derivedStats?.spellAttackBonus ?? proficiencyBonus,
+    }));
+
+  return [...equippedWeapons, ...spells];
+}
+
+type AiSuggestion = {
+  message: StoryMessage;
+  action: AiConfirmAction;
+};
+
+function getMessageChoices(message: StoryMessage): string[] {
+  const choices = message.metadata?.choices;
+  if (Array.isArray(choices)) {
+    return choices
+      .map((choice) => {
+        if (typeof choice === 'string') return choice;
+        if (choice && typeof choice === 'object') {
+          const record = choice as Record<string, unknown>;
+          return typeof record.prompt === 'string'
+            ? record.prompt
+            : typeof record.label === 'string'
+            ? record.label
+            : '';
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .slice(0, 4);
+  }
+
+  const scene = message.metadata?.scene;
+  if (scene && typeof scene === 'object') {
+    const nextActions = (scene as Record<string, unknown>).nextActions;
+    if (Array.isArray(nextActions)) return nextActions.filter((item): item is string => typeof item === 'string').slice(0, 4);
+  }
+
+  return [];
+}
+
+function getSuggestedActions(messages: StoryMessage[]): string[] {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const actions = getMessageChoices(messages[index]);
+    if (actions.length) return actions;
+  }
+  return [];
+}
+
+function getLatestAiSuggestion(messages: StoryMessage[], dismissedIds: Set<string>): AiSuggestion | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    const actions = message.metadata?.confirmActions;
+    if (!Array.isArray(actions)) continue;
+    const action = (actions as AiConfirmAction[]).find((item) => !dismissedIds.has(`${message.id}:${item.id}`));
+    if (action) return { message, action };
+  }
+  return null;
+}
+
+function getStoryKind(message: StoryMessage) {
+  return typeof message.metadata?.kind === 'string' ? message.metadata.kind : message.speaker;
+}
+
+function matchesStoryTab(tab: StoryTab, message: StoryMessage) {
+  if (tab === 'story') return true;
+  const kind = getStoryKind(message);
+  const mode = typeof message.metadata?.mode === 'string' ? message.metadata.mode : '';
+  if (tab === 'chat') {
+    return message.speaker === 'player' || kind === 'player_action' || mode === 'speak' || mode === 'aside';
+  }
+  return Boolean(
+    message.metadata?.scene ||
+    kind === 'scene_opening' ||
+    kind === 'scene_objective' ||
+    kind === 'dm_prompt' ||
+    kind === 'rest_summary',
+  );
+}
+
+function getStoryTabEmptyText(tab: StoryTab) {
+  if (tab === 'chat') return 'No table chat yet.';
+  if (tab === 'lore') return 'No lore or scene notes yet.';
+  return 'No story messages yet.';
+}
+
+function formatStoryTime(value: string) {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit', hour12: false }).format(parsed);
+}
+
+function buildQuestItems(
+  sceneState: ReturnType<typeof useGameStore.getState>['sceneState'],
+  journalEntries: ReturnType<typeof useGameStore.getState>['journalState']['entries'],
+): QuestPanelItem[] {
+  const sceneObjectives = (sceneState?.objectives ?? [])
+    .filter((objective) => !objective.isHidden)
+    .map<QuestPanelItem>((objective) => ({
+      id: `objective-${objective.id}`,
+      title: objective.description,
+      source: 'Scene',
+      status: objective.status,
+    }));
+
+  const journalQuests = journalEntries
+    .filter((entry) => entry.type === 'quest_update')
+    .map<QuestPanelItem>((entry) => {
+      const lowerTags = entry.tags.map((tag) => tag.toLowerCase());
+      const completed = lowerTags.some((tag) => tag === 'completed' || tag === 'complete' || tag === 'done');
+      const failed = lowerTags.some((tag) => tag === 'failed' || tag === 'failure');
+      return {
+        id: `journal-${entry.id}`,
+        title: entry.title,
+        detail: entry.content,
+        source: 'Journal',
+        status: failed ? 'failed' : completed ? 'completed' : 'active',
+      };
+    });
+
+  return [...sceneObjectives, ...journalQuests];
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -70,17 +328,20 @@ export function GameTable({
   user,
   activeSession,
   character,
+  sessionMembers,
   messages,
   onLeave,
   onSendMessage,
   onDiceRoll,
   onUpdateCharacter,
   onCombatChange,
+  onAskAiAction,
+  onConfirmAiAction,
   combatMode = false,
   onToggleCombat,
   combatView,
 }: GameTableProps) {
-  const { sceneState, combatState, activeCharacter, setActiveCharacter } = useGameStore();
+  const { sceneState, combatState, journalState, activeCharacter, setActiveCharacter, dispatch, eventMeta } = useGameStore();
   const tableCharacter = character ?? activeCharacter;
 
   const [leftTab,      setLeftTab]      = useState<LeftTab>('party');
@@ -89,10 +350,13 @@ export function GameTable({
   const [actionDraft,  setActionDraft]  = useState('');
   const [pendingChange, setPendingChange] = useState<PendingChange | null>(null);
   const [diceResult,   setDiceResult]   = useState<DiceResult | null>(null);
+  const [rollHistory, setRollHistory] = useState<DiceResult[]>([]);
   const [rolling, setRolling] = useState(false);
   const [aiOn,    setAiOn]    = useState(true);
   const [aiTone,  setAiTone]  = useState('Balanced');
   const [aiStrict, setAiStrict] = useState('Standard');
+  const [showSceneModal, setShowSceneModal] = useState(false);
+  const [dismissedAiSuggestionIds, setDismissedAiSuggestionIds] = useState<Set<string>>(() => new Set());
 
   const storyRef = useRef<HTMLDivElement>(null);
 
@@ -101,29 +365,88 @@ export function GameTable({
     setPendingChange(change);
   };
 
-  const rollDie = () => {
-    if (!character) return;
+  const recordRoll = (result: DiceResult) => {
+    const nextResult = { ...result, id: result.id ?? crypto.randomUUID() };
+    setDiceResult(nextResult);
+    setRollHistory((current) => [nextResult, ...current].slice(0, 5));
+    onDiceRoll?.(nextResult);
+  };
+
+  const rollDie = (sides = 20, label?: string) => {
     setRolling(true);
-    const profBonus = character.systemData?.proficiencyBonus;
-    const bonus = typeof profBonus === 'number' ? profBonus : 0;
     setTimeout(() => {
-      const v = 1 + Math.floor(Math.random() * 20);
-      const total = v + bonus;
-      const dc = 10;
-      const kind: DiceResult['kind'] =
-        v === 20 ? 'crit' : v === 1 ? 'fumble' : total >= dc ? 'success' : 'failure';
-      const result: DiceResult = { die: '1d20', value: v, bonus: `+${bonus}`, target: dc, kind };
-      setDiceResult(result);
-      onDiceRoll?.(result);
+      const rolled = rollQuickDie(sides);
+      const result: DiceResult = {
+        die: `1d${sides}`,
+        label: label ?? `d${sides}`,
+        value: rolled.total,
+        bonus: '',
+        total: rolled.total,
+        rolls: rolled.rolls,
+        kind: classifyRoll(sides, rolled.total),
+      };
+      recordRoll(result);
       setRolling(false);
     }, 450);
   };
 
-  const handleSend = async () => {
+  const rollSaved = (savedRoll: SavedRoll) => {
+    setRolling(true);
+    setTimeout(() => {
+      const result = performAttackRoll({
+        abilityModifier: savedRoll.bonus,
+        proficiencyBonus: 0,
+        isProficient: false,
+      });
+      recordRoll({
+        die: '1d20',
+        label: savedRoll.name,
+        value: result.keptRoll ?? result.outcome.natural ?? result.outcome.total,
+        bonus: signed(savedRoll.bonus),
+        target: 10,
+        total: result.outcome.total,
+        rolls: [...result.dice.rolls],
+        kind: result.outcome.isCriticalSuccess
+          ? 'crit'
+          : result.outcome.isCriticalFailure
+          ? 'fumble'
+          : result.outcome.total >= 10
+          ? 'success'
+          : 'failure',
+      });
+      setRolling(false);
+    }, 450);
+  };
+
+  const handleSend = async (mode: ActionMode) => {
     if (!actionDraft.trim()) return;
-    await onSendMessage?.(actionDraft, 'speak');
+    const body = actionDraft;
+    if (onAskAiAction) {
+      await onAskAiAction(body, mode);
+    } else {
+      await onSendMessage?.(body, mode);
+    }
     setActionDraft('');
   };
+  const handleSpendResource = async (resourceId: string, amount = 1) => {
+    if (!tableCharacter) return;
+    const event: GameEvent = {
+      ...eventMeta(tableCharacter.id),
+      type: 'SPEND_RESOURCE',
+      characterId: tableCharacter.id,
+      resourceId,
+      amount,
+    };
+    const result = dispatch(event);
+    if (result.character) {
+      await onUpdateCharacter?.(result.character);
+    }
+  };
+  const suggestedActions = getSuggestedActions(messages);
+  const latestAiSuggestion = getLatestAiSuggestion(messages, dismissedAiSuggestionIds);
+  const visibleStoryMessages = messages.filter((message) => matchesStoryTab(storyTab, message));
+  const partyMembers = buildPartyMembers(tableCharacter, sessionMembers, combatState, user.id);
+  const questItems = buildQuestItems(sceneState, journalState.entries);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -133,7 +456,7 @@ export function GameTable({
         combatMode={combatMode}
         onToggleCombat={() => onToggleCombat?.(!combatMode)}
         onLeave={onLeave}
-        party={tableCharacter ? [charToPartyMember(tableCharacter)] : []}
+        party={partyMembers}
       />
 
       <div style={{
@@ -173,13 +496,13 @@ export function GameTable({
           </div>
 
           <div className="fw-scroll" style={{ flex: 1, padding: 14 }}>
-            {leftTab === 'party'  && <GtPartyPanel  party={tableCharacter ? [charToPartyMember(tableCharacter)] : []} onAttack={handleChange} />}
-            {leftTab === 'char'   && <GtCharPanel   character={tableCharacter} />}
+            {leftTab === 'party'  && <GtPartyPanel party={partyMembers} hasSessionMembers={Boolean(sessionMembers?.length)} />}
+            {leftTab === 'char'   && <GtCharPanel character={tableCharacter} onSpendResource={handleSpendResource} />}
             {leftTab === 'bag'    && (tableCharacter
               ? <InventoryPanel character={tableCharacter} onUpdateCharacter={onUpdateCharacter ?? ((nextCharacter) => setActiveCharacter(nextCharacter))} />
               : <GtInventoryStub onUse={handleChange} />
             )}
-            {leftTab === 'quests' && <GtQuestsPanel quests={[]} />}
+            {leftTab === 'quests' && <GtQuestsPanel quests={questItems} />}
           </div>
         </aside>
 
@@ -213,9 +536,11 @@ export function GameTable({
                 ))}
                 <span style={{ flex: 1, borderBottom: '1px solid var(--border-soft)' }} />
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBlock: 4 }}>
+                  {activeSession?.title && (
                   <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
-                    Session — · ongoing
+                    {activeSession.title} · ongoing
                   </span>
+                )}
                   <button className="fw-btn fw-btn-icon fw-btn-ghost fw-btn-sm" disabled title="Story search is not wired yet." type="button">
                     {Icon('search', { size: 12 })}
                   </button>
@@ -225,21 +550,40 @@ export function GameTable({
               {/* Story log */}
               <div ref={storyRef} className="fw-scroll" style={{ flex: 1, padding: '18px 28px', minHeight: 0 }}>
                 {messages.length === 0 ? (
-                  <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-4)', fontStyle: 'italic', fontFamily: 'var(--f-serif)', fontSize: 14 }}>
-                    The table is set. The candles burn.
-                  </div>
-                ) : messages.map((msg, i) => (
+                  <GtOnboardingCard
+                    onAskAi={async () => {
+                      const prompt = 'เริ่มการผจญภัย: เปิดฉากแรกให้สั้น กระชับ มีบรรยากาศ เป้าหมายแรก และทางเลือกถัดไป';
+                      if (onAskAiAction) {
+                        await onAskAiAction(prompt, 'act');
+                      } else {
+                        await onSendMessage?.(prompt, 'act');
+                      }
+                    }}
+                    onSetScene={() => setShowSceneModal(true)}
+                  />
+                ) : visibleStoryMessages.length === 0 ? (
+                  <GtEmptyStoryTab label={getStoryTabEmptyText(storyTab)} />
+                ) : visibleStoryMessages.map((msg, i) => (
                   <GtStoryEntry key={msg.id ?? i} message={msg} />
                 ))}
-                {diceResult && <GtRollRequest dice={diceResult} onRoll={rollDie} rolling={rolling} />}
+                {diceResult && <GtRollRequest dice={diceResult} onRoll={() => rollDie(20)} rolling={rolling} />}
               </div>
 
               <GtActionInput
                 value={actionDraft}
                 setValue={setActionDraft}
-                suggestions={[]}
+                suggestions={suggestedActions}
+                onCommitSuggestion={async (suggestion) => {
+                  setActionDraft(suggestion);
+                  if (onAskAiAction) {
+                    await onAskAiAction(suggestion, 'act');
+                  } else {
+                    await onSendMessage?.(suggestion, 'act');
+                  }
+                  setActionDraft('');
+                }}
                 onSend={handleSend}
-                onRollDice={rollDie}
+                onRollDice={() => rollDie(20)}
               />
             </>
           )}
@@ -273,9 +617,34 @@ export function GameTable({
           </div>
 
           <div className="fw-scroll" style={{ flex: 1, padding: 14 }}>
-            {rightTab === 'dice'   && diceResult && <GtDicePanel result={diceResult} onRoll={rollDie} rolling={rolling} />}
-            {rightTab === 'combat' && <GtCombatPanel encounter={combatState} actorId={tableCharacter?.id ?? user.id} onChange={handleChange} />}
-            {rightTab === 'ai'     && <GtAIDMPanel on={aiOn} setOn={setAiOn} tone={aiTone} setTone={setAiTone} strict={aiStrict} setStrict={setAiStrict} onChange={handleChange} />}
+            {rightTab === 'dice'   && (
+              <GtDicePanel
+                character={tableCharacter}
+                history={rollHistory}
+                result={diceResult}
+                onRoll={rollDie}
+                onSavedRoll={rollSaved}
+                rolling={rolling}
+              />
+            )}
+            {rightTab === 'combat' && <GtCombatPanel encounter={combatState} />}
+            {rightTab === 'ai'     && (
+              <GtAIDMPanel
+                latestSuggestion={latestAiSuggestion}
+                on={aiOn}
+                onAcceptSuggestion={async (action, message) => {
+                  await onConfirmAiAction?.(action, message);
+                  setDismissedAiSuggestionIds((current) => new Set(current).add(`${message.id}:${action.id}`));
+                }}
+                onAskAiAction={onAskAiAction}
+                onDismissSuggestion={(id) => setDismissedAiSuggestionIds((current) => new Set(current).add(id))}
+                setOn={setAiOn}
+                tone={aiTone}
+                setTone={setAiTone}
+                strict={aiStrict}
+                setStrict={setAiStrict}
+              />
+            )}
             {rightTab === 'tools'  && <GtToolsPanel />}
           </div>
         </aside>
@@ -283,6 +652,13 @@ export function GameTable({
 
       {pendingChange && (
         <GtConfirmModal change={pendingChange} onClose={() => setPendingChange(null)} />
+      )}
+      {showSceneModal && (
+        <GtManualSceneModal
+          sessionId={sceneState?.sessionId ?? activeSession.id}
+          actorId={tableCharacter?.id ?? user.id}
+          onClose={() => setShowSceneModal(false)}
+        />
       )}
     </div>
   );
@@ -366,17 +742,30 @@ function GtSessionBanner({ session, combatMode, onToggleCombat, onLeave, party }
 // ─── Left: Party Panel ────────────────────────────────────────────────────────
 
 interface PartyMember {
-  id: number; name: string; cls: string; lvl: number;
+  id: string; characterId?: string; playerId?: string; name: string; cls: string; lvl: number;
   hp: number; hpMax: number; ac: number;
+  conditions: string[]; status: SessionMember['status'];
   you?: boolean; down?: boolean; color: string; initials: string;
 }
 
-function GtPartyPanel({ party, onAttack }: { party: PartyMember[]; onAttack: (c: PendingChange) => void }) {
-  const firstTarget = party[0];
-  const quickDamage = firstTarget ? Math.max(1, Math.ceil(firstTarget.hpMax * 0.1)) : 0;
+function GtPartyPanel({ party, hasSessionMembers }: { party: PartyMember[]; hasSessionMembers: boolean }) {
+  if (!party.length) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="fw-eyebrow" style={{ marginBottom: 2 }}>Party</div>
+        <div style={{ padding: 18, textAlign: 'center', color: 'var(--text-3)', fontSize: 12 }}>
+          Solo session
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div className="fw-eyebrow" style={{ marginBottom: 2 }}>Party</div>
+      {!hasSessionMembers && (
+        <div className="fw-pill" style={{ alignSelf: 'flex-start' }}>Solo session</div>
+      )}
       {party.map((p, i) => (
         <div
           key={p.id}
@@ -395,32 +784,36 @@ function GtPartyPanel({ party, onAttack }: { party: PartyMember[]; onAttack: (c:
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <div style={{ fontSize: 12.5, color: 'var(--text)', fontWeight: 500 }}>{p.name}</div>
               {p.you  && <span className="fw-pill gold"  style={{ padding: '0 6px', fontSize: 9 }}>You</span>}
+              <span className={`fw-pill ${p.status === 'online' ? '' : 'blood'}`} style={{ padding: '0 6px', fontSize: 9 }}>{p.status}</span>
               {p.down && <span className="fw-pill blood" style={{ padding: '0 6px', fontSize: 9 }}>Down</span>}
             </div>
             <div style={{ fontSize: 10.5, color: 'var(--text-3)' }}>{p.cls} · Lv {p.lvl}</div>
             <div className="fw-stat-bar" style={{ marginTop: 6 }}>
               <span className="lbl">HP</span>
-              <div className="fw-bar hp bar"><i style={{ width: `${(p.hp / p.hpMax) * 100}%` }} /></div>
-              <span className="num">{p.hp}/{p.hpMax}</span>
+              <div className="fw-bar hp bar"><i style={{ width: p.hpMax > 0 ? `${Math.max(0, Math.min(100, (p.hp / p.hpMax) * 100))}%` : '0%' }} /></div>
+              <span className="num">{p.hpMax > 0 ? `${p.hp}/${p.hpMax}` : '—'}</span>
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 4, fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--f-mono)' }}>
-              <span>AC <b style={{ color: 'var(--text)' }}>{p.ac}</b></span>
+              <span>AC <b style={{ color: 'var(--text)' }}>{p.ac || '—'}</b></span>
               {p.down && <span style={{ color: 'var(--blood-bright)' }}>Death saves pending</span>}
             </div>
+            {p.conditions.length > 0 && (
+              <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
+                {p.conditions.map((condition) => (
+                  <span className="fw-pill blood" key={condition} style={{ padding: '0 6px', fontSize: 9 }}>{condition}</span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       ))}
-      <button className="fw-btn fw-btn-ghost fw-btn-sm" disabled={!firstTarget} style={{ justifyContent: 'center' }}
-        onClick={() => firstTarget && onAttack({ kind: 'damage', target: firstTarget.name, amount: quickDamage, source: 'Incoming attack' })}>
-        {Icon('alert', { size: 11 })} Simulate incoming damage
-      </button>
     </div>
   );
 }
 
 // ─── Left: Character Panel ────────────────────────────────────────────────────
 
-function GtCharPanel({ character }: { character: Character | null }) {
+function GtCharPanel({ character, onSpendResource }: { character: Character | null; onSpendResource: (resourceId: string, amount?: number) => Promise<void> | void }) {
   if (!character) {
     return (
       <div style={{ color: 'var(--text-3)', fontSize: 12, textAlign: 'center', padding: 20 }}>
@@ -435,6 +828,12 @@ function GtCharPanel({ character }: { character: Character | null }) {
   const hp       = character.hitPoints;
   const hpMax    = character.maxHitPoints;
   const ac       = character.armorClass;
+  const spells = character.spellsKnown?.length ? character.spellsKnown : character.spells;
+  const spellSlots = Object.entries(character.spellSlots ?? {})
+    .map(([level, slot]) => ({ level: Number(level), used: slot.used, max: slot.max }))
+    .filter((slot) => slot.max > 0)
+    .sort((a, b) => a.level - b.level);
+  const resources = character.systemData.classRuntime?.resources ?? [];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -460,6 +859,89 @@ function GtCharPanel({ character }: { character: Character | null }) {
           </div>
         ))}
       </div>
+
+      <GtResourceList resources={resources} onSpend={onSpendResource} />
+      <GtSpellList spells={spells} slots={spellSlots} />
+    </div>
+  );
+}
+
+function GtResourceList({
+  resources,
+  onSpend,
+}: {
+  resources: NonNullable<Character['systemData']['classRuntime']>['resources'];
+  onSpend: (resourceId: string, amount?: number) => Promise<void> | void;
+}) {
+  if (!resources.length) {
+    return (
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border-soft)', borderRadius: 8, padding: 10 }}>
+        <div className="fw-eyebrow" style={{ marginBottom: 6 }}>Resources</div>
+        <div style={{ color: 'var(--text-3)', fontSize: 12 }}>No class resources</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border-soft)', borderRadius: 8, padding: 10 }}>
+      <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Resources</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {resources.map((resource) => {
+          const pct = resource.max > 0 ? Math.max(0, Math.min(100, (resource.current / resource.max) * 100)) : 0;
+          return (
+            <div key={resource.id}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, color: 'var(--text)' }}>{resource.name}</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--text-3)' }}>{resource.recoveryType} rest</div>
+                </div>
+                <span style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--gold-bright)' }}>{resource.current}/{resource.max}</span>
+                <button
+                  className="fw-btn fw-btn-ghost fw-btn-sm"
+                  disabled={resource.current <= 0}
+                  onClick={() => void onSpend(resource.id, 1)}
+                  type="button"
+                >
+                  Use
+                </button>
+              </div>
+              <div className="fw-bar hp bar"><i style={{ width: `${pct}%` }} /></div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function GtSpellList({ spells, slots }: { spells: string[]; slots: Array<{ level: number; used: number; max: number }> }) {
+  return (
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border-soft)', borderRadius: 8, padding: 10 }}>
+      <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Spells</div>
+      {slots.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+          {slots.map((slot) => (
+            <span className="fw-pill" key={slot.level}>
+              L{slot.level} {Math.max(0, slot.max - slot.used)}/{slot.max}
+            </span>
+          ))}
+        </div>
+      )}
+      {spells.length === 0 ? (
+        <div style={{ color: 'var(--text-3)', fontSize: 12 }}>No spells known</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {spells.slice(0, 6).map((spell) => (
+            <div key={spell} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', background: 'var(--bg-deep)', border: '1px solid var(--border-soft)', borderRadius: 6 }}>
+              <span style={{ color: 'var(--gold)', display: 'grid', placeItems: 'center', width: 18 }}>{Icon('sparkles', { size: 12 })}</span>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: 'var(--text)' }}>{spell}</span>
+              <button className="fw-btn fw-btn-ghost fw-btn-sm" disabled title="No existing GameEvent uses spell slots yet." type="button">
+                Cast
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -505,49 +987,71 @@ function GtInventoryStub({ onUse, items }: { onUse: (c: PendingChange) => void; 
 
 // ─── Left: Quests Panel ───────────────────────────────────────────────────────
 
-function GtQuestsPanel({ quests }: { quests: any[] }) {
-  if (!quests || quests.length === 0) {
+function GtQuestsPanel({ quests }: { quests: QuestPanelItem[] }) {
+  const active = quests.filter((quest) => quest.status === 'active');
+  const completed = quests.filter((quest) => quest.status === 'completed' || quest.status === 'failed');
+
+  if (!quests.length) {
     return (
       <div style={{ color: 'var(--text-3)', fontSize: 12, textAlign: 'center', padding: 20 }}>
-        No quests loaded
+        No active objectives
       </div>
     );
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {quests.map((q, qi) => (
-        <div key={qi} style={{
-          background: q.active ? 'linear-gradient(180deg, rgba(214,168,79,0.06), rgba(214,168,79,0.01))' : 'var(--surface)',
-          border: '1px solid ' + (q.active ? 'rgba(214,168,79,0.3)' : 'var(--border-soft)'),
-          borderRadius: 8, padding: 12,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <span className="fw-pill dim">{q.kind}</span>
-            <div className="fw-display" style={{ fontSize: 13, color: 'var(--text)' }}>{q.title}</div>
+      <GtQuestGroup title="Active" quests={active} />
+      <GtQuestGroup title="Completed" quests={completed} muted />
+    </div>
+  );
+}
+
+function GtQuestGroup({ title, quests, muted = false }: { title: string; quests: QuestPanelItem[]; muted?: boolean }) {
+  if (!quests.length) return null;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div className="fw-eyebrow">{title}</div>
+      {quests.map((quest) => {
+        const done = quest.status === 'completed';
+        const failed = quest.status === 'failed';
+        return (
+          <div key={quest.id} style={{
+            background: muted ? 'var(--surface)' : 'linear-gradient(180deg, rgba(214,168,79,0.06), rgba(214,168,79,0.01))',
+            border: '1px solid ' + (muted ? 'var(--border-soft)' : 'rgba(214,168,79,0.3)'),
+            borderRadius: 8,
+            padding: 12,
+            opacity: muted ? 0.82 : 1,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: quest.detail ? 6 : 0 }}>
+              <span className={`fw-pill ${failed ? 'blood' : done ? 'gold' : 'dim'}`}>{quest.source}</span>
+              <div className="fw-display" style={{
+                fontSize: 13,
+                color: failed ? 'var(--blood-bright)' : done ? 'var(--text-3)' : 'var(--text)',
+                textDecoration: done ? 'line-through' : 'none',
+              }}>
+                {quest.title}
+              </div>
+            </div>
+            {quest.detail && (
+              <p className="fw-serif" style={{ margin: 0, color: 'var(--text-3)', fontSize: 12, lineHeight: 1.45, fontStyle: 'italic' }}>
+                {quest.detail}
+              </p>
+            )}
           </div>
-          <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {q.steps.map((s: any, si: number) => (
-              <li key={si} style={{ display: 'flex', gap: 8, fontSize: 12, lineHeight: 1.4, fontFamily: 'var(--f-serif)', color: s.done ? 'var(--text-3)' : ('current' in s && s.current) ? 'var(--gold-bright)' : 'var(--text-2)' }}>
-                <span style={{ width: 14, height: 14, borderRadius: 50, border: '1px solid ' + (s.done ? 'var(--gold-deep)' : ('current' in s && s.current) ? 'var(--gold-bright)' : 'var(--border)'), background: s.done ? 'rgba(214,168,79,0.2)' : 'transparent', display: 'grid', placeItems: 'center', color: 'var(--gold-bright)', flexShrink: 0, marginTop: 2 }}>
-                  {s.done && Icon('check', { size: 9 })}
-                </span>
-                <span style={{ flex: 1, fontStyle: ('current' in s && s.current) ? 'italic' : 'normal', textDecoration: s.done ? 'line-through' : 'none' }}>{s.d}</span>
-                {'progress' in s && s.progress && <span style={{ fontFamily: 'var(--f-mono)', fontSize: 11 }}>{String(s.progress)}</span>}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
 
 // ─── Center: Scene Header ─────────────────────────────────────────────────────
 
-function GtSceneHeader({ sceneState }: { sceneState: { name?: string; location?: string; description?: string } | null }) {
-  const title = sceneState?.name ?? sceneState?.location ?? 'No scene loaded';
-  const desc  = sceneState?.description ?? 'Scene state is not available yet.';
+function GtSceneHeader({ sceneState }: { sceneState: { location?: string; description?: string; objectives?: { id: string }[]; threatClocks?: { id: string }[] } | null }) {
+  const location       = sceneState?.location;
+  const desc           = sceneState?.description;
+  const objectiveCount = sceneState?.objectives?.length ?? 0;
+  const clockCount     = sceneState?.threatClocks?.length ?? 0;
 
   return (
     <div style={{ padding: '18px 28px 0', position: 'relative' }}>
@@ -561,18 +1065,29 @@ function GtSceneHeader({ sceneState }: { sceneState: { name?: string; location?:
               <circle cx="100" cy="40" r="14" fill="rgba(214,168,79,0.5)" stroke="rgba(214,168,79,0.6)" />
             </g>
           </svg>
-          <span style={{ position: 'absolute', left: 8, top: 8, fontSize: 10, color: 'var(--gold-bright)', fontFamily: 'var(--f-mono)', textShadow: '0 0 6px rgba(0,0,0,0.8)' }}>SCENE</span>
+          {sceneState && (
+            <span style={{ position: 'absolute', left: 8, top: 8, fontSize: 10, color: 'var(--gold-bright)', fontFamily: 'var(--f-mono)', textShadow: '0 0 6px rgba(0,0,0,0.8)' }}>SCENE</span>
+          )}
         </div>
 
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="fw-eyebrow" style={{ marginBottom: 4 }}>Current Scene</div>
-          <div className="fw-display" style={{ fontSize: 22, color: 'var(--text)', letterSpacing: '0.04em' }}>{title}</div>
-          <p className="fw-serif" style={{ fontSize: 14, color: 'var(--text-2)', lineHeight: 1.55, marginTop: 6, fontStyle: 'italic' }}>{desc}</p>
-          <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-            <span className="fw-pill dim">Indoor</span>
-            <span className="fw-pill dim">Dim light · 15 ft</span>
-            <span className="fw-pill">{Icon('sparkles', { size: 10 })} Faint divination</span>
+          <div className="fw-display" style={{ fontSize: 22, color: location ? 'var(--text)' : 'var(--text-4)', letterSpacing: '0.04em' }}>
+            {location ?? '—'}
           </div>
+          {desc && (
+            <p className="fw-serif" style={{ fontSize: 14, color: 'var(--text-2)', lineHeight: 1.55, marginTop: 6, fontStyle: 'italic' }}>{desc}</p>
+          )}
+          {(objectiveCount > 0 || clockCount > 0) && (
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+              {objectiveCount > 0 && (
+                <span className="fw-pill">{Icon('scroll', { size: 10 })} {objectiveCount} {objectiveCount === 1 ? 'objective' : 'objectives'}</span>
+              )}
+              {clockCount > 0 && (
+                <span className="fw-pill blood">{Icon('alert', { size: 10 })} {clockCount} {clockCount === 1 ? 'clock' : 'clocks'}</span>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -582,18 +1097,31 @@ function GtSceneHeader({ sceneState }: { sceneState: { name?: string; location?:
 // ─── Center: Story Entry ──────────────────────────────────────────────────────
 
 function GtStoryEntry({ message }: { message: StoryMessage }) {
-  const kind = message.speaker === 'dm' ? 'scene' : message.speaker === 'system' ? 'ai' : 'action';
+  const kind = getStoryKind(message);
+  const mode = typeof message.metadata?.mode === 'string' ? message.metadata.mode : '';
+  const time = formatStoryTime(message.createdAt);
+  const isDm = message.speaker === 'dm' || kind === 'ai_dm_reply' || kind === 'dm_prompt' || kind === 'scene_opening' || kind === 'scene_objective';
+  const isSystem = message.speaker === 'system' && !isDm;
+  const author = message.author || (isDm ? 'Dungeon Master' : isSystem ? 'System' : 'Player');
+  const choices = getMessageChoices(message);
 
-  if (kind === 'scene') {
+  if (isDm) {
     return (
       <div className="fw-fade" style={{ display: 'flex', gap: 12, marginBottom: 18 }}>
         <div className="fw-avatar dm" style={{ background: 'linear-gradient(135deg, rgba(214,168,79,0.3), #15101f)' }}>DM</div>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <span className="fw-display" style={{ fontSize: 11.5, letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--gold-bright)' }}>Dungeon Master</span>
-            <span style={{ fontSize: 10, color: 'var(--text-4)', fontFamily: 'var(--f-mono)' }}>just now</span>
+            <span className="fw-display" style={{ fontSize: 11.5, letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--gold-bright)' }}>{author}</span>
+            {time && <span style={{ fontSize: 10, color: 'var(--text-4)', fontFamily: 'var(--f-mono)' }}>{time}</span>}
           </div>
           <p className="fw-serif" style={{ fontSize: 16, color: 'var(--text)', lineHeight: 1.6 }}>{message.body}</p>
+          {choices.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+              {choices.map((choice) => (
+                <span className="fw-pill" key={choice}>{choice}</span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -602,14 +1130,25 @@ function GtStoryEntry({ message }: { message: StoryMessage }) {
   return (
     <div className="fw-fade" style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
       <div className="fw-avatar sm" style={{ background: 'linear-gradient(135deg, rgba(168,162,158,0.3), #15101f)' }}>
-        {(message.author ?? 'P').slice(0, 2).toUpperCase()}
+        {author.slice(0, 2).toUpperCase()}
       </div>
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 2 }}>
-          <b style={{ color: 'var(--text-2)' }}>{message.author ?? 'Player'}</b> · action
+          <b style={{ color: 'var(--text-2)' }}>{author}</b>
+          {mode && <> · {mode}</>}
+          {!mode && <> · {isSystem ? 'system' : 'action'}</>}
+          {time && <> · {time}</>}
         </div>
         <p style={{ fontSize: 13.5, color: 'var(--text)', lineHeight: 1.55 }}>{message.body}</p>
       </div>
+    </div>
+  );
+}
+
+function GtEmptyStoryTab({ label }: { label: string }) {
+  return (
+    <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-4)', fontStyle: 'italic', fontFamily: 'var(--f-serif)', fontSize: 14 }}>
+      {label}
     </div>
   );
 }
@@ -648,11 +1187,12 @@ interface ActionInputProps {
   value: string;
   setValue: (v: string) => void;
   suggestions: string[];
-  onSend: () => void;
+  onCommitSuggestion: (suggestion: string) => Promise<void> | void;
+  onSend: (mode: ActionMode) => void;
   onRollDice: () => void;
 }
 
-function GtActionInput({ value, setValue, suggestions, onSend, onRollDice }: ActionInputProps) {
+function GtActionInput({ value, setValue, suggestions, onCommitSuggestion, onSend, onRollDice }: ActionInputProps) {
   const [mode, setMode] = useState<ActionMode>('speak');
 
   const placeholder = mode === 'speak'
@@ -664,17 +1204,20 @@ function GtActionInput({ value, setValue, suggestions, onSend, onRollDice }: Act
   return (
     <div style={{ borderTop: '1px solid var(--border-soft)', padding: 16, background: 'linear-gradient(180deg, rgba(11,10,16,0), rgba(11,10,16,0.5))' }}>
       {/* Suggestions */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-        <span className="fw-eyebrow" style={{ alignSelf: 'center', marginRight: 4, color: 'var(--arcane-bright)' }}>
-          {Icon('sparkles', { size: 10 })} Suggested
-        </span>
-        {suggestions.map((s, i) => (
-          <button key={i} className="fw-btn fw-btn-ghost fw-btn-sm" style={{ fontSize: 11.5, padding: '4px 10px', borderColor: 'rgba(124,58,237,0.3)', color: 'var(--text-2)' }}
-            onClick={() => setValue(s)}>
-            {s}
-          </button>
-        ))}
-      </div>
+      {suggestions.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+          <span className="fw-eyebrow" style={{ alignSelf: 'center', marginRight: 4, color: 'var(--arcane-bright)' }}>
+            {Icon('sparkles', { size: 10 })} Suggested
+          </span>
+          {suggestions.map((s, i) => (
+            <button key={i} className="fw-btn fw-btn-ghost fw-btn-sm" style={{ fontSize: 11.5, padding: '4px 10px', borderColor: 'rgba(124,58,237,0.3)', color: 'var(--text-2)' }}
+              onClick={() => void onCommitSuggestion(s)}
+              type="button">
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
         <div style={{ flex: 1, background: 'var(--bg-deep)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
@@ -695,7 +1238,7 @@ function GtActionInput({ value, setValue, suggestions, onSend, onRollDice }: Act
           <textarea
             value={value}
             onChange={e => setValue(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) onSend(); }}
+            onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) onSend(mode); }}
             placeholder={placeholder}
             rows={2}
             style={{ width: '100%', background: 'transparent', border: 0, outline: 0, resize: 'none', color: 'var(--text)', fontFamily: 'var(--f-serif)', fontSize: 15, lineHeight: 1.5, boxSizing: 'border-box' }}
@@ -703,9 +1246,9 @@ function GtActionInput({ value, setValue, suggestions, onSend, onRollDice }: Act
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <button className="fw-btn fw-btn-icon fw-btn-ghost" onClick={onRollDice} type="button">{Icon('dice', { size: 14 })}</button>
-          <button className="fw-btn fw-btn-icon fw-btn-ghost" disabled title="AI suggestion insert is not wired yet." type="button">{Icon('sparkles', { size: 14 })}</button>
+          <button className="fw-btn fw-btn-icon fw-btn-ghost" disabled={!suggestions[0]} onClick={() => suggestions[0] && setValue(suggestions[0])} title={suggestions[0] ? 'Insert latest AI suggestion.' : 'No AI suggestion available.'} type="button">{Icon('sparkles', { size: 14 })}</button>
         </div>
-        <button className="fw-btn fw-btn-gold fw-btn-lg" style={{ height: '100%' }} onClick={onSend}>
+        <button className="fw-btn fw-btn-gold fw-btn-lg" style={{ height: '100%' }} onClick={() => onSend(mode)} type="button">
           {Icon('send', { size: 13 })} Commit
         </button>
       </div>
@@ -722,30 +1265,55 @@ const DICE_FACES = [
   { n: 'd100', v: 100 },
 ];
 
-function GtDicePanel({ result, onRoll, rolling }: { result: DiceResult; onRoll: () => void; rolling: boolean }) {
+function GtDicePanel({
+  character,
+  history,
+  result,
+  onRoll,
+  onSavedRoll,
+  rolling,
+}: {
+  character: Character | null;
+  history: DiceResult[];
+  result: DiceResult | null;
+  onRoll: (sides: number, label?: string) => void;
+  onSavedRoll: (roll: SavedRoll) => void;
+  rolling: boolean;
+}) {
   const colorByKind = (k: DiceResult['kind']) =>
     k === 'crit' ? 'var(--gold-bright)' : k === 'fumble' ? 'var(--blood-bright)' : 'var(--text)';
   const labelByKind = (k: DiceResult['kind']) =>
     k === 'crit' ? 'Critical.' : k === 'success' ? 'Success.' : k === 'fumble' ? 'Fumble.' : 'Failure.';
-  const total = result.value + (Number.parseInt(result.bonus, 10) || 0);
+  const total = result?.total ?? ((result?.value ?? 0) + (Number.parseInt(result?.bonus ?? '0', 10) || 0));
+  const savedRolls = buildSavedRolls(character);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Last roll display */}
-      <div style={{ background: 'var(--bg-deep)', border: '1px solid ' + (result.kind === 'crit' ? 'var(--gold)' : result.kind === 'success' ? 'var(--gold-deep)' : 'var(--border)'), borderRadius: 10, padding: 18, textAlign: 'center', position: 'relative', overflow: 'hidden', boxShadow: result.kind === 'crit' ? '0 0 30px -6px rgba(214,168,79,0.5)' : 'none' }}>
-        {result.kind === 'crit' && <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center, rgba(214,168,79,0.18), transparent 70%)' }} />}
-        <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Last Roll · {result.die}{result.bonus}</div>
-        <div className={'fw-display ' + (rolling ? 'fw-die-shake' : '')} style={{ fontSize: 56, lineHeight: 1, color: colorByKind(result.kind) }}>
-          {result.value}
-          <span style={{ fontSize: 22, color: 'var(--text-3)' }}> {result.bonus}</span>
+      {result ? (
+        <div style={{ background: 'var(--bg-deep)', border: '1px solid ' + (result.kind === 'crit' ? 'var(--gold)' : result.kind === 'success' ? 'var(--gold-deep)' : 'var(--border)'), borderRadius: 10, padding: 18, textAlign: 'center', position: 'relative', overflow: 'hidden', boxShadow: result.kind === 'crit' ? '0 0 30px -6px rgba(214,168,79,0.5)' : 'none' }}>
+          {result.kind === 'crit' && <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center, rgba(214,168,79,0.18), transparent 70%)' }} />}
+          <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Last Roll · {result.label ?? result.die}{result.bonus}</div>
+          <div className={'fw-display ' + (rolling ? 'fw-die-shake' : '')} style={{ fontSize: 56, lineHeight: 1, color: colorByKind(result.kind) }}>
+            {result.value}
+            {result.bonus && <span style={{ fontSize: 22, color: 'var(--text-3)' }}> {result.bonus}</span>}
+          </div>
+          <div style={{ marginTop: 4, fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--text-3)' }}>
+            {result.target ? `= ${total} vs DC ${result.target}` : `= ${total}`}
+          </div>
+          <div style={{ marginTop: 6, fontFamily: 'var(--f-serif)', fontStyle: 'italic', fontSize: 13, color: colorByKind(result.kind) }}>
+            {labelByKind(result.kind)}
+          </div>
         </div>
-        <div style={{ marginTop: 4, fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--text-3)' }}>
-          = {total} vs DC {result.target}
+      ) : (
+        <div style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-soft)', borderRadius: 10, padding: 18, textAlign: 'center' }}>
+          <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Last Roll</div>
+          <div className="fw-display" style={{ fontSize: 28, color: 'var(--text-4)' }}>—</div>
+          <div className="fw-serif" style={{ marginTop: 6, fontSize: 13, color: 'var(--text-3)', fontStyle: 'italic' }}>
+            No rolls yet.
+          </div>
         </div>
-        <div style={{ marginTop: 6, fontFamily: 'var(--f-serif)', fontStyle: 'italic', fontSize: 13, color: colorByKind(result.kind) }}>
-          {labelByKind(result.kind)}
-        </div>
-      </div>
+      )}
 
       {/* Quick dice grid */}
       <div>
@@ -759,7 +1327,7 @@ function GtDicePanel({ result, onRoll, rolling }: { result: DiceResult; onRoll: 
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
           {DICE_FACES.map(d => (
-            <button key={d.n} disabled={!d.primary} onClick={d.primary ? onRoll : undefined} type="button" title={d.primary ? undefined : `${d.n} rolling is not wired yet.`}
+            <button key={d.n} disabled={rolling} onClick={() => onRoll(d.v, d.n)} type="button"
               className="fw-btn"
               style={{ padding: '12px 0', justifyContent: 'center', flexDirection: 'column', gap: 0, background: d.primary ? 'linear-gradient(180deg, #2A1F3D, #15101f)' : 'var(--surface-2)', borderColor: d.primary ? 'var(--gold-deep)' : 'var(--border-soft)', color: d.primary ? 'var(--gold-bright)' : 'var(--text-2)', boxShadow: d.primary ? '0 0 16px -4px rgba(214,168,79,0.3)' : 'none' }}>
               <span className="fw-display" style={{ fontSize: 16, letterSpacing: '0.06em' }}>{d.n}</span>
@@ -772,16 +1340,27 @@ function GtDicePanel({ result, onRoll, rolling }: { result: DiceResult; onRoll: 
       {/* Saved rolls */}
       <div>
         <div className="fw-eyebrow" style={{ marginBottom: 6 }}>Saved Rolls</div>
-        {[
-          { n: 'Primary attack',   d: 'Character action',   icon: 'flame' },
-          { n: 'Social check',     d: 'Ability check',      icon: 'users' },
-          { n: 'Death save',       d: 'Saving throw',       icon: 'skull', blood: true },
-        ].map((r, i) => (
-          <button key={i} className="fw-btn fw-btn-ghost" disabled title="Saved rolls are not wired yet." type="button" style={{ width: '100%', justifyContent: 'flex-start', padding: '8px 10px', marginBottom: 4, fontSize: 12 }}>
+        {savedRolls.length === 0 ? (
+          <div style={{ color: 'var(--text-3)', fontSize: 12, padding: '8px 2px' }}>No saved rolls yet</div>
+        ) : savedRolls.map((r) => (
+          <button key={r.id} className="fw-btn fw-btn-ghost" disabled={rolling} onClick={() => onSavedRoll(r)} type="button" style={{ width: '100%', justifyContent: 'flex-start', padding: '8px 10px', marginBottom: 4, fontSize: 12 }}>
             <span style={{ color: r.blood ? 'var(--blood-bright)' : 'var(--gold)' }}>{Icon(r.icon, { size: 12 })}</span>
-            <span style={{ flex: 1, textAlign: 'left' }}>{r.n}</span>
-            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10.5, color: 'var(--text-3)' }}>{r.d}</span>
+            <span style={{ flex: 1, textAlign: 'left' }}>{r.name}</span>
+            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10.5, color: 'var(--text-3)' }}>{r.detail}</span>
           </button>
+        ))}
+      </div>
+
+      <div>
+        <div className="fw-eyebrow" style={{ marginBottom: 6 }}>Recent Rolls</div>
+        {history.length === 0 ? (
+          <div style={{ color: 'var(--text-3)', fontSize: 12, padding: '8px 2px' }}>No recent rolls</div>
+        ) : history.map((roll) => (
+          <div key={roll.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', background: 'var(--surface)', border: '1px solid var(--border-soft)', borderRadius: 6, marginBottom: 4 }}>
+            <span className="fw-mono" style={{ color: colorByKind(roll.kind), fontSize: 12, width: 34 }}>{roll.total ?? roll.value}</span>
+            <span style={{ flex: 1, fontSize: 12, color: 'var(--text)' }}>{roll.label ?? roll.die}</span>
+            <span style={{ fontSize: 10.5, color: 'var(--text-3)', fontFamily: 'var(--f-mono)' }}>{roll.die}{roll.bonus}</span>
+          </div>
         ))}
       </div>
     </div>
@@ -792,14 +1371,9 @@ function GtDicePanel({ result, onRoll, rolling }: { result: DiceResult; onRoll: 
 
 interface CombatPanelProps {
   encounter: EncounterState | null;
-  actorId: string;
-  onChange: (c: PendingChange) => void;
 }
 
-function GtCombatPanel({ encounter, actorId, onChange }: CombatPanelProps) {
-  const dispatch = useGameStore((state) => state.dispatch);
-  const eventMeta = useGameStore((state) => state.eventMeta);
-
+function GtCombatPanel({ encounter }: CombatPanelProps) {
   if (!encounter) {
     return (
       <div style={{ textAlign: 'center', padding: 24 }}>
@@ -816,49 +1390,9 @@ function GtCombatPanel({ encounter, actorId, onChange }: CombatPanelProps) {
   const activeIdx  = activeEncounter.activeIndex ?? 0;
   const round      = activeEncounter.round ?? 1;
   const activeCombatant = combatants[activeIdx] ?? combatants[0];
-  const quickAmount = activeCombatant ? Math.max(1, Math.ceil(activeCombatant.maxHitPoints * 0.1)) : 0;
-
-  function dispatchTargetChange(kind: 'damage' | 'heal') {
-    if (!activeCombatant) return;
-    const meta = {
-      ...eventMeta(actorId),
-      sessionId: activeEncounter.id,
-      actorId,
-      targetId: activeCombatant.id,
-    };
-    if (kind === 'damage') {
-      dispatch({
-        ...meta,
-        type: 'apply_damage',
-        amount: quickAmount,
-      });
-    } else {
-      dispatch({
-        ...meta,
-        type: 'recover_hp',
-        amount: quickAmount,
-        recoveryKind: 'healing',
-      });
-    }
-    onChange({
-      kind,
-      target: activeCombatant.name,
-      amount: quickAmount,
-      source: kind === 'damage' ? 'Combat panel quick damage' : 'Combat panel quick heal',
-    });
-  }
-
-  function advanceTurn() {
-    if (!activeCombatant) return;
-    dispatch({
-      ...eventMeta(actorId),
-      type: 'COMBAT_ADVANCE_TURN',
-      sessionId: activeEncounter.id,
-      actorId,
-      targetId: activeCombatant.id,
-      direction: 1,
-    });
-  }
+  const standingCount = combatants.filter((c) => c.hitPoints > 0).length;
+  const injuredCount = combatants.filter((c) => c.hitPoints > 0 && c.hitPoints < c.maxHitPoints).length;
+  const defeatedCount = combatants.filter((c) => c.hitPoints <= 0).length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -867,8 +1401,33 @@ function GtCombatPanel({ encounter, actorId, onChange }: CombatPanelProps) {
           <span style={{ width: 6, height: 6, borderRadius: 50, background: 'currentColor' }} /> Round {round}
         </span>
         <span style={{ flex: 1 }} />
-        <button className="fw-btn fw-btn-icon fw-btn-ghost fw-btn-sm" disabled={!activeCombatant} onClick={advanceTurn} type="button">{Icon('chevR', { size: 12 })}</button>
+        <button className="fw-btn fw-btn-icon fw-btn-ghost fw-btn-sm" disabled title="Use the main combat view to advance turns." type="button">{Icon('chevR', { size: 12 })}</button>
       </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+        {[
+          { label: 'Active', value: standingCount },
+          { label: 'Injured', value: injuredCount },
+          { label: 'Down', value: defeatedCount },
+        ].map((item) => (
+          <div key={item.label} style={{ padding: 8, background: 'var(--surface)', border: '1px solid var(--border-soft)', borderRadius: 6, textAlign: 'center' }}>
+            <div className="fw-eyebrow" style={{ fontSize: 9, marginBottom: 2 }}>{item.label}</div>
+            <div className="fw-display" style={{ fontSize: 14, color: 'var(--gold-bright)' }}>{item.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {activeCombatant && (
+        <div style={{ padding: '8px 10px', background: 'rgba(214,168,79,0.06)', border: '1px solid rgba(214,168,79,0.24)', borderRadius: 6 }}>
+          <div className="fw-eyebrow" style={{ marginBottom: 4 }}>Current Turn</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12.5, color: 'var(--text)', flex: 1 }}>{activeCombatant.name}</span>
+            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10.5, color: 'var(--text-3)' }}>
+              HP {activeCombatant.hitPoints}/{activeCombatant.maxHitPoints}
+            </span>
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {combatants.map((c, i) => (
@@ -884,17 +1443,17 @@ function GtCombatPanel({ encounter, actorId, onChange }: CombatPanelProps) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-        <button className="fw-btn fw-btn-blood" disabled={!activeCombatant} style={{ justifyContent: 'center' }} onClick={() => dispatchTargetChange('damage')} type="button">
+        <button className="fw-btn fw-btn-blood" disabled title="Use the main combat view to apply damage." style={{ justifyContent: 'center' }} type="button">
           {Icon('minus', { size: 12 })} Damage
         </button>
-        <button className="fw-btn fw-btn-ghost" disabled={!activeCombatant} style={{ justifyContent: 'center' }} onClick={() => dispatchTargetChange('heal')} type="button">
+        <button className="fw-btn fw-btn-ghost" disabled title="Use the main combat view to heal." style={{ justifyContent: 'center' }} type="button">
           {Icon('heart', { size: 12 })} Heal
         </button>
         <button className="fw-btn fw-btn-ghost" disabled title="Condition picker is not wired yet." type="button" style={{ justifyContent: 'center' }}>{Icon('sparkles', { size: 12 })} Condition</button>
         <button className="fw-btn fw-btn-ghost" disabled title="NPC creation is not wired yet." type="button" style={{ justifyContent: 'center' }}>{Icon('plus',     { size: 12 })} NPC</button>
       </div>
 
-      <button className="fw-btn fw-btn-gold" disabled={!activeCombatant} onClick={advanceTurn} type="button" style={{ justifyContent: 'center' }}>
+      <button className="fw-btn fw-btn-gold" disabled title="Use the main combat view to end the turn." type="button" style={{ justifyContent: 'center' }}>
         End Turn {Icon('chevR', { size: 12 })}
       </button>
     </div>
@@ -904,13 +1463,38 @@ function GtCombatPanel({ encounter, actorId, onChange }: CombatPanelProps) {
 // ─── Right: AI DM Panel ───────────────────────────────────────────────────────
 
 interface AIDMPanelProps {
+  latestSuggestion: AiSuggestion | null;
   on: boolean; setOn: (v: boolean) => void;
   tone: string; setTone: (v: string) => void;
   strict: string; setStrict: (v: string) => void;
-  onChange: (c: PendingChange) => void;
+  onAcceptSuggestion: (action: AiConfirmAction, message: StoryMessage) => Promise<void> | void;
+  onAskAiAction?: (text: string, mode: ActionMode) => Promise<void>;
+  onDismissSuggestion: (id: string) => void;
 }
 
-function GtAIDMPanel({ on, setOn, tone, setTone, strict, setStrict, onChange }: AIDMPanelProps) {
+function GtAIDMPanel({
+  latestSuggestion,
+  on,
+  setOn,
+  tone,
+  setTone,
+  strict,
+  setStrict,
+  onAcceptSuggestion,
+  onAskAiAction,
+  onDismissSuggestion,
+}: AIDMPanelProps) {
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const runAiAction = async (label: string, prompt: string) => {
+    if (!on || !onAskAiAction) return;
+    setBusyAction(label);
+    try {
+      await onAskAiAction(prompt, 'act');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Header */}
@@ -946,13 +1530,13 @@ function GtAIDMPanel({ on, setOn, tone, setTone, strict, setStrict, onChange }: 
       <div>
         <div className="fw-eyebrow" style={{ marginBottom: 6 }}>Warden Actions</div>
         {[
-          { icon: 'sparkles', name: 'Generate Scene',       desc: 'From recent log + chosen tone.' },
-          { icon: 'alert',    name: 'Suggest Consequence',  desc: 'Outcome of last action.'       },
-          { icon: 'book',     name: 'Ask Rules',            desc: 'RAW citation. No state change.' },
-          { icon: 'users',    name: 'Voice NPC',            desc: 'Speak as the scene NPC.'       },
-          { icon: 'map',      name: 'Random Encounter',     desc: 'By current region.'            },
+          { icon: 'sparkles', name: 'Generate Scene',       desc: 'From recent log + chosen tone.', prompt: `Generate the next scene using a ${tone.toLowerCase()} tone and ${strict.toLowerCase()} rules strictness.` },
+          { icon: 'alert',    name: 'Suggest Consequence',  desc: 'Outcome of last action.', prompt: `Suggest a fair consequence for the latest player action using ${strict.toLowerCase()} rules strictness.` },
+          { icon: 'book',     name: 'Ask Rules',            desc: 'RAW citation. No state change.', prompt: 'Answer the most relevant rules question for the current situation without changing game state.' },
+          { icon: 'users',    name: 'Voice NPC',            desc: 'Speak as the scene NPC.', prompt: `Continue as the most relevant NPC in the current scene with a ${tone.toLowerCase()} tone.` },
+          { icon: 'map',      name: 'Random Encounter',     desc: 'By current region.', prompt: 'Suggest a random encounter appropriate to the current scene. Include confirmable events only if needed.' },
         ].map(a => (
-          <button key={a.name} className="fw-btn fw-btn-ghost" disabled title={on ? 'AI Warden actions are not wired here yet.' : 'AI Warden is off.'} type="button"
+          <button key={a.name} className="fw-btn fw-btn-ghost" disabled={!on || !onAskAiAction || busyAction !== null} onClick={() => void runAiAction(a.name, a.prompt)} title={!on ? 'AI Warden is off.' : !onAskAiAction ? 'AI action handler is not available.' : undefined} type="button"
             style={{ width: '100%', padding: '8px 10px', justifyContent: 'flex-start', textAlign: 'left', borderColor: 'rgba(124,58,237,0.25)', marginBottom: 4 }}>
             <span style={{ color: 'var(--arcane-bright)' }}>{Icon(a.icon, { size: 12 })}</span>
             <div style={{ flex: 1, lineHeight: 1.2 }}>
@@ -963,9 +1547,65 @@ function GtAIDMPanel({ on, setOn, tone, setTone, strict, setStrict, onChange }: 
         ))}
       </div>
 
+      {latestSuggestion && (
+        <GtAiSuggestionCard
+          busy={busyAction !== null}
+          suggestion={latestSuggestion}
+          onAccept={onAcceptSuggestion}
+          onDismiss={onDismissSuggestion}
+          onResuggest={async (text) => {
+            if (!onAskAiAction) return;
+            setBusyAction('Re-suggest');
+            try {
+              await onAskAiAction(text, 'act');
+            } finally {
+              setBusyAction(null);
+            }
+          }}
+        />
+      )}
+
       <div style={{ fontSize: 11, color: 'var(--text-4)', fontStyle: 'italic', fontFamily: 'var(--f-serif)', lineHeight: 1.5, paddingInline: 4 }}>
         The Warden suggests. It never commits damage, conditions, death, or inventory loss without your approval.
       </div>
+    </div>
+  );
+}
+
+function GtAiSuggestionCard({
+  busy,
+  suggestion,
+  onAccept,
+  onDismiss,
+  onResuggest,
+}: {
+  busy: boolean;
+  suggestion: AiSuggestion;
+  onAccept: (action: AiConfirmAction, message: StoryMessage) => Promise<void> | void;
+  onDismiss: (id: string) => void;
+  onResuggest: (text: string) => Promise<void> | void;
+}) {
+  const { action, message } = suggestion;
+  const suggestionId = `${message.id}:${action.id}`;
+
+  return (
+    <div style={{ padding: 12, background: 'linear-gradient(180deg, rgba(124,58,237,0.10), rgba(124,58,237,0.02))', border: '1px solid rgba(124,58,237,0.35)', borderRadius: 8 }}>
+      <div className="fw-eyebrow" style={{ marginBottom: 6 }}>AI Warden Suggests</div>
+      <div style={{ fontSize: 12.5, color: 'var(--text)', lineHeight: 1.4 }}>{action.label}</div>
+      {action.note && (
+        <div className="fw-serif" style={{ marginTop: 4, fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic' }}>{action.note}</div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 10 }}>
+        <button className="fw-btn fw-btn-gold fw-btn-sm" disabled={busy} onClick={() => void onAccept(action, message)} type="button" style={{ justifyContent: 'center' }}>
+          {Icon('check', { size: 11 })} Accept as canon
+        </button>
+        <button className="fw-btn fw-btn-ghost fw-btn-sm" disabled={busy} onClick={() => void onResuggest(`Re-suggest this event with a safer alternative: ${action.label}`)} type="button" style={{ justifyContent: 'center' }}>
+          {Icon('sparkles', { size: 11 })} Re-suggest
+        </button>
+      </div>
+      <button className="fw-btn fw-btn-ghost fw-btn-sm" disabled={busy} onClick={() => onDismiss(suggestionId)} type="button" style={{ justifyContent: 'center', width: '100%', marginTop: 6 }}>
+        Dismiss
+      </button>
     </div>
   );
 }
@@ -1009,6 +1649,132 @@ function GtToolsPanel() {
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Center: Onboarding Card (empty feed) ────────────────────────────────────
+
+interface OnboardingCardProps {
+  onAskAi: () => Promise<void>;
+  onSetScene: () => void;
+}
+
+function GtOnboardingCard({ onAskAi, onSetScene }: OnboardingCardProps) {
+  const [busy, setBusy] = React.useState(false);
+
+  async function handleAskAi() {
+    setBusy(true);
+    try { await onAskAi(); } finally { setBusy(false); }
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, height: '100%', padding: '40px 0' }}>
+      <div style={{ maxWidth: 400, width: '100%', background: 'linear-gradient(180deg, rgba(214,168,79,0.06), rgba(214,168,79,0.01))', border: '1px solid rgba(214,168,79,0.25)', borderRadius: 12, padding: '32px 28px', textAlign: 'center' }}>
+        <div style={{ fontSize: 28, marginBottom: 12 }}>🕯</div>
+        <div className="fw-display" style={{ fontSize: 18, color: 'var(--text)', letterSpacing: '0.06em', marginBottom: 6 }}>The table is set</div>
+        <p className="fw-serif" style={{ fontSize: 13, color: 'var(--text-3)', fontStyle: 'italic', lineHeight: 1.55, marginBottom: 24 }}>
+          The candles burn. Choose how to begin the adventure.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <button
+            className="fw-btn fw-btn-gold fw-btn-lg"
+            disabled={busy}
+            onClick={() => void handleAskAi()}
+            style={{ justifyContent: 'center' }}
+            type="button"
+          >
+            {Icon('sparkles', { size: 13 })} Ask AI to open the scene
+          </button>
+          <button
+            className="fw-btn fw-btn-ghost"
+            onClick={onSetScene}
+            style={{ justifyContent: 'center' }}
+            type="button"
+          >
+            {Icon('map', { size: 13 })} Set scene manually
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Manual Scene Modal ───────────────────────────────────────────────────────
+
+const SCENE_MODES = ['exploration', 'social', 'horror', 'rest', 'combat', 'transition'] as const;
+type ManualSceneMode = typeof SCENE_MODES[number];
+
+interface ManualSceneModalProps {
+  sessionId: string;
+  actorId: string;
+  onClose: () => void;
+}
+
+function GtManualSceneModal({ sessionId, actorId, onClose }: ManualSceneModalProps) {
+  const dispatch  = useGameStore((s) => s.dispatch);
+  const eventMeta = useGameStore((s) => s.eventMeta);
+  const [location, setLocation] = React.useState('');
+  const [mode,     setMode]     = React.useState<ManualSceneMode>('exploration');
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!location.trim()) return;
+    dispatch({
+      ...eventMeta(actorId),
+      type: 'SCENE_TRANSITION',
+      sessionId,
+      newMode: mode,
+      newLocation: location.trim(),
+      newDescription: '',
+    });
+    onClose();
+  }
+
+  return (
+    <div className="fw-overlay">
+      <div className="fw-modal">
+        <div className="fw-modal-head" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span className="fw-display" style={{ fontSize: 13, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--gold-bright)', flex: 1 }}>Set Scene</span>
+          <button className="fw-btn fw-btn-icon fw-btn-ghost fw-btn-sm" onClick={onClose} type="button">{Icon('x', { size: 12 })}</button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="fw-modal-body" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div>
+              <div className="fw-eyebrow" style={{ marginBottom: 6 }}>Location</div>
+              <input
+                autoFocus
+                className="fw-input"
+                onChange={e => setLocation(e.target.value)}
+                placeholder="e.g. The Gilded Tomb, Dark Forest Crossroads…"
+                value={location}
+              />
+            </div>
+            <div>
+              <div className="fw-eyebrow" style={{ marginBottom: 6 }}>Mood</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+                {SCENE_MODES.map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setMode(m)}
+                    className={'fw-btn fw-btn-sm ' + (mode === m ? '' : 'fw-btn-ghost')}
+                    style={{ justifyContent: 'center', textTransform: 'capitalize', borderColor: mode === m ? 'var(--gold-deep)' : undefined, color: mode === m ? 'var(--gold-bright)' : undefined, background: mode === m ? 'rgba(214,168,79,0.08)' : undefined }}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="fw-modal-foot">
+            <button className="fw-btn fw-btn-ghost" onClick={onClose} type="button">Cancel</button>
+            <button className="fw-btn fw-btn-gold" disabled={!location.trim()} type="submit">
+              {Icon('check', { size: 12 })} Begin scene
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

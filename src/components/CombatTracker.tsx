@@ -1,6 +1,8 @@
 import { Minus, Plus, RotateCcw, Settings, SkipBack, SkipForward, Swords, XCircle } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { conditions } from '../lib/rules';
+import { combatActions } from '../features/combat/combatActions';
+import { useGameData } from '../hooks/useGameData';
 import { useGameStore } from '../store/useGameStore';
 import type { GameEvent } from '../engine/events/types';
 import type { Character, Combatant, EncounterState, GamePhase } from '../types';
@@ -65,11 +67,11 @@ export function CombatTracker({
   onEncounterChange,
   onRequestPhaseChange,
 }: CombatTrackerProps) {
-  const [name, setName] = useState('Road Ambush');
-  const [enemyName, setEnemyName] = useState('Goblin Scout');
-  const [enemyAc, setEnemyAc] = useState(13);
-  const [enemyHp, setEnemyHp] = useState(7);
-  const [enemyInitiative, setEnemyInitiative] = useState(10);
+  const [name, setName] = useState('');
+  const [enemyName, setEnemyName] = useState('');
+  const [enemyAc, setEnemyAc] = useState(10);
+  const [enemyHp, setEnemyHp] = useState(1);
+  const [enemyInitiative, setEnemyInitiative] = useState(0);
   const [amounts, setAmounts] = useState<Record<string, number>>({});
   const [conditionDrafts, setConditionDrafts] = useState<Record<string, string>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -78,16 +80,13 @@ export function CombatTracker({
   const [showEnemyForm, setShowEnemyForm] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [attackTargetId, setAttackTargetId] = useState('');
-  const [attackBonus, setAttackBonus] = useState(5);
-  const [attackDamage, setAttackDamage] = useState(6);
+  const [attackBonus, setAttackBonus] = useState(0);
+  const [attackDamage, setAttackDamage] = useState(1);
   const [attackType, setAttackType] = useState<'melee' | 'ranged' | 'spell'>('melee');
   const [advantageMode, setAdvantageMode] = useState<'normal' | 'advantage' | 'disadvantage'>('normal');
   const [damageType, setDamageType] = useState('slashing');
 
-  const combatState = useGameStore((state) => state.combatState);
-  const setCombatState = useGameStore((state) => state.setCombatState);
-  const setActiveCharacter = useGameStore((state) => state.setActiveCharacter);
-  const dispatch = useGameStore((state) => state.dispatch);
+  const { combatState, setCombatState, setActiveCharacter, dispatch, derivedStats } = useGameData();
 
   useEffect(() => {
     setActiveCharacter(character);
@@ -120,6 +119,23 @@ export function CombatTracker({
     () => activeEncounter?.combatants.find((combatant) => combatant.id === selectedId) ?? null,
     [activeEncounter, selectedId],
   );
+
+  useEffect(() => {
+    if (!activeEncounter?.combatants.length || !selectedCombatant) {
+      setAttackTargetId('');
+      return;
+    }
+    const currentTarget = activeEncounter.combatants.find((combatant) => combatant.id === attackTargetId);
+    if (currentTarget && currentTarget.id !== selectedCombatant.id) return;
+    const nextTarget = activeEncounter.combatants.find((combatant) => combatant.id !== selectedCombatant.id);
+    setAttackTargetId(nextTarget?.id ?? '');
+  }, [activeEncounter, attackTargetId, selectedCombatant]);
+
+  useEffect(() => {
+    if (!selectedCombatant || selectedCombatant.type !== 'player') return;
+    setAttackBonus(derivedStats?.spellAttackBonus ?? derivedStats?.proficiencyBonus ?? 0);
+    setAttackDamage(Math.max(1, Math.ceil(character.level / 2) + (derivedStats?.proficiencyBonus ?? 0)));
+  }, [character.level, derivedStats, selectedCombatant]);
 
   const quickStep = useMemo(() => {
     if (!activeEncounter) return null;
@@ -159,10 +175,12 @@ export function CombatTracker({
 
   async function endEncounter() {
     if (!activeEncounter) return;
-    await dispatchCombat({
-      ...buildEventMeta(character, activeEncounter.id),
-      type: 'COMBAT_END_ENCOUNTER',
+    await combatActions.endEncounter({
+      dispatch,
+      character,
+      encounterId: activeEncounter.id,
     });
+    await syncEncounterFromStore();
     await onCombatEvent(`Encounter ended: ${activeEncounter.name}`, {
       kind: 'combat_event',
       action: 'encounter_ended',
@@ -172,12 +190,12 @@ export function CombatTracker({
 
   async function createEncounter(event: FormEvent) {
     event.preventDefault();
-    await dispatchCombat({
-      ...buildEventMeta(character, 'local'),
-      type: 'COMBAT_CREATE_ENCOUNTER',
+    await combatActions.createEncounter({
+      dispatch,
+      character,
       encounterName: name.trim() || 'Encounter',
-      playerCharacter: character,
     });
+    await syncEncounterFromStore();
     onRequestPhaseChange?.('combat');
     const latest = useGameStore.getState().combatState;
     if (latest) {
@@ -254,10 +272,12 @@ export function CombatTracker({
 
   async function sortInitiative() {
     if (!activeEncounter) return;
-    await dispatchCombat({
-      ...buildEventMeta(character, activeEncounter.id),
-      type: 'COMBAT_SORT_INITIATIVE',
+    await combatActions.sortInitiative({
+      dispatch,
+      character,
+      encounterId: activeEncounter.id,
     });
+    await syncEncounterFromStore();
     await onCombatEvent('Initiative order locked.', {
       kind: 'combat_event',
       action: 'initiative_sorted',
@@ -266,11 +286,13 @@ export function CombatTracker({
 
   async function rollInitiative(id?: string) {
     if (!activeEncounter) return;
-    await dispatchCombat({
-      ...buildEventMeta(character, activeEncounter.id),
-      type: 'COMBAT_ROLL_INITIATIVE',
-      ...(id ? { combatantId: id } : {}),
+    await combatActions.rollInitiative({
+      dispatch,
+      character,
+      encounterId: activeEncounter.id,
+      combatantId: id,
     });
+    await syncEncounterFromStore();
     await onCombatEvent(id ? 'Initiative rolled.' : 'Initiative rolled for all combatants.', {
       kind: 'combat_event',
       action: 'initiative_rolled',
@@ -280,11 +302,13 @@ export function CombatTracker({
 
   async function moveTurn(direction: 1 | -1) {
     if (!activeEncounter) return;
-    const next = await dispatchCombat({
-      ...buildEventMeta(character, activeEncounter.id),
-      type: 'COMBAT_ADVANCE_TURN',
+    combatActions.nextTurn({
+      dispatch,
+      character,
+      encounterId: activeEncounter.id,
       direction,
     });
+    const next = await syncEncounterFromStore();
     if (next && next.combatants.length > 0) {
       const active = next.combatants[next.activeIndex];
       await onCombatEvent(`Turn started: ${active.name} (Round ${next.round})`, {
@@ -351,23 +375,24 @@ export function CombatTracker({
     const target = activeEncounter.combatants.find((combatant) => combatant.id === id);
     if (!target) return;
 
-    const event: GameEvent =
-      direction === 'damage'
-        ? {
-            ...buildEventMeta(character, activeEncounter.id),
-            type: 'apply_damage',
-            targetId: id,
-            amount,
-          }
-        : {
-            ...buildEventMeta(character, activeEncounter.id),
-            type: 'recover_hp',
-            targetId: id,
-            amount,
-            recoveryKind: 'healing',
-          };
-
-    const next = await dispatchCombat(event);
+    if (direction === 'damage') {
+      combatActions.applyDamage({
+        dispatch,
+        character,
+        encounterId: activeEncounter.id,
+        targetId: id,
+        amount,
+      });
+    } else {
+      combatActions.heal({
+        dispatch,
+        character,
+        encounterId: activeEncounter.id,
+        targetId: id,
+        amount,
+      });
+    }
+    const next = await syncEncounterFromStore();
     const changed = next?.combatants.find((combatant) => combatant.id === id);
     if (!changed) return;
     const eventText =
@@ -511,7 +536,7 @@ export function CombatTracker({
       <div className="fw-panel__body fw-combat-panel__body">
         <div className="fw-combat-panel__meta">
           <span className="fw-pill blood">Round {activeEncounter.round}</span>
-          <span className="fw-caption">Surprise: none</span>
+          <span className="fw-caption">Combatants: {activeEncounter.combatants.length}</span>
           <button className="fw-btn fw-btn--ghost fw-btn--sm" type="button" aria-label="Combat settings" onClick={() => setShowSettings(!showSettings)}>
             <Settings size={14} aria-hidden="true" />
           </button>
@@ -598,7 +623,7 @@ export function CombatTracker({
                     onClick={() => void removeCondition(combatant.id, condition)}
                     type="button"
                   >
-                    {condition} ({combatant.name} - source)
+                    {condition} ({combatant.name})
                   </button>
                 );
               })

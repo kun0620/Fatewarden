@@ -73,6 +73,7 @@ type SessionMemberRow = {
   character_id?: string | null;
   role?: string | null;
   status?: string | null;
+  is_ready?: boolean | null;
   last_seen?: string | null;
   joined_at?: string | null;
   updated_at?: string | null;
@@ -128,6 +129,7 @@ function mapSessionMember(row: SessionMemberRow): SessionMember {
     characterId: row.character_id ?? undefined,
     role: normalizeSessionMemberRole(row.role),
     status: normalizeSessionMemberStatus(row.status),
+    isReady: row.is_ready ?? false,
     lastSeen: row.last_seen ?? row.updated_at ?? new Date().toISOString(),
     joinedAt: row.joined_at ?? row.last_seen ?? new Date().toISOString(),
     updatedAt: row.updated_at ?? undefined,
@@ -434,7 +436,7 @@ export async function listSessionMembers(sessionId: string) {
   const client = requireClient();
   const { data, error } = await client
     .from('session_members')
-    .select('id,session_id,player_id,character_id,role,status,last_seen,joined_at,updated_at')
+    .select('id,session_id,player_id,character_id,role,status,is_ready,last_seen,joined_at,updated_at')
     .eq('session_id', sessionId)
     .order('joined_at', { ascending: true });
 
@@ -612,6 +614,24 @@ export function subscribeToSessionUpdates(
       (payload) => onSession(mapSession(payload.new as SessionRow)),
     )
     .subscribe();
+}
+
+export async function updateMemberReady(sessionId: string, playerId: string, isReady: boolean) {
+  const client = requireClient();
+  const { data, error } = await client
+    .from('session_members')
+    .update({ is_ready: isReady })
+    .eq('session_id', sessionId)
+    .eq('player_id', playerId)
+    .select('id,session_id,player_id,character_id,role,status,is_ready,last_seen,joined_at,updated_at')
+    .single();
+
+  if (error) {
+    const missingColumn = error.code === '42703' || error.message?.includes('is_ready');
+    if (missingColumn) return null;
+    throw error;
+  }
+  return mapSessionMember(data as SessionMemberRow);
 }
 
 export function subscribeToSessionMembers(

@@ -7,7 +7,7 @@ type LevelUpModalProps = {
   character: Character;
   open: boolean;
   onCancel: () => void;
-  onConfirm: (updatedCharacter: Character) => Promise<void> | void;
+  onConfirm: (updatedCharacter: Character, choices: LevelUpChoice[]) => Promise<void> | void;
 };
 
 function updateChoice(choices: LevelUpChoice[], type: LevelUpChoice['type'], selected: string) {
@@ -28,7 +28,7 @@ export function LevelUpModal({ character, open, onCancel, onConfirm }: LevelUpMo
   async function confirmLevelUp() {
     setBusy(true);
     const updated = applyLevelUp(character, choices);
-    await onConfirm(updated);
+    await onConfirm(updated, choices);
     setBusy(false);
   }
 

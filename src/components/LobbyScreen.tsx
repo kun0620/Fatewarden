@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import type { GameSession, SessionMember } from '../types';
 import { getSessionJoinLink } from '../lib/sessions';
+import { hasSupabaseConfig, supabase } from '../lib/supabase';
+import { loadSessionMessages, sendSessionMessage, subscribeToSessionMessages } from '../lib/messages';
+import { updateMemberReady, updateSessionPresence } from '../lib/sessions';
 import { FateSeal } from './ui/Brand';
 import { Icon } from './ui/Icons';
 
@@ -146,7 +149,7 @@ function memberToSeat(member: SessionMember, user: User, ready: boolean, mic: bo
     role: `${member.role === 'host' ? 'Host' : 'Player'}${offline ? ' - offline' : ''}`,
     color: member.role === 'host' ? '#D6A84F' : offline ? '#A8A29E' : '#7C3AED',
     you,
-    ready: you ? ready : !offline,
+    ready: you ? ready : (member.isReady ?? false),
     mic: you ? mic : !offline,
     ping: offline ? 999 : you ? 24 : 42,
     note: offline ? 'Disconnected. Host may remove after 5 min.' : undefined,
@@ -158,16 +161,66 @@ export function LobbyScreen({ user, session, members = [], isHost = false, onBac
   const [mic, setMic] = useState(true);
   const [vol, setVol] = useState(70);
   const [chatDraft, setChatDraft] = useState('');
-  const [chat, setChat] = useState<ChatMessage[]>([
-    { who: 'Mirenna', text: 'you bringing the bone fragment back tonight? :)', time: '19:42', color: '#22C55E' },
-    { who: 'Kessra', text: "I have it. Don't worry.", time: '19:43', color: '#D6A84F' },
-    { who: 'DM Maelis', text: 'Lines & Veils refresh in the right pane. Please skim. Also, Halric needs a death save first thing.', time: '19:44', color: '#A271FF', dm: true },
-    { who: 'You', text: 'Was Halric stabilized? I rolled medicine last session.', time: '19:48', you: true },
-    { who: 'DM Maelis', text: 'Stable but unconscious. Death saves only if hit again.', time: '19:48', color: '#A271FF', dm: true },
-  ]);
+  const [chat, setChat] = useState<ChatMessage[]>([]);
+  const [chatBusy, setChatBusy] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   const youName = user.email?.split('@')[0] || 'You';
   const youInitials = youName.slice(0, 2).toUpperCase();
+
+  // ── Map StoryMessage → ChatMessage ──────────────────────────────────────────
+  function mapToChatMessage(msg: { speaker: string; author?: string; body: string; createdAt: string }): ChatMessage {
+    const isDm = msg.speaker === 'dm';
+    const isYou = msg.author === youName;
+    return {
+      who: msg.author ?? msg.speaker,
+      text: msg.body,
+      time: msg.createdAt,
+      dm: isDm || undefined,
+      you: isYou || undefined,
+      color: isDm ? '#A271FF' : undefined,
+    };
+  }
+
+  // ── Load history + subscribe realtime ───────────────────────────────────────
+  useEffect(() => {
+    if (!session || !supabase || !hasSupabaseConfig) return;
+    let alive = true;
+
+    loadSessionMessages(session.id)
+      .then((rows) => { if (alive) setChat(rows.map(mapToChatMessage)); })
+      .catch(() => {});
+
+    const channel = subscribeToSessionMessages(session.id, (msg) => {
+      if (!alive) return;
+      setChat((prev) => [...prev, mapToChatMessage(msg)]);
+    });
+
+    return () => {
+      alive = false;
+      void supabase?.removeChannel(channel);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.id]);
+
+  // ── Auto-scroll to bottom ────────────────────────────────────────────────────
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chat]);
+
+  // ── Presence heartbeat (Bug 1 fix: App.tsx membershipSession may miss lobby) ─
+  useEffect(() => {
+    if (!session || !supabase || !hasSupabaseConfig) return;
+    void updateSessionPresence(session.id, user, 'online').catch(() => undefined);
+    const heartbeat = window.setInterval(() => {
+      void updateSessionPresence(session.id, user, 'online').catch(() => undefined);
+    }, 25_000);
+    return () => {
+      window.clearInterval(heartbeat);
+      void updateSessionPresence(session.id, user, 'offline').catch(() => undefined);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.id, user.id]);
   const activeMembers = members.filter((member) => member.status !== 'kicked');
   const maxPlayers = session?.maxPlayers ?? session?.partySize ?? 4;
   const realSeats = activeMembers.map((member) => memberToSeat(member, user, ready, mic));
@@ -187,11 +240,35 @@ export function LobbyScreen({ user, session, members = [], isHost = false, onBac
   const readyCount = seats.filter((seat) => seat.kind === 'player' && seat.ready).length;
   const totalPlayers = seats.filter((seat) => seat.kind === 'player').length;
 
-  const send = () => {
+  const send = async () => {
     const text = chatDraft.trim();
-    if (!text) return;
-    setChat((current) => [...current, { who: 'You', text, time: new Date().toLocaleTimeString().slice(0, 5), you: true }]);
+    if (!text || chatBusy) return;
     setChatDraft('');
+
+    if (!session || !supabase || !hasSupabaseConfig) {
+      // local-only fallback
+      setChat((prev) => [...prev, {
+        who: youName,
+        text,
+        time: new Date().toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', hour12: false }),
+        you: true,
+      }]);
+      return;
+    }
+
+    setChatBusy(true);
+    try {
+      await sendSessionMessage(session.id, 'player', youName, text, { kind: 'lobby_chat' });
+      // realtime subscription adds the message — no local push needed
+    } catch {
+      setChat((prev) => [...prev, {
+        who: 'Table',
+        text: 'Message failed to send.',
+        time: new Date().toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', hour12: false }),
+      }]);
+    } finally {
+      setChatBusy(false);
+    }
   };
 
   return (
@@ -259,6 +336,11 @@ export function LobbyScreen({ user, session, members = [], isHost = false, onBac
                 <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic', fontFamily: 'var(--f-serif)' }}>Bring your dice. The Reeve does not.</span>
               </div>
               <div className="fw-scroll" style={{ flex: 1, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 280 }}>
+                {chat.length === 0 && (
+                  <div style={{ color: 'var(--text-4)', fontSize: 12, fontStyle: 'italic', fontFamily: 'var(--f-serif)', textAlign: 'center', padding: '16px 0' }}>
+                    No messages yet. Say hello!
+                  </div>
+                )}
                 {chat.map((message, i) => (
                   <div key={`${message.time}-${i}`} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                     <span
@@ -282,18 +364,20 @@ export function LobbyScreen({ user, session, members = [], isHost = false, onBac
                     </div>
                   </div>
                 ))}
+                <div ref={chatEndRef} />
               </div>
               <div style={{ borderTop: '1px solid var(--border-soft)', padding: 12, display: 'flex', gap: 8 }}>
                 <input
                   className="fw-input"
+                  disabled={chatBusy}
                   value={chatDraft}
                   onChange={(event) => setChatDraft(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === 'Enter') send(); }}
+                  onKeyDown={(event) => { if (event.key === 'Enter') void send(); }}
                   placeholder="Say hello to the table..."
                   style={{ flex: 1 }}
                 />
-                <button className="fw-btn fw-btn-icon fw-btn-ghost" type="button">{Icon('sparkles', { size: 13 })}</button>
-                <button className="fw-btn fw-btn-gold" type="button" onClick={send}>{Icon('send', { size: 12 })} Send</button>
+                <button className="fw-btn fw-btn-icon fw-btn-ghost" type="button" disabled title="AI suggestions not wired yet.">{Icon('sparkles', { size: 13 })}</button>
+                <button className="fw-btn fw-btn-gold" type="button" disabled={chatBusy || !chatDraft.trim()} onClick={() => void send()}>{Icon('send', { size: 12 })} Send</button>
               </div>
             </div>
 
@@ -434,7 +518,13 @@ export function LobbyScreen({ user, session, members = [], isHost = false, onBac
                   className={`fw-btn ${ready ? 'fw-btn-ghost' : 'fw-btn-gold'} fw-btn-lg`}
                   type="button"
                   style={{ width: '100%', justifyContent: 'center', marginTop: 14 }}
-                  onClick={() => setReady((current) => !current)}
+                  onClick={() => {
+                    const next = !ready;
+                    setReady(next);
+                    if (session && supabase && hasSupabaseConfig) {
+                      void updateMemberReady(session.id, user.id, next).catch(() => undefined);
+                    }
+                  }}
                 >
                   {ready ? <>{Icon('x', { size: 12 })} Unmark ready</> : <>{Icon('check', { size: 13 })} Mark ready</>}
                 </button>

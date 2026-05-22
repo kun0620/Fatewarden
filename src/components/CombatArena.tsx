@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Icon } from './ui/Icons';
-import { useGameStore } from '../store/useGameStore';
-import type { Character } from '../types';
+import { useGameData } from '../hooks/useGameData';
+import type { Character, CombatAttackType } from '../types';
 
 /* ── Constants ───────────────────────────────────────────────────────────────── */
 
@@ -106,10 +106,21 @@ function tokenFromCharacter(character: Character): CombatToken {
   };
 }
 
+function diceAverage(dice: string | undefined, fallback: number) {
+  if (!dice) return fallback;
+  const match = dice.match(/(\d+)d(\d+)(?:\s*([+-])\s*(\d+))?/i);
+  if (!match) return fallback;
+  const count = Number(match[1]);
+  const sides = Number(match[2]);
+  const sign = match[3] === '-' ? -1 : 1;
+  const bonus = match[4] ? Number(match[4]) * sign : 0;
+  return Math.max(1, Math.round(count * ((sides + 1) / 2) + bonus));
+}
+
 /* ── Main Component ──────────────────────────────────────────────────────────── */
 
 export function CombatArena({ onExit, onChange }: CombatArenaProps) {
-  const { combatState, activeCharacter, dispatch, eventMeta } = useGameStore();
+  const { combatState, activeCharacter, dispatch, eventMeta } = useGameData();
 
   const playerCharacterId = activeCharacter?.id ?? '';
   const storeTokens = useMemo(() => {
@@ -142,7 +153,7 @@ export function CombatArena({ onExit, onChange }: CombatArenaProps) {
   const [tokens,      setTokens]      = useState<CombatToken[]>(storeTokens);
   const [selectedId,  setSelectedId]  = useState(tokens.find(t => t.you)?.id ?? tokens[0]?.id ?? '');
   const [tool,        setTool]        = useState('cursor');
-  const [round,       setRound]       = useState(combatState?.round ?? 3);
+  const [round,       setRound]       = useState(combatState?.round ?? 1);
   const [turnIdx,     setTurnIdx]     = useState(combatState?.activeIndex ?? 0);
   const [actionState, setActionState] = useState<ActionBudget>({ action: false, bonus: false, reaction: false, moveUsed: 0 });
   const [flow,        setFlow]        = useState<FlowState>(null);
@@ -198,8 +209,8 @@ export function CombatArena({ onExit, onChange }: CombatArenaProps) {
   }
 
   function dispatchCondition(token: CombatToken, condition: string) {
-    if (!combatState) return;
-    dispatch({
+    if (!combatState) return false;
+    const result = dispatch({
       ...eventMeta(activeCharacter?.id ?? token.id),
       type: 'apply_condition',
       sessionId: combatState.id,
@@ -208,7 +219,80 @@ export function CombatArena({ onExit, onChange }: CombatArenaProps) {
       condition,
       notes: 'Combat arena condition action',
     });
-    onChange?.({ kind: 'condition', target: token.name, condition });
+    if (!result.failed.length) {
+      onChange?.({ kind: 'condition', target: token.name, condition });
+      return true;
+    }
+    return false;
+  }
+
+  function preferredTarget() {
+    if (selected && selected.foe && !selected.down) return selected;
+    return tokens.find((token) => token.foe && !token.down) ?? null;
+  }
+
+  function dispatchAttack(attackType: CombatAttackType) {
+    if (!combatState || !current || actionState.action) return;
+    const target = preferredTarget();
+    if (!target || target.id === current.id) return;
+    const equippedWeapon = activeCharacter?.inventory.items.find((item) => item.equipped && item.weapon);
+    const spellAttackBonus = activeCharacter?.systemData.derivedStats?.spellAttackBonus;
+    const proficiencyBonus = activeCharacter?.systemData.derivedStats?.proficiencyBonus ?? 0;
+    const attackBonus = attackType === 'spell' ? spellAttackBonus ?? proficiencyBonus : proficiencyBonus;
+    const damageAmount = attackType === 'spell'
+      ? diceAverage('1d10', Math.max(1, Math.ceil((activeCharacter?.level ?? 1) / 2)))
+      : diceAverage(equippedWeapon?.weapon?.damageDice, Math.max(1, proficiencyBonus + 1));
+    const damageType = attackType === 'spell' ? 'force' : equippedWeapon?.weapon?.damageType ?? 'bludgeoning';
+    const result = dispatch({
+      ...eventMeta(activeCharacter?.id ?? current.id),
+      type: 'COMBAT_ATTACK',
+      sessionId: combatState.id,
+      actorId: activeCharacter?.id ?? current.id,
+      targetId: target.id,
+      actorCombatantId: current.id,
+      targetCombatantId: target.id,
+      attackType,
+      advantageMode: 'normal',
+      attackBonus,
+      damageAmount,
+      damageType,
+    });
+    if (!result.failed.length) {
+      setActionState((state) => ({ ...state, action: true }));
+      onChange?.({ kind: 'damage', target: target.name, amount: damageAmount, source: attackType === 'spell' ? 'Spell attack' : equippedWeapon?.name ?? 'Attack' });
+    }
+  }
+
+  function dispatchHex() {
+    if (!combatState || actionState.bonus) return;
+    const target = preferredTarget();
+    if (!target) return;
+    if (!dispatchCondition(target, 'Cursed (Hex)')) return;
+    if (current) {
+      const result = dispatch({
+        ...eventMeta(activeCharacter?.id ?? current.id),
+        type: 'COMBAT_USE_ACTION',
+        sessionId: combatState.id,
+        actorId: activeCharacter?.id ?? current.id,
+        targetId: current.id,
+        combatantId: current.id,
+        actionKind: 'bonusAction',
+      });
+      if (!result.failed.length) setActionState((state) => ({ ...state, bonus: true }));
+    }
+  }
+
+  function endCombatMode() {
+    if (combatState) {
+      dispatch({
+        ...eventMeta(activeCharacter?.id ?? combatState.id),
+        type: 'COMBAT_END_ENCOUNTER',
+        sessionId: combatState.id,
+        actorId: activeCharacter?.id ?? combatState.id,
+        targetId: combatState.id,
+      });
+    }
+    onExit();
   }
 
   const onCellClick = (x: number, y: number) => {
@@ -257,9 +341,41 @@ export function CombatArena({ onExit, onChange }: CombatArenaProps) {
     setFlow(null);
   };
 
+  if (!combatState?.combatants.length) {
+    return (
+      <div className="fw-combat-mode">
+        <div className="fw-init-ticker">
+          <div className="fw-init-round">
+            <span className="fw-pill blood">Round 1</span>
+            <span className="fw-eyebrow" style={{ color: 'var(--gold)' }}>Combat · Tactical</span>
+          </div>
+          <button className="fw-btn fw-btn-ghost fw-btn-sm" onClick={onExit} style={{ flexShrink: 0 }}>
+            {Icon('x', { size: 11 })} Exit
+          </button>
+        </div>
+        <div className="fw-combat-main">
+          <div className="fw-combat-map-wrap">
+            <div className="fw-map-tools">
+              <span style={{ fontSize: 10.5, color: 'var(--text-3)', fontFamily: 'var(--f-mono)' }}>
+                No combatants in store
+              </span>
+            </div>
+            <div className="fw-battlemap" style={{ display: 'grid', placeItems: 'center', minHeight: 320 }}>
+              <div style={{ textAlign: 'center', color: 'var(--text-3)' }}>
+                <div className="fw-display" style={{ fontSize: 18, color: 'var(--text)' }}>No active encounter</div>
+                <div className="fw-serif" style={{ fontSize: 13, marginTop: 6 }}>Start or sync an encounter before opening the tactical table.</div>
+              </div>
+            </div>
+          </div>
+          <aside className="fw-token-inspector" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fw-combat-mode">
-      <InitiativeTicker order={order} turnIdx={turnIdx} round={round} onExit={onExit} />
+      <InitiativeTicker order={order} turnIdx={turnIdx} round={round} onExit={endCombatMode} />
 
       <div className="fw-combat-main">
         <div className="fw-combat-map-wrap">
@@ -295,6 +411,9 @@ export function CombatArena({ onExit, onChange }: CombatArenaProps) {
             current={current}
             actionState={actionState}
             onBonus={() => !actionState.bonus && setActionState(a => ({ ...a, bonus: true }))}
+            onAttack={() => dispatchAttack('melee')}
+            onBlast={() => dispatchAttack('spell')}
+            onHex={dispatchHex}
             onAction={() => {
               if (actionState.action) return;
               if (combatState && current) {
@@ -759,11 +878,14 @@ function MiniStat({ label, v }: { label: string; v: string | number }) {
 
 /* ── Turn HUD ────────────────────────────────────────────────────────────────── */
 
-function TurnHUD({ isYourTurn, current, actionState, onAction, onBonus, onDash, onEndTurn }: {
+function TurnHUD({ isYourTurn, current, actionState, onAction, onAttack, onBlast, onHex, onBonus, onDash, onEndTurn }: {
   isYourTurn: boolean;
   current: CombatToken | undefined;
   actionState: ActionBudget;
   onAction: () => void;
+  onAttack: () => void;
+  onBlast: () => void;
+  onHex: () => void;
   onBonus: () => void;
   onDash: () => void;
   onEndTurn: () => void;
@@ -814,13 +936,13 @@ function TurnHUD({ isYourTurn, current, actionState, onAction, onBonus, onDash, 
         <span style={{ flex: 1 }} />
 
         <div className="fw-quick-actions">
-          <button className="fw-btn fw-btn-gold" disabled title="Character attack actions are not wired to runtime action data yet." type="button">
+          <button className="fw-btn fw-btn-gold" disabled={actionState.action} onClick={onAttack} type="button">
             {Icon('flame', { size: 12 })} Attack <span className="fw-mini-cost">1A</span>
           </button>
-          <button className="fw-btn fw-btn-arcane" disabled title="Character spell actions are not wired to runtime spell data yet." type="button">
+          <button className="fw-btn fw-btn-arcane" disabled={actionState.action} onClick={onBlast} type="button">
             {Icon('flame', { size: 12 })} Blast <span className="fw-mini-cost">1A</span>
           </button>
-          <button className="fw-btn fw-btn-ghost" disabled title="Character bonus actions are not wired to runtime action data yet." type="button">
+          <button className="fw-btn fw-btn-ghost" disabled={actionState.bonus} onClick={onHex} type="button">
             {Icon('skull', { size: 12 })} Hex <span className="fw-mini-cost">1BA</span>
           </button>
           <button className="fw-btn fw-btn-ghost" disabled={actionState.action} onClick={onDash}>

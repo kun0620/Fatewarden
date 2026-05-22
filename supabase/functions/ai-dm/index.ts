@@ -162,6 +162,46 @@ function extractJsonStringFragment(text: string, key: string) {
   return cleanJsonStringFragment(rawValue);
 }
 
+function stripJsonCodeFence(text: string) {
+  const trimmed = text.trim();
+  const match = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
+  return match ? match[1].trim() : trimmed;
+}
+
+function extractLooseJsonStrings(text: string) {
+  const keys = [
+    'narration',
+    'body',
+    'message',
+    'text',
+    'scene',
+    'description',
+    'objective',
+    'hook',
+    'threat',
+    'atmosphere',
+    'mood',
+    'focus',
+    'detail',
+    'consequence',
+    'table_notes',
+    'tableNotes',
+  ];
+  const values: string[] = [];
+  const seen = new Set<string>();
+  const pattern = new RegExp(`"(${keys.join('|')})"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)`, 'gi');
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    const value = cleanJsonStringFragment(match[2]);
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    values.push(value);
+  }
+
+  return values;
+}
+
 function pickString(record: Record<string, unknown>, keys: string[]) {
   for (const key of keys) {
     const value = record[key];
@@ -342,7 +382,7 @@ function normalizeScene(value: unknown) {
 
 function normalizeDmReply(text: string): DmReply {
   const fallback: DmReply = {
-    narration: 'AI DM ตอบกลับมาเป็นข้อมูลที่ไม่สมบูรณ์ ลองกด Try again อีกครั้ง',
+    narration: 'The Dungeon Master steadies the scene and waits for your next action.',
     suggested_roll: null,
     scene: null,
     choices: normalizeChoices([], [], null),
@@ -352,7 +392,7 @@ function normalizeDmReply(text: string): DmReply {
   };
 
   try {
-    const parsed = JSON.parse(text) as Record<string, unknown>;
+    const parsed = JSON.parse(stripJsonCodeFence(text)) as Record<string, unknown>;
     const scene = normalizeScene(parsed.scene);
     const nextActions = normalizeStringList(parsed.next_actions ?? parsed.nextActions);
     const choices = normalizeChoices(parsed.choices, parsed.next_actions ?? parsed.nextActions, scene);
@@ -373,16 +413,18 @@ function normalizeDmReply(text: string): DmReply {
       table_notes: pickString(parsed, ['table_notes', 'tableNotes']) || null,
     };
   } catch {
+    const cleaned = stripJsonCodeFence(text);
     const narration =
-      extractJsonStringFragment(text, 'narration') ||
-      extractJsonStringFragment(text, 'body') ||
-      extractJsonStringFragment(text, 'message');
+      extractJsonStringFragment(cleaned, 'narration') ||
+      extractJsonStringFragment(cleaned, 'body') ||
+      extractJsonStringFragment(cleaned, 'message') ||
+      extractLooseJsonStrings(cleaned).slice(0, 5).join('\n\n');
     const suggestedRoll =
-      extractJsonStringFragment(text, 'suggested_roll') ||
-      extractJsonStringFragment(text, 'suggestedRoll');
+      extractJsonStringFragment(cleaned, 'suggested_roll') ||
+      extractJsonStringFragment(cleaned, 'suggestedRoll');
     const tableNotes =
-      extractJsonStringFragment(text, 'table_notes') ||
-      extractJsonStringFragment(text, 'tableNotes');
+      extractJsonStringFragment(cleaned, 'table_notes') ||
+      extractJsonStringFragment(cleaned, 'tableNotes');
 
     return {
       ...fallback,

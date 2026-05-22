@@ -423,6 +423,7 @@ export type SessionMember = {
   characterId?: string;
   role: SessionMemberRole;
   status: SessionMemberStatus;
+  isReady: boolean;
   lastSeen: string;
   joinedAt: string;
   updatedAt?: string;

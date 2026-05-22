@@ -1,11 +1,12 @@
 import { Maximize2, Save, Shield, Sparkles } from 'lucide-react';
 import { ChangeEvent, FormEvent, useEffect, useState } from 'react';
+import { useGameData } from '../hooks/useGameData';
 import { canLevelUp } from '../lib/characterProgression';
 import { proficiencyBonus } from '../lib/rules';
 import { InventoryPanel } from './InventoryPanel';
 import { LevelUpModal } from './LevelUpModal';
 import { Tooltip } from './ui/Tooltip';
-import type { AbilityKey, Character } from '../types';
+import type { AbilityKey, Character, LevelUpChoice } from '../types';
 
 const abilityLabels: Record<AbilityKey, string> = {
   str: 'STR',
@@ -22,7 +23,7 @@ function modifier(score: number) {
 }
 
 type CharacterSheetProps = {
-  character: Character;
+  character?: Character | null;
   disabled?: boolean;
   onOpenFullSheet?: () => void;
   onSave?: (character: Character) => Promise<void>;
@@ -34,21 +35,39 @@ function clamp(value: number, min: number, max: number) {
 }
 
 export function CharacterSheet({ character, disabled = false, onOpenFullSheet, onSave, status }: CharacterSheetProps) {
-  const [draft, setDraft] = useState(character);
+  const { character: storeCharacter, dispatch, eventMeta, setActiveCharacter } = useGameData();
+  const selectedCharacter = character ?? storeCharacter;
+  const [draft, setDraft] = useState<Character | null>(selectedCharacter);
   const [saving, setSaving] = useState(false);
   const [levelUpOpen, setLevelUpOpen] = useState(false);
-  const initiative = Math.floor((draft.abilities.dex - 10) / 2);
-  const passivePerception =
-    10 +
-    Math.floor((draft.abilities.wis - 10) / 2) +
-    (draft.skills.some((skill) => skill.toLowerCase() === 'perception') ? proficiencyBonus(draft.level) : 0);
 
   useEffect(() => {
-    setDraft(character);
-  }, [character]);
+    setDraft(selectedCharacter);
+  }, [selectedCharacter]);
+
+  if (!draft) {
+    return (
+      <section className="fw-panel">
+        <div className="fw-panel__header">
+          <div>
+            <p className="fw-caption">Character</p>
+            <h2 className="fw-h2">No character selected</h2>
+          </div>
+        </div>
+        <p className="fw-caption">Choose or create a character before editing the sheet.</p>
+      </section>
+    );
+  }
+
+  const currentDraft = draft;
+  const initiative = Math.floor((currentDraft.abilities.dex - 10) / 2);
+  const passivePerception =
+    10 +
+    Math.floor((currentDraft.abilities.wis - 10) / 2) +
+    (currentDraft.skills.some((skill) => skill.toLowerCase() === 'perception') ? proficiencyBonus(currentDraft.level) : 0);
 
   function updateField<K extends keyof Character>(key: K, value: Character[K]) {
-    setDraft((current) => ({ ...current, [key]: value }));
+    setDraft((current) => (current ? { ...current, [key]: value } : current));
   }
 
   function updateNumber(key: 'level' | 'armorClass' | 'hitPoints' | 'maxHitPoints', min: number, max: number) {
@@ -60,13 +79,17 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
   function updateAbility(key: AbilityKey) {
     return (event: ChangeEvent<HTMLInputElement>) => {
       const value = clamp(event.target.valueAsNumber, 1, 30);
-      setDraft((current) => ({
-        ...current,
-        abilities: {
-          ...current.abilities,
-          [key]: value,
-        },
-      }));
+      setDraft((current) =>
+        current
+          ? {
+              ...current,
+              abilities: {
+                ...current.abilities,
+                [key]: value,
+              },
+            }
+          : current,
+      );
     };
   }
 
@@ -76,10 +99,27 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
 
     setSaving(true);
     await onSave({
-      ...draft,
-      skills: draft.skills.map((skill) => skill.trim()).filter(Boolean),
+      ...currentDraft,
+      skills: currentDraft.skills.map((skill) => skill.trim()).filter(Boolean),
     });
     setSaving(false);
+  }
+
+  async function confirmLevelUp(updatedCharacter: Character, choices: LevelUpChoice[]) {
+    setSaving(true);
+    setActiveCharacter(currentDraft);
+    const result = dispatch({
+      ...eventMeta(currentDraft.id),
+      type: 'LEVEL_UP',
+      characterId: currentDraft.id,
+      newLevel: updatedCharacter.level,
+      choices,
+    });
+    const nextCharacter = result.character ?? updatedCharacter;
+    setDraft(nextCharacter);
+    if (onSave) await onSave(nextCharacter);
+    setSaving(false);
+    setLevelUpOpen(false);
   }
 
   return (
@@ -138,7 +178,7 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
         <div className="fw-field" style={{ flex: 1 }}>
           <label className="fw-field__label">
             <Shield size={13} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} />
-            <Tooltip label="Armor Class — ค่าที่คนตียากให้ถึง">AC</Tooltip>
+            <Tooltip label="Armor Class">AC</Tooltip>
           </label>
           <input
             aria-label="Armor class"
@@ -183,6 +223,7 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
           </div>
         </div>
       </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)' }}>
         <p className="fw-caption" style={{ margin: 0 }}>
           <span style={{ textDecoration: 'underline' }}>AC</span> {draft.armorClass}
@@ -195,7 +236,7 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
         </p>
       </div>
       <p className="fw-caption" style={{ margin: 0 }}>
-        ค่าที่ขีดเส้นใต้คำนวณอัตโนมัติ — ค่าอื่นกรอกเอง
+        Underlined values are calculated automatically; other fields are editable.
       </p>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'var(--sp-2)' }}>
@@ -263,15 +304,7 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
       <LevelUpModal
         character={draft}
         onCancel={() => setLevelUpOpen(false)}
-        onConfirm={async (updatedCharacter) => {
-          setDraft(updatedCharacter);
-          if (onSave) {
-            setSaving(true);
-            await onSave(updatedCharacter);
-            setSaving(false);
-          }
-          setLevelUpOpen(false);
-        }}
+        onConfirm={confirmLevelUp}
         open={levelUpOpen}
       />
     </form>

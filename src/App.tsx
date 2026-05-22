@@ -17,6 +17,7 @@ import { CharacterWizardScreen } from './components/CharacterWizardScreen';
 import { AppRail } from './components/AppRail';
 import { Topbar } from './components/Topbar';
 import { CombatMode } from './components/CombatMode';
+import { GameTable } from './components/GameTable';
 import { Icon } from './components/ui/Icons';
 import { PartyChoicePanel } from './components/PartyChoicePanel';
 import { NarrativePanel } from './components/NarrativePanel';
@@ -1710,6 +1711,66 @@ export function App() {
     switchTable();
   }
 
+  const handleGameTableMessage = useCallback(
+    async (text: string, mode: 'speak' | 'act' | 'aside') => {
+      const body = text.trim();
+      if (!body) return;
+      const author = mode === 'aside' ? `${character.name} (aside)` : character.name;
+      const metadata = {
+        kind: 'player_action',
+        mode,
+        character: {
+          id: character.id,
+          name: character.name,
+        },
+      };
+
+      if (!activeSession || !user || !supabase) {
+        setStoryMessages((current) =>
+          addUniqueMessage(current, {
+            id: crypto.randomUUID(),
+            speaker: 'player',
+            author,
+            body,
+            createdAt: formatLocalTime(),
+            metadata,
+          }),
+        );
+        return;
+      }
+
+      const message = await sendSessionMessage(activeSession.id, 'player', author, body, metadata);
+      setStoryMessages((current) => addUniqueMessage(current, message));
+    },
+    [activeSession, character, user],
+  );
+
+  const handleGameTableCharacterUpdate = useCallback(
+    async (nextCharacter: Character) => {
+      if (hasSupabaseConfig && activeSession && user) {
+        await persistCharacter(nextCharacter);
+      } else {
+        await saveLocalCharacter(nextCharacter);
+      }
+    },
+    [activeSession, persistCharacter, saveLocalCharacter, user],
+  );
+
+  const handleGameTableCombatChange = useCallback(
+    (change: { kind: string; target?: string; amount?: number | string; source?: string }) => {
+      void changeEncounter(useGameStore.getState().combatState);
+      if (!change.target) return;
+      const amount = change.amount === undefined ? '' : ` ${change.amount}`;
+      const body = `${change.target}: ${change.kind}${amount}`.trim();
+      void postCombatEvent(body, {
+        kind: 'combat_event',
+        action: change.kind,
+        source: change.source,
+      });
+    },
+    [changeEncounter, postCombatEvent],
+  );
+
   async function signOut() {
     await authSignOut();
     handleSwitchTable();
@@ -1987,274 +2048,46 @@ export function App() {
           onSignOut={signOut}
         />
         <section className="fw-main">
-          <main className={`fw-game-table ${combatActive ? 'is-combat' : ''}`}>
-            <header className="fw-game-banner">
-              <button className="fw-btn fw-btn-ghost fw-btn-sm" onClick={handleSwitchTable} type="button">
-                {Icon('chevL', { size: 11 })} Leave table
-              </button>
-              <div className="fw-game-banner-title">
-                <span className="fw-pill blood">
-                  <span className="fw-live-dot" />
-                  {combatActive ? 'Combat · Round 3' : 'Live · Session 15'}
-                </span>
-                <span className="fw-display">The Hollow Crown of Ysavir</span>
-                <span className="fw-serif" style={{ color: 'var(--text-3)', fontStyle: 'italic', fontSize: 13 }}>
-                  · Act III — The Gilded Tomb
-                </span>
-              </div>
-              <span style={{ flex: 1 }} />
-              <button
-                className={`fw-btn ${combatActive ? 'fw-btn-blood' : 'fw-btn-ghost'} fw-btn-sm fw-game-encounter-toggle`}
-                onClick={() => setCombatActive((current) => !current)}
-                type="button"
-              >
-                {Icon(combatActive ? 'scroll' : 'sword', { size: 12 })}
-                {combatActive ? 'Resume story' : 'Run encounter'}
-              </button>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                {[character.name || 'You', 'DM', playModeDefinition.shortLabel, phaseDefinition.label].map((label, index) => (
-                  <span
-                    className={`fw-avatar sm ${index === 1 ? 'dm' : ''}`}
-                    key={label}
-                    style={{ marginLeft: index ? -8 : 0 }}
-                    title={label}
-                  >
-                    {label.slice(0, 2).toUpperCase()}
-                    <span className="dot" style={{ background: index === 1 ? 'var(--gold)' : 'var(--success)' }} />
-                  </span>
-                ))}
-              </div>
-              <button className="fw-btn fw-btn-icon fw-btn-ghost" type="button" title="Microphone">
-                {Icon('mic', { size: 14 })}
-              </button>
-              <button className="fw-btn fw-btn-icon fw-btn-ghost" type="button" title="Table audio">
-                {Icon('volume', { size: 14 })}
-              </button>
-              <button className="fw-btn fw-btn-icon fw-btn-ghost" type="button" title="More table options">
-                {Icon('kebab', { size: 14 })}
-              </button>
-            </header>
-
-            <section className="fw-game-layout">
-              <aside className="fw-game-side left">
-                <div className="fw-tabs" role="tablist" aria-label="Left table panels">
-                  {[
-                    { id: 'party', label: 'Party', icon: 'users' },
-                    { id: 'character', label: 'You', icon: 'user' },
-                    { id: 'inventory', label: 'Inventory', icon: 'bag' },
-                    { id: 'quests', label: 'Quests', icon: 'scroll' },
-                    { id: 'narrative', label: 'Narrative', icon: 'book' },
-                  ].map((tab) => (
-                    <button
-                      className={`fw-tab ${leftSidebarTab === tab.id ? 'active' : ''}`}
-                      key={tab.id}
-                      onClick={() => setLeftSidebarTab(tab.id as LeftSidebarTab)}
-                      role="tab"
-                      style={{ flex: 1 }}
-                      type="button"
-                    >
-                      {Icon(tab.icon, { size: 11 })}{tab.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="fw-game-scroll" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                  {leftSidebarTab === 'narrative' ? (
-                    <NarrativePanel
-                      sceneState={sceneState}
-                      companions={companionState.companions}
-                      journalEntries={journalState.entries}
-                      relationships={relationshipState.records}
-                      onDispatch={(event) => { dispatchGameEvent(event); }}
-                      onAddJournalEntry={(entry) => { addJournalEntry({ ...entry, id: crypto.randomUUID(), createdAt: Date.now() }); }}
-                      onAdjustAffinity={adjustAffinity}
-                      characterId={character.id}
-                      sessionId={activeSession?.id ?? 'local'}
-                      isHost={isSessionHost}
-                    />
-                  ) : (
-                    <PrototypeLeftPanel character={character} members={sessionMembers} tab={leftSidebarTab} />
-                  )}
-                </div>
-              </aside>
-
-              <section className="fw-game-center">
-                {combatActive ? (
-                  <div className="fw-game-combat-pane">
-                    <CombatMode
-                      activeCharacterId={character.id}
-                      encounter={encounter}
-                      onDispatchCombatEvent={async (event) => {
-                        const result = dispatchGameEvent(event);
-                        if (result.failed.length) throw new Error(result.failed.join(', '));
-                        await changeEncounter(useGameStore.getState().combatState);
-                      }}
-                      onExit={() => setCombatActive(false)}
-                    />
-                  </div>
-                ) : (
-                  <>
-                <header className="fw-scene-head">
-                  <div className="fw-scene-card">
-                    <div className="fw-scene-thumb">
-                      <svg width="100%" height="100%" viewBox="0 0 200 110" preserveAspectRatio="xMidYMid slice">
-                        <g fill="none" stroke="rgba(214,168,79,0.25)" strokeWidth="0.6">
-                          <path d="M0 88 L40 82 L70 76 L100 80 L140 70 L180 78 L200 75 V110 H0 Z" fill="rgba(0,0,0,0.4)" />
-                          <path d="M0 70 L30 62 L60 66 L90 55 L130 64 L170 58 L200 60 V70" />
-                          <circle cx="100" cy="40" r="14" fill="rgba(214,168,79,0.5)" stroke="rgba(214,168,79,0.6)" />
-                          <circle cx="100" cy="40" r="22" stroke="rgba(214,168,79,0.3)" strokeDasharray="2 2" />
-                        </g>
-                      </svg>
-                      <span>SCENE - 0</span>
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="fw-eyebrow" style={{ marginBottom: 4 }}>Current Scene</div>
-                      <div className="fw-display" style={{ color: 'var(--text)', fontSize: 22, letterSpacing: '0.04em' }}>
-                        {activeSession?.title || sceneState?.location || 'Gun'}
-                      </div>
-                      <p className="fw-serif" style={{ color: 'var(--text-2)', fontSize: 14, fontStyle: 'italic', lineHeight: 1.55, marginTop: 6 }}>
-                        Describe your first action to let the DM establish the scene.
-                      </p>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-                        <span className="fw-pill dim">Setup</span>
-                        <span className="fw-pill dim">0 objectives</span>
-                        <span className="fw-pill">{Icon('sparkles', { size: 10 })} 0 clocks</span>
-                        <span className="fw-pill blood">Combat possible</span>
-                      </div>
-                    </div>
-                  </div>
-                </header>
-
-                <div className="fw-tabs" style={{ paddingInline: 18, marginTop: 4 }}>
-                  {[
-                    { id: 'story', label: 'Story Log', icon: 'scroll' },
-                    { id: 'chat', label: 'Table Chat', icon: 'users' },
-                    { id: 'lore', label: 'Lore', icon: 'book' },
-                  ].map((tab) => (
-                    <button className={`fw-tab ${storyTab === tab.id ? 'active' : ''}`} key={tab.id} onClick={() => setStoryTab(tab.id as typeof storyTab)} type="button">
-                      {Icon(tab.icon, { size: 11 })}{tab.label}
-                    </button>
-                  ))}
-                  <span style={{ flex: 1 }} />
-                  <span className="fw-mono" style={{ alignSelf: 'center', color: 'var(--text-3)', fontSize: 11 }}>
-                    Session 15 · 1h 24m
-                  </span>
-                  <button className="fw-btn fw-btn-icon fw-btn-ghost fw-btn-sm" type="button" title="Search log">
-                    {Icon('search', { size: 12 })}
-                  </button>
-                </div>
-
-                <div className="fw-game-scroll">
-                  {storyTab === 'story' ? (
-                    <PrototypeStoryFeed characterName={character.name || activeSession?.title || 'Gun'} sessionTitle={activeSession?.title} />
-                  ) : null}
-                  {storyTab === 'chat' ? (
-                    <div className="fw-story-empty fw-story-empty-grid">
-                      <div>
-                        <div className="fw-eyebrow">Table Chat</div>
-                        <p className="fw-serif">Party whispers, table calls, and private notes will live here when the new chat system is wired.</p>
-                      </div>
-                      <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">Visual only</button>
-                    </div>
-                  ) : null}
-                  {storyTab === 'lore' ? (
-                    <div className="fw-story-empty fw-story-empty-grid">
-                      <div>
-                        <div className="fw-eyebrow">Lore</div>
-                        <p className="fw-serif">{activeSession?.theme.notes || 'Session facts, discovered names, and table canon appear here as the campaign grows.'}</p>
-                      </div>
-                      <span className="fw-pill dim">Codex pending</span>
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="fw-action-input">
-                  <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-                    <span className="fw-eyebrow" style={{ alignSelf: 'center', color: 'var(--arcane-bright)', marginRight: 4 }}>
-                      {Icon('sparkles', { size: 10 })} Suggested
-                    </span>
-                    {['Ask what the smoke remembers', 'Move toward the altar', 'Ready a reaction'].map((suggestion) => (
-                      <button className="fw-btn fw-btn-ghost fw-btn-sm" key={suggestion} onClick={() => setActionDraft(suggestion)} type="button">
-                        {suggestion}
-                      </button>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
-                    <div className="fw-action-box">
-                      <div className="fw-action-modes" role="tablist" aria-label="Action mode">
-                        {[
-                          { id: 'speak', label: 'Speak', icon: 'users' },
-                          { id: 'act', label: 'Act', icon: 'sword' },
-                          { id: 'aside', label: 'Aside (DM only)', icon: 'eye' },
-                        ].map((mode) => (
-                          <button
-                            className={`fw-btn fw-btn-ghost fw-btn-sm ${actionMode === mode.id ? 'active' : ''}`}
-                            key={mode.id}
-                            onClick={() => setActionMode(mode.id as typeof actionMode)}
-                            type="button"
-                          >
-                            {Icon(mode.icon, { size: 10 })}{mode.label}
-                          </button>
-                        ))}
-                      </div>
-                      <textarea
-                        onChange={(event) => setActionDraft(event.target.value)}
-                        placeholder={
-                          actionMode === 'speak'
-                            ? 'Speak in character to the table...'
-                            : actionMode === 'act'
-                              ? 'Describe your action. The Warden will request rolls.'
-                              : 'Whisper to the DM only...'
-                        }
-                        value={actionDraft}
-                      />
-                    </div>
-                    <div className="fw-action-side-tools">
-                      <button className="fw-btn fw-btn-icon fw-btn-ghost" type="button" title="Roll dice">{Icon('dice', { size: 14 })}</button>
-                      <button className="fw-btn fw-btn-icon fw-btn-ghost" type="button" title="Ask AI Warden">{Icon('sparkles', { size: 14 })}</button>
-                    </div>
-                    <button className="fw-btn fw-btn-gold fw-btn-lg" disabled={!actionDraft.trim()} type="button" onClick={() => setActionDraft('')}>
-                      {Icon('send', { size: 13 })} Commit
-                    </button>
-                  </div>
-                </div>
-                  </>
-                )}
-              </section>
-
-              <aside className="fw-game-side right">
-                <div className="fw-tabs" role="tablist" aria-label="Right table panels">
-                  {[
-                    { id: 'dice', label: 'Dice', icon: 'dice' },
-                    { id: 'combat', label: 'Combat', icon: 'sword' },
-                    { id: 'ai', label: 'AI Warden', icon: 'wand' },
-                    { id: 'tools', label: 'Tools', icon: 'cog' },
-                  ].map((tab) => (
-                    <button
-                      className={`fw-tab ${rightSidebarTab === tab.id ? 'active' : ''}`}
-                      key={tab.id}
-                      onClick={() => setRightSidebarTab(tab.id as RightSidebarTab)}
-                      role="tab"
-                      style={{ flex: 1, fontSize: 10 }}
-                      type="button"
-                    >
-                      {Icon(tab.icon, { size: 11 })}{tab.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="fw-game-scroll">
-                  <PrototypeRightPanel
-                    aiPresetId={aiDmPresetId}
-                    onAiPresetSelect={handleAiPresetSelect}
-                    onOpenCombat={() => setCombatActive(true)}
-                    tab={rightSidebarTab}
+          {activeSession ? (
+            <GameTable
+              user={user}
+              activeSession={activeSession}
+              character={character}
+              sessionMembers={sessionMembers}
+              messages={storyMessages}
+              onLeave={handleSwitchTable}
+              onSendMessage={handleGameTableMessage}
+              onUpdateCharacter={handleGameTableCharacterUpdate}
+              onCombatChange={handleGameTableCombatChange}
+              onAskAiAction={async (text, mode) => {
+                await handleAiPanelAction(mode, text);
+              }}
+              onConfirmAiAction={applyAiConfirmAction}
+              combatMode={combatActive}
+              onToggleCombat={(active) => setCombatActive(active)}
+              combatView={
+                <div className="fw-game-combat-pane">
+                  <CombatMode
+                    activeCharacterId={character.id}
+                    encounter={encounter}
+                    onDispatchCombatEvent={async (event) => {
+                      const result = dispatchGameEvent(event);
+                      if (result.failed.length) throw new Error(result.failed.join(", "));
+                      await changeEncounter(useGameStore.getState().combatState);
+                    }}
+                    onExit={() => setCombatActive(false)}
                   />
                 </div>
-              </aside>
-            </section>
-
-          </main>
+              }
+            />
+          ) : (
+            <article className="fw-card">
+              <div className="fw-card-body">
+                <p className="fw-eyebrow">No active table</p>
+                <strong>Choose a session to continue</strong>
+              </div>
+            </article>
+          )}
         </section>
       </div>
 
