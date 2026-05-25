@@ -3,7 +3,9 @@ import type { ClassFeature } from '../../../data/classes';
 import type { LevelUpEvent, RecoverResourceEvent, SpendResourceEvent } from '../types';
 import { buildClassRuntime, recoverResources, spendResource } from '../../classes/classRuntime';
 import { calculateMaxHP } from '../../character/defenses';
+import { applyFeatBenefits } from '../../character/featEngine';
 import { getClassById, getClassByName } from '../../../data/classes';
+import { applyAbilitySelection } from '../../../lib/characterProgression';
 
 export type EventResult = {
   character: Character;
@@ -99,19 +101,27 @@ export function processLevelUp(character: Character, event: LevelUpEvent): Event
 
   const selected = flattenChoiceSelections(event.choices);
   const hpGain = getHpChoice(event.choices);
+  const abilityChoice = event.choices.find((c) => c.type === 'ability_score')?.selected;
+  const subclassChoice = event.choices.find((c) => c.type === 'subclass')?.selected;
+
   const provisional: Character = {
     ...character,
     level: toLevel,
     maxHitDice: toLevel,
     hitDice: Math.max(character.hitDice, toLevel),
+    abilities: applyAbilitySelection(character.abilities, abilityChoice),
+    subclass: subclassChoice ?? character.subclass,
   };
   const calculatedHp = calculateMaxHP(provisional);
   const targetMaxHp = hpGain === null
     ? calculatedHp
     : Math.max(calculatedHp, character.maxHitPoints + hpGain);
+  const subclassId = subclassChoice
+    ? subclassChoice.toLowerCase().replace(/\s+/g, '-')
+    : character.systemData.classRuntime?.subclassId;
   const runtime = buildClassRuntime(
     character.className,
-    character.systemData.classRuntime?.subclassId,
+    subclassId,
     toLevel,
     provisional,
   );
@@ -120,8 +130,7 @@ export function processLevelUp(character: Character, event: LevelUpEvent): Event
 
   const unlockedFeatures = getUnlockedFeatures(classFeatures, fromLevel, toLevel);
 
-  return {
-    character: {
+  const updatedCharacter: Character = {
       ...provisional,
       maxHitPoints: targetMaxHp,
       hitPoints: Math.min(targetMaxHp, provisional.hitPoints + Math.max(1, targetMaxHp - character.maxHitPoints)),
@@ -134,7 +143,10 @@ export function processLevelUp(character: Character, event: LevelUpEvent): Event
         ...character.systemData,
         classRuntime: runtime,
       },
-    },
+  };
+
+  return {
+    character: applyFeatBenefits(updatedCharacter),
     applied: true,
   };
 }

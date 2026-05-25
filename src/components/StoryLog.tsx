@@ -16,7 +16,6 @@ import {
 } from '../lib/rules';
 import {
   loadSessionMessages,
-  requestAiDmReply,
   sendSessionMessage,
   subscribeToSessionMessages,
 } from '../lib/messages';
@@ -60,7 +59,9 @@ type StoryLogProps = {
 };
 
 export function addUniqueMessage(messages: StoryMessage[], next: StoryMessage) {
-  if (messages.some((message) => message.id === next.id)) return messages;
+  if (messages.some((message) => message.id === next.id)) {
+    return messages.map((message) => (message.id === next.id ? next : message));
+  }
   return [...messages, next];
 }
 
@@ -122,6 +123,11 @@ function getLatestSceneFlow(messages: StoryMessage[]) {
 function getConfirmActions(message: StoryMessage): AiConfirmAction[] {
   const actions = message.metadata?.confirmActions;
   return Array.isArray(actions) ? (actions as AiConfirmAction[]) : [];
+}
+
+function getAppliedConfirmActionIds(message: StoryMessage): string[] {
+  const actions = message.metadata?.appliedConfirmActionIds;
+  return Array.isArray(actions) ? actions.filter((item): item is string => typeof item === 'string') : [];
 }
 
 function getAiChoices(message: StoryMessage): AiChoice[] {
@@ -668,7 +674,13 @@ export function StoryLog({
       });
 
     const channel = subscribeToSessionMessages(activeSession.id, (message) => {
-      onMessagesChange((current) => addUniqueMessage(current, message));
+      onMessagesChange((current) => {
+        const exists = current.some((m) => m.id === message.id);
+        // INSERT → append; UPDATE (e.g. metadata confirmed) → replace in-place
+        return exists
+          ? current.map((m) => (m.id === message.id ? message : m))
+          : [...current, message];
+      });
     });
 
     return () => {
@@ -678,34 +690,11 @@ export function StoryLog({
   }, [activeSession, initialMessages, onMessagesChange, user]);
 
   async function askAiForMessage(body: string, latestMessages: StoryMessage[], requestMode: AiDmRequestMode = 'reply') {
-    if (!activeSession || !user || !supabase) return;
-
-    setStatus('AI DM thinking');
-    setPendingAiMessage(makeLocalAiMessage('ai_pending', 'AI DM กำลังอ่านสถานการณ์และเตรียมคำตอบ...'));
-    setAiErrorMessage(null);
-
-    try {
-      const message = await requestAiDmReply(activeSession.id, characterName, body, latestMessages, {
-        session: activeSession,
-        gamePhase,
-        character,
-        encounter,
-        aiMode: 'adventure',
-        requestMode,
-        dmPresetId: activeSession.dmPreset,
-        sessionRecap: activeSession.sessionRecap,
-        latestScene: getLatestSceneFlow(latestMessages),
-        partySummary: `${character.name}, level ${character.level} ${character.ancestry} ${character.className}`,
-      });
-      onMessagesChange((current) => addUniqueMessage(current, message));
-      setStatus('Realtime live');
-    } catch (error) {
-      const errorBody = error instanceof Error ? error.message : 'AI DM could not reply.';
-      setAiErrorMessage(makeLocalAiMessage('ai_error', errorBody, body));
-      setStatus('AI needs attention');
-    } finally {
-      setPendingAiMessage(null);
-    }
+    void latestMessages;
+    void requestMode;
+    setPendingAiMessage(null);
+    setAiErrorMessage(makeLocalAiMessage('ai_error', 'AI DM runtime has been retired. Use manual story messages or Warden’s Run nodes.', body));
+    setStatus('Manual mode');
   }
 
   async function sendMessage(shouldAskAi: boolean) {
@@ -1051,6 +1040,7 @@ export function StoryLog({
           const body = isLong && !expanded ? `${message.body.slice(0, 260).trim()}...` : message.body;
           const retryPrompt =
             typeof message.metadata?.retryPrompt === 'string' ? message.metadata.retryPrompt : '';
+          const messageAppliedActions = new Set([...appliedActions, ...getAppliedConfirmActionIds(message)]);
 
           return (
             <article className={`fw-msg ${getMsgVariant(kind, message.speaker)} fw-msg--${kind}`} key={message.id}>
@@ -1098,7 +1088,7 @@ export function StoryLog({
                 dispatchGameEvent,
                 eventMetaBuilder,
                 onConfirmAction,
-                appliedActions,
+                messageAppliedActions,
                 markActionApplied,
                 onMessagesChange,
                 chooseAiOption,

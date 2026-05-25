@@ -10,7 +10,7 @@ import {
   makeCharacterDraft,
 } from '../lib/characterBuilder';
 import { classes, getClassByName } from '../data/classes';
-import { getAllTraits, getTotalAbilityBonus, races } from '../data/races';
+import { draconicAncestries, getAllTraits, getTotalAbilityBonus, getDraconicAncestry, races } from '../data/races';
 import type { AbilityKey, Character, GameSession } from '../types';
 
 /* ------------------------------------------------------------------ */
@@ -56,8 +56,11 @@ type RacialBonus = Partial<Record<AbilityKey, number>>;
 interface WizardData {
   name: string;
   pronouns: string;
+  playerName: string;
+  campaignName: string;
   race: string;
   subrace: string;
+  draconicAncestry: string;
   cls: string;
   subclass: string;
   background: string;
@@ -78,8 +81,11 @@ interface WizardData {
 const DEFAULT_DATA: WizardData = {
   name: '',
   pronouns: 'they / them',
+  playerName: '',
+  campaignName: '',
   race: 'Tiefling',
   subrace: '',
+  draconicAncestry: '',
   cls: 'Warlock',
   subclass: '',
   background: 'Outlander',
@@ -130,6 +136,16 @@ function wizardTraits(raceName: string, subraceName: string) {
   return getAllTraits(race.id, subrace?.id);
 }
 
+function getXpThreshold(level: number): number {
+  const thresholds = [
+    0, 300, 900, 2700, 6500, 14000,
+    23000, 34000, 48000, 64000, 85000,
+    100000, 120000, 140000, 165000,
+    195000, 225000, 265000, 305000, 355000,
+  ];
+  return thresholds[level] ?? 355000;
+}
+
 function buildCharacterFromWizard(data: WizardData, userId: string): Character {
   const race = findRaceByName(data.race);
   const subrace = findSubraceByName(race.name, data.subrace);
@@ -153,12 +169,18 @@ function buildCharacterFromWizard(data: WizardData, userId: string): Character {
     id: crypto.randomUUID(),
     userId,
     name: data.name.trim() || 'Unnamed Warden',
+    pronouns: data.pronouns,
+    playerName: data.playerName.trim() || undefined,
+    campaignName: data.campaignName.trim() || undefined,
     ancestry: race.name,
     race: race.name,
     subrace: subrace?.name ?? '',
+    draconicAncestry: race.id === 'dragonborn' ? data.draconicAncestry : undefined,
     className: classData.name,
     subclass: data.subclass,
     level: 1,
+    xp: 0,
+    xpThreshold: getXpThreshold(1),
     background: data.background,
     alignment: data.alignment,
     languages: [...race.languages],
@@ -178,6 +200,7 @@ function buildCharacterFromWizard(data: WizardData, userId: string): Character {
       creation: {
         raceId: race.id,
         subraceId: subrace?.id,
+        draconicAncestryId: race.id === 'dragonborn' ? data.draconicAncestry : undefined,
         classId: classData.id,
         abilityMethod:
           data.method === 'Standard Array'
@@ -302,7 +325,7 @@ export function CharacterWizardScreen({ user, onBack, onSaved, session, onBound 
             {step.id === 'abilities' && <StepAbilities data={data} setField={setField} setData={setData} />}
             {step.id === 'back'      && <StepBackground data={data} setField={setField} />}
             {step.id === 'gear'      && <StepGear data={data} setField={setField} />}
-            {step.id === 'review'    && <StepReview data={data} />}
+            {step.id === 'review'    && <StepReview data={data} setField={setField} />}
           </div>
 
           {/* Sticky preview */}
@@ -463,6 +486,7 @@ type SetField<D> = <K extends keyof D>(k: K, v: D[K]) => void;
 function StepRace({ data, setField }: { data: WizardData; setField: SetField<WizardData> }) {
   const cur = findRaceByName(data.race);
   const selectedSubrace = findSubraceByName(cur.name, data.subrace);
+  const selectedDraconicAncestry = getDraconicAncestry(data.draconicAncestry) ?? draconicAncestries[0];
   const traits = wizardTraits(data.race, data.subrace);
 
   const pickRace = (raceName: string) => {
@@ -470,6 +494,7 @@ function StepRace({ data, setField }: { data: WizardData; setField: SetField<Wiz
     const subrace = race.subraces[0];
     setField('race', race.name);
     setField('subrace', subrace?.name ?? '');
+    setField('draconicAncestry', race.id === 'dragonborn' ? draconicAncestries[0].id : '');
     setField('racialBonus', getTotalAbilityBonus(race.id, subrace?.id));
   };
 
@@ -512,6 +537,30 @@ function StepRace({ data, setField }: { data: WizardData; setField: SetField<Wiz
                 onClick={() => pickSubrace(s.name)}
               />
             ))}
+          </div>
+        </Card>
+      )}
+
+      {cur.id === 'dragonborn' && (
+        <Card>
+          <CardHead icon="flame" title="Draconic Ancestry" />
+          <div className="fw-card-body" style={{ display: 'grid', gap: 10 }}>
+            <select
+              className="fw-input"
+              onChange={(event) => setField('draconicAncestry', event.target.value)}
+              value={selectedDraconicAncestry.id}
+            >
+              {draconicAncestries.map((ancestry) => (
+                <option key={ancestry.id} value={ancestry.id}>
+                  {ancestry.id[0].toUpperCase() + ancestry.id.slice(1)} - {ancestry.element}
+                </option>
+              ))}
+            </select>
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+              <Pill label="Element" v={selectedDraconicAncestry.element} accent="gold" />
+              <Pill label="Breath" v={selectedDraconicAncestry.breath} />
+              <Pill label="Save" v={selectedDraconicAncestry.save.toUpperCase()} />
+            </div>
           </div>
         </Card>
       )}
@@ -915,7 +964,7 @@ function StepGear({ data, setField }: { data: WizardData; setField: SetField<Wiz
 /* Step 6 — Review                                                      */
 /* ------------------------------------------------------------------ */
 
-function StepReview({ data }: { data: WizardData }) {
+function StepReview({ data, setField }: { data: WizardData; setField: SetField<WizardData> }) {
   const mod = (v: number) => Math.floor((v - 10) / 2);
   const sgn = (v: number) => (v >= 0 ? '+' + v : String(v));
   const preview = buildCharacterFromWizard(data, 'preview-user');
@@ -946,6 +995,28 @@ function StepReview({ data }: { data: WizardData }) {
           <div className="fw-serif" style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 2, fontStyle: 'italic' }}>
             {data.alignment} · {data.pronouns}
           </div>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHead icon="book" title="Campaign Meta" />
+        <div className="fw-card-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <Field label="Player Name (optional)">
+            <input
+              className="fw-input"
+              onChange={(event) => setField('playerName', event.target.value)}
+              placeholder="ชื่อผู้เล่นจริง"
+              value={data.playerName}
+            />
+          </Field>
+          <Field label="Campaign Name (optional)">
+            <input
+              className="fw-input"
+              onChange={(event) => setField('campaignName', event.target.value)}
+              placeholder="ชื่อ campaign"
+              value={data.campaignName}
+            />
+          </Field>
         </div>
       </Card>
 

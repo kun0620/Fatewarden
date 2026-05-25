@@ -90,7 +90,8 @@ export function calculateArmorClass(character: Character) {
 }
 
 export function calculateInitiative(character: Character) {
-  return getAbilityModifier(character.abilities.dex);
+  const featInitBonus = character.systemData?.featBonuses?.initiative ?? 0;
+  return getAbilityModifier(character.abilities.dex) + featInitBonus;
 }
 
 export function calculatePassivePerception(character: Character) {

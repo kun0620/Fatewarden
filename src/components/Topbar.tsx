@@ -17,8 +17,6 @@ const CRUMBS: Record<AppStage, [string, string]> = {
   game: ['At the Table', 'Session'],
   bestiary: ['The Stacks', 'Bestiary'],
   library: ['The Stacks', 'Campaign Library'],
-  'campaign-creator': ['The Forge', 'Campaign Creator'],
-  'ai-campaign-generator': ['The Forge', 'AI Campaign Generator'],
   settings: ["The Scribe's Desk", 'Settings'],
 };
 

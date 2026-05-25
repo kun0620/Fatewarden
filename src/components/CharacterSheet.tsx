@@ -1,7 +1,9 @@
 import { Maximize2, Save, Shield, Sparkles } from 'lucide-react';
 import { ChangeEvent, FormEvent, useEffect, useState } from 'react';
 import { useGameData } from '../hooks/useGameData';
+import { getSpell } from '../data/spells';
 import { canLevelUp } from '../lib/characterProgression';
+import { calculateMaxHP, calculatePassivePerception } from '../engine/character/defenses';
 import { proficiencyBonus } from '../lib/rules';
 import { InventoryPanel } from './InventoryPanel';
 import { LevelUpModal } from './LevelUpModal';
@@ -26,6 +28,7 @@ type CharacterSheetProps = {
   character?: Character | null;
   disabled?: boolean;
   onOpenFullSheet?: () => void;
+  onEndConcentration?: () => void;
   onSave?: (character: Character) => Promise<void>;
   status?: string;
 };
@@ -34,12 +37,20 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, Number.isFinite(value) ? value : min));
 }
 
-export function CharacterSheet({ character, disabled = false, onOpenFullSheet, onSave, status }: CharacterSheetProps) {
-  const { character: storeCharacter, dispatch, eventMeta, setActiveCharacter } = useGameData();
+export function CharacterSheet({
+  character,
+  disabled = false,
+  onOpenFullSheet,
+  onEndConcentration,
+  onSave,
+  status,
+}: CharacterSheetProps) {
+  const { character: storeCharacter, dispatch, eventMeta, setActiveCharacter, combatState } = useGameData();
   const selectedCharacter = character ?? storeCharacter;
   const [draft, setDraft] = useState<Character | null>(selectedCharacter);
   const [saving, setSaving] = useState(false);
   const [levelUpOpen, setLevelUpOpen] = useState(false);
+  const [shortRestDice, setShortRestDice] = useState(1);
 
   useEffect(() => {
     setDraft(selectedCharacter);
@@ -61,10 +72,13 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
 
   const currentDraft = draft;
   const initiative = Math.floor((currentDraft.abilities.dex - 10) / 2);
-  const passivePerception =
-    10 +
-    Math.floor((currentDraft.abilities.wis - 10) / 2) +
-    (currentDraft.skills.some((skill) => skill.toLowerCase() === 'perception') ? proficiencyBonus(currentDraft.level) : 0);
+  const passivePerception = calculatePassivePerception(currentDraft);
+  const calculatedMaxHP = calculateMaxHP(currentDraft);
+  const dyingCombatant = combatState?.combatants.find(
+    (c: { id: string; hitPoints: number; deathSaves: { successes: number; failures: number }; status?: string }) =>
+      c.id === currentDraft.id && c.hitPoints <= 0,
+  ) ?? null;
+  const activeConcentration = currentDraft.systemData.activeConcentration;
 
   function updateField<K extends keyof Character>(key: K, value: Character[K]) {
     setDraft((current) => (current ? { ...current, [key]: value } : current));
@@ -91,6 +105,39 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
           : current,
       );
     };
+  }
+
+  async function takeShortRest() {
+    if (!onSave) return;
+    setSaving(true);
+    setActiveCharacter(currentDraft);
+    const result = dispatch({
+      ...eventMeta(currentDraft.id),
+      type: 'SHORT_REST',
+      characterId: currentDraft.id,
+      hitDiceSpent: shortRestDice,
+    });
+    if (result.failed.length === 0 && result.character) {
+      setDraft(result.character);
+      await onSave(result.character);
+    }
+    setSaving(false);
+  }
+
+  async function takeLongRest() {
+    if (!onSave) return;
+    setSaving(true);
+    setActiveCharacter(currentDraft);
+    const result = dispatch({
+      ...eventMeta(currentDraft.id),
+      type: 'LONG_REST',
+      characterId: currentDraft.id,
+    });
+    if (result.failed.length === 0 && result.character) {
+      setDraft(result.character);
+      await onSave(result.character);
+    }
+    setSaving(false);
   }
 
   async function submit(event: FormEvent) {
@@ -120,6 +167,40 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
     if (onSave) await onSave(nextCharacter);
     setSaving(false);
     setLevelUpOpen(false);
+  }
+
+  async function endConcentration() {
+    if (!activeConcentration) return;
+
+    if (onEndConcentration) {
+      onEndConcentration();
+      setDraft((current) =>
+        current
+          ? {
+              ...current,
+              systemData: {
+                ...current.systemData,
+                activeConcentration: undefined,
+              },
+            }
+          : current,
+      );
+      return;
+    }
+
+    setSaving(true);
+    setActiveCharacter(currentDraft);
+    const result = dispatch({
+      ...eventMeta(currentDraft.id),
+      type: 'CONCENTRATION_END',
+      characterId: currentDraft.id,
+      reason: 'manual',
+    });
+    if (result.failed.length === 0 && result.character) {
+      setDraft(result.character);
+      if (onSave) await onSave(result.character);
+    }
+    setSaving(false);
   }
 
   return (
@@ -221,8 +302,39 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
               value={draft.maxHitPoints}
             />
           </div>
+          {calculatedMaxHP !== draft.maxHitPoints && (
+            <span className="fw-caption" style={{ color: 'var(--text-3)', marginTop: 2 }}>
+              calculated: {calculatedMaxHP}
+            </span>
+          )}
         </div>
       </div>
+
+      {dyingCombatant && (
+        <div style={{ padding: 'var(--sp-3)', border: '1px solid var(--blood)', borderRadius: 6, background: 'rgba(153,27,27,0.08)' }}>
+          <p className="fw-caption" style={{ margin: '0 0 var(--sp-2)', color: 'var(--blood-bright)', fontWeight: 600 }}>
+            ☠ Death Saves — {dyingCombatant.status === 'stable' ? 'Stable' : dyingCombatant.status === 'dead' ? 'Dead' : 'Dying'}
+          </p>
+          <div style={{ display: 'flex', gap: 'var(--sp-4)' }}>
+            <div>
+              <p className="fw-caption" style={{ margin: '0 0 4px', color: 'var(--success)' }}>Successes</p>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <span key={i} style={{ width: 14, height: 14, borderRadius: '50%', border: '1px solid var(--success)', background: i < dyingCombatant.deathSaves.successes ? 'var(--success)' : 'transparent', display: 'inline-block' }} />
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="fw-caption" style={{ margin: '0 0 4px', color: 'var(--blood-bright)' }}>Failures</p>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <span key={i} style={{ width: 14, height: 14, borderRadius: '50%', border: '1px solid var(--blood)', background: i < dyingCombatant.deathSaves.failures ? 'var(--blood-bright)' : 'transparent', display: 'inline-block' }} />
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)' }}>
         <p className="fw-caption" style={{ margin: 0 }}>
@@ -275,11 +387,88 @@ export function CharacterSheet({ character, disabled = false, onOpenFullSheet, o
         />
       </div>
 
+      {Object.entries(draft.spellSlots ?? {}).some(([, slot]) => slot.max > 0) && (
+        <div className="fw-field">
+          <label className="fw-field__label">Spell Slots</label>
+          <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+            {Object.entries(draft.spellSlots ?? {})
+              .filter(([, slot]) => slot.max > 0)
+              .sort(([a], [b]) => Number(a) - Number(b))
+              .map(([level, slot]) => (
+                <span
+                  key={level}
+                  className="fw-caption"
+                  style={{
+                    fontFamily: 'var(--f-mono)',
+                    padding: '2px 6px',
+                    border: '1px solid var(--border)',
+                    borderRadius: 4,
+                    color: slot.used >= slot.max ? 'var(--text-4)' : 'var(--text-2)',
+                  }}
+                >
+                  L{level} {slot.max - slot.used}/{slot.max}
+                </span>
+              ))}
+          </div>
+        </div>
+      )}
+
+      {activeConcentration && (
+        <div className="fw-field">
+          <span className="fw-caption">CONCENTRATING</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className="fw-pill blood">
+              {getSpell(activeConcentration.spellId)?.name ?? activeConcentration.spellId}
+            </span>
+            <button
+              className="fw-btn fw-btn--ghost fw-btn--sm"
+              disabled={disabled || saving}
+              onClick={() => void endConcentration()}
+              type="button"
+            >
+              End
+            </button>
+          </div>
+        </div>
+      )}
+
       <InventoryPanel
         character={draft}
         disabled={disabled || saving}
         onUpdateCharacter={(updatedCharacter) => setDraft(updatedCharacter)}
       />
+
+      <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+        <input
+          aria-label="Hit dice to spend on short rest"
+          className="fw-input fw-input--mono"
+          disabled={disabled || saving || !onSave || currentDraft.hitDice <= 0}
+          max={currentDraft.hitDice}
+          min={1}
+          onChange={(e) => setShortRestDice(Math.min(currentDraft.hitDice, Math.max(1, e.target.valueAsNumber || 1)))}
+          style={{ width: 52, textAlign: 'center' }}
+          type="number"
+          value={shortRestDice}
+        />
+        <button
+          className="fw-btn fw-btn--ghost"
+          disabled={disabled || saving || !onSave || currentDraft.hitDice <= 0}
+          onClick={() => void takeShortRest()}
+          title={currentDraft.hitDice <= 0 ? 'No hit dice remaining.' : `Short rest: spend ${shortRestDice} hit die to recover HP.`}
+          type="button"
+        >
+          Short Rest
+        </button>
+        <button
+          className="fw-btn fw-btn--ghost"
+          disabled={disabled || saving || !onSave}
+          onClick={() => void takeLongRest()}
+          title="Long rest: recover HP, hit dice, and spell slots."
+          type="button"
+        >
+          Long Rest
+        </button>
+      </div>
 
       <div style={{ display: 'flex', gap: 'var(--sp-3)', alignItems: 'center', flexWrap: 'wrap' }}>
         {status ? <p className="fw-caption" style={{ flex: 1 }}>{status}</p> : null}

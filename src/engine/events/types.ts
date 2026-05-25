@@ -98,6 +98,35 @@ export interface ResetRacialSpellsEvent extends BaseGameEvent {
   readonly characterId: string;
 }
 
+export interface CastSpellEvent extends BaseGameEvent {
+  readonly type: 'CAST_SPELL';
+  readonly spellId: string;
+  readonly slotLevel: number;
+  readonly targetId?: string;
+  readonly characterId: string;
+  readonly upcasting?: boolean;
+}
+
+export interface ConcentrationStartEvent extends BaseGameEvent {
+  readonly type: 'CONCENTRATION_START';
+  readonly spellId: string;
+  readonly characterId: string;
+  readonly duration: string;
+}
+
+export interface ConcentrationEndEvent extends BaseGameEvent {
+  readonly type: 'CONCENTRATION_END';
+  readonly characterId: string;
+  readonly reason: 'manual' | 'damage' | 'new_spell' | 'incapacitated';
+}
+
+export interface ConcentrationSaveCheckEvent extends BaseGameEvent {
+  readonly type: 'CONCENTRATION_SAVE_CHECK';
+  readonly characterId: string;
+  readonly dc: number;
+  readonly damage: number;
+}
+
 export interface GiveItemEvent extends BaseGameEvent {
   readonly type: 'give_item';
   readonly targetId: string;
@@ -344,6 +373,37 @@ export interface CombatEndEncounterEvent extends BaseGameEvent {
   readonly lootSummary?: string;
 }
 
+export interface GamePhaseChangeEvent extends BaseGameEvent {
+  readonly type: 'GAME_PHASE_CHANGE';
+  readonly phase: import('../../types').GamePhase;
+}
+
+export interface CombatRevertTurnEvent extends BaseGameEvent {
+  readonly type: 'COMBAT_REVERT_TURN';
+}
+
+export interface AddObjectiveEvent extends BaseGameEvent {
+  readonly type: 'ADD_OBJECTIVE';
+  readonly description: string;
+}
+
+export interface ChangeRelationshipEvent extends BaseGameEvent {
+  readonly type: 'CHANGE_RELATIONSHIP';
+  readonly characterId: string;
+  readonly npcId: string;
+  readonly npcName: string;
+  readonly delta: number;
+  readonly reason?: string;
+}
+
+export interface AddJournalEntryEvent extends BaseGameEvent {
+  readonly type: 'ADD_JOURNAL_ENTRY';
+  readonly characterId: string;
+  readonly entryType: import('../../engine/journal/journalTypes').JournalEntryType;
+  readonly title: string;
+  readonly content: string;
+}
+
 export type GameEvent =
   | ApplyDamageEvent
   | RecoverHpEvent
@@ -358,6 +418,10 @@ export type GameEvent =
   | LevelUpEvent
   | UseRacialSpellEvent
   | ResetRacialSpellsEvent
+  | CastSpellEvent
+  | ConcentrationStartEvent
+  | ConcentrationEndEvent
+  | ConcentrationSaveCheckEvent
   | AddItemEvent
   | GiveItemEvent
   | RemoveItemEvent
@@ -392,4 +456,9 @@ export type GameEvent =
   | CombatSetAiBehaviorEvent
   | CombatExpireConditionsEvent
   | CombatOpportunityTriggerEvent
-  | CombatEndEncounterEvent;
+  | CombatEndEncounterEvent
+  | GamePhaseChangeEvent
+  | CombatRevertTurnEvent
+  | AddObjectiveEvent
+  | ChangeRelationshipEvent
+  | AddJournalEntryEvent;

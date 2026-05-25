@@ -24,8 +24,6 @@ export type AppStage =
   | 'game'
   | 'bestiary'
   | 'library'
-  | 'campaign-creator'
-  | 'ai-campaign-generator'
   | 'settings';
 
 export type AppFlowInput = {
@@ -35,8 +33,6 @@ export type AppFlowInput = {
   pendingSession: GameSession | null;
   pendingRoomSetup: boolean;
   pendingLibrary: boolean;
-  pendingCampaignCreator: boolean;
-  pendingAiCampaignGenerator: boolean;
   pendingSettings: boolean;
   pendingLobby: boolean;
   pendingCharSheet: boolean;
@@ -66,8 +62,6 @@ export function computeAppStage(input: AppFlowInput): AppStage {
     pendingSession,
     pendingRoomSetup,
     pendingLibrary,
-    pendingCampaignCreator,
-    pendingAiCampaignGenerator,
     pendingSettings,
     pendingLobby,
     pendingCharSheet,
@@ -87,8 +81,6 @@ export function computeAppStage(input: AppFlowInput): AppStage {
   if (pendingDmDash) return 'dm-dashboard';
   if (pendingBestiary) return 'bestiary';
   if (pendingRoomSetup) return 'room-setup';
-  if (pendingCampaignCreator) return 'campaign-creator';
-  if (pendingAiCampaignGenerator) return 'ai-campaign-generator';
   if (pendingLibrary) return 'library';
   if (pendingSettings) return 'settings';
   return 'menu';
@@ -100,8 +92,6 @@ export function isGateStage(stage: AppStage): boolean {
     stage === 'login' ||
     stage === 'menu' ||
     stage === 'library' ||
-    stage === 'campaign-creator' ||
-    stage === 'ai-campaign-generator' ||
     stage === 'settings' ||
     stage === 'room-setup' ||
     stage === 'character-setup' ||
@@ -138,8 +128,6 @@ export function getGateSteps(stage: AppStage): GateStepIndicator {
       return { signIn: 'active', table: 'pending', character: 'pending', play: 'pending' };
     case 'menu':
     case 'library':
-    case 'campaign-creator':
-    case 'ai-campaign-generator':
     case 'settings':
       return { signIn: 'complete', table: 'active', character: 'pending', play: 'pending' };
     case 'character-setup':

@@ -91,7 +91,7 @@ export function AppRail({ activeStage, hasActiveSession, user, onNavigate, onSig
       <RailBtn icon="users" label="Vault" active={activeStage === 'char-vault' || activeStage === 'char-wizard'} onClick={() => onNavigate('char-vault')} />
       <RailBtn icon="crown" label="DM" active={activeStage === 'dm-dashboard'} onClick={() => onNavigate('dm-dashboard')} />
       <RailBtn icon="skull" label="Bestiary" active={activeStage === 'bestiary'} onClick={() => onNavigate('bestiary')} />
-      <RailBtn icon="book" label="Library" active={activeStage === 'library' || activeStage === 'campaign-creator' || activeStage === 'ai-campaign-generator'} onClick={() => onNavigate('library')} />
+      <RailBtn icon="book" label="Library" active={activeStage === 'library'} onClick={() => onNavigate('library')} />
       <RailBtn icon="map" label="World" disabled />
       <span style={{ flex: 1 }} />
       <NotificationCenter user={user} variant="rail" onNavigate={onNavigate} />

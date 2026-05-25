@@ -72,9 +72,21 @@ export type HexHeroBuild = {
 export type CharacterSystemData = {
   hexplore?: HexHeroBuild;
   classRuntime?: ClassRuntime;
+  featBonuses?: {
+    initiative?: number;
+    ac?: number;
+    speed?: number;
+    savingThrows?: Partial<Record<string, number>>;
+  };
+  activeConcentration?: {
+    spellId: string;
+    duration: string;
+    startedAt?: string;
+  };
   creation?: {
     raceId?: string;
     subraceId?: string;
+    draconicAncestryId?: string;
     classId?: string;
     abilityMethod?: 'manual' | 'standard-array' | 'point-buy';
     baseAbilities?: Partial<Record<AbilityKey, number>>;
@@ -239,14 +251,26 @@ export type Character = {
   id: string;
   userId?: string;
   name: string;
+  pronouns?: string;
   ancestry: string;
   race?: string;
   subrace?: string;
+  draconicAncestry?: string;
   className: string;
   subclass?: string;
   level: number;
+  xp?: number;
+  xpThreshold?: number;
+  playerName?: string;
+  campaignName?: string;
   background: string;
   age: string;
+  height?: string;
+  weight?: string;
+  eyes?: string;
+  hair?: string;
+  skin?: string;
+  appearance?: string;
   alignment: string;
   languages: string[];
   proficiencies: string[];
@@ -260,11 +284,15 @@ export type Character = {
   skills: string[];
   inventory: Inventory;
   features: string[];
+  feats?: string[];
   spells: string[];
   spellsKnown?: string[];
   backstory: string;
   personality?: CharacterPersonality;
   personalityTraits: string[];
+  alliesOrganizations?: string;
+  additionalFeatures?: string;
+  treasure?: string;
   savingThrows?: AbilityKey[];
   portraitUrl: string;
   activeConditions: string[];
@@ -342,7 +370,15 @@ export type AiConfirmActionType =
   | 'phase_change'
   | 'start_combat'
   | 'next_turn'
-  | 'previous_turn';
+  | 'previous_turn'
+  | 'add_item'
+  | 'remove_item'
+  | 'use_resource'
+  | 'complete_objective'
+  | 'advance_threat_clock'
+  | 'add_objective'
+  | 'change_relationship'
+  | 'add_journal_entry';
 
 export type AiConfirmAction = {
   id: string;
@@ -354,7 +390,15 @@ export type AiConfirmAction = {
   condition?: string;
   phase?: GamePhase;
   encounterName?: string;
+  itemId?: string;
+  itemName?: string;
+  item?: Partial<Item>;
+  resourceId?: string;
+  objectiveId?: string;
+  clockId?: string;
   note?: string;
+  journalBody?: string;
+  journalType?: 'memory' | 'clue' | 'quest_update' | 'recap';
 };
 
 export type AiDmPresetId = 'balanced' | 'grim' | 'heroic' | 'mystery';

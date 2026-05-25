@@ -1,5 +1,7 @@
 import { Save, X } from 'lucide-react';
 import { ChangeEvent, FormEvent, useEffect, useState } from 'react';
+import { getFeat } from '../data/feats';
+import type { FeatPrerequisite } from '../data/feats';
 import { inventoryFromNames, inventoryToNames } from '../lib/inventory';
 import { recalculateCharacter } from '../lib/characterDerived';
 import { abilityLabels, abilityModifier, formatModifier, proficiencyBonus } from '../lib/rules';
@@ -37,6 +39,29 @@ function textToList(value: string) {
     .split(/\n|,/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function formatPrereq(p: FeatPrerequisite): string {
+  const parts: string[] = [];
+  if (p.minLevel) parts.push(`Level ${p.minLevel}+`);
+  if (p.ability) parts.push(`${p.ability.key.toUpperCase()} ${p.ability.min}+`);
+  if (p.spellcasting) parts.push('Spellcasting');
+  if (p.proficiency) parts.push(`Proficiency: ${p.proficiency}`);
+  if (p.armor) parts.push(`Armor: ${p.armor}`);
+  return parts.join(', ') || 'None';
+}
+
+function exhaustionDescription(level: number): string {
+  const effects = [
+    '',
+    'Disadvantage on ability checks',
+    'Speed halved',
+    'Disadvantage on attacks and saves',
+    'HP maximum halved',
+    'Speed reduced to 0',
+    'Death',
+  ];
+  return effects[level] ?? '';
 }
 
 const abilityKeySet = new Set<AbilityKey>(['str', 'dex', 'con', 'int', 'wis', 'cha']);
@@ -138,6 +163,26 @@ export function CharacterSheetView({
     }
   }
 
+  const heightWeight = [draft.height, draft.weight].filter(Boolean).join(' · ');
+  const appearanceParts = [
+    draft.eyes ? `Eyes: ${draft.eyes}` : null,
+    draft.hair ? `Hair: ${draft.hair}` : null,
+    draft.skin ? `Skin: ${draft.skin}` : null,
+  ].filter((item): item is string => Boolean(item));
+  const hasCharacterDetails = Boolean(
+    draft.playerName ||
+    draft.campaignName ||
+    draft.pronouns ||
+    heightWeight ||
+    appearanceParts.length ||
+    draft.appearance,
+  );
+  const hasAdditionalInfo = Boolean(
+    draft.alliesOrganizations ||
+    draft.additionalFeatures ||
+    draft.treasure,
+  );
+
   return (
     <div className="fw-backdrop" role="dialog" aria-modal="true" aria-label={`${draft.name} character sheet`}>
       <form
@@ -228,6 +273,42 @@ export function CharacterSheetView({
                   value={listToText(draft.features)}
                 />
               </div>
+
+              {draft.feats && draft.feats.length > 0 && (
+                <section className="fw-card">
+                  <p className="fw-caption">Feats</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {draft.feats.map((featId) => {
+                      const feat = getFeat(featId);
+                      if (!feat) return null;
+                      return (
+                        <div key={featId} className="fw-card">
+                          <div style={{ alignItems: 'center', display: 'flex', gap: 8, justifyContent: 'space-between', marginBottom: 8 }}>
+                            <span className="fw-body-sm" style={{ color: 'var(--text)', fontWeight: 700 }}>{feat.name}</span>
+                            <span style={{ display: 'flex', gap: 6 }}>
+                              <span className="fw-pill gold">{feat.category}</span>
+                              <span className="fw-pill dim">{feat.source}</span>
+                            </span>
+                          </div>
+                          <p className="fw-body-sm fw-muted" style={{ margin: '0 0 8px' }}>
+                            {feat.description}
+                          </p>
+                          <ul className="fw-body-sm" style={{ color: 'var(--text-2)', margin: 0, paddingLeft: 18 }}>
+                            {feat.benefits.map((benefit) => (
+                              <li key={benefit}>{benefit}</li>
+                            ))}
+                          </ul>
+                          {feat.prerequisite && (
+                            <p className="fw-caption fw-muted" style={{ marginTop: 8 }}>
+                              Prerequisite: {formatPrereq(feat.prerequisite)}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
             </section>
 
             <section className="fw-grimoire-sheet__right">
@@ -329,6 +410,55 @@ export function CharacterSheetView({
                 </div>
               </section>
 
+              {hasCharacterDetails && (
+                <section className="fw-card">
+                  <h3 className="fw-h3">Character Details</h3>
+                  <div className="fw-grimoire-sheet__meta-grid">
+                    {draft.playerName && (
+                      <div className="fw-field">
+                        <span className="fw-caption">PLAYER</span>
+                        <span className="fw-body">{draft.playerName}</span>
+                      </div>
+                    )}
+
+                    {draft.campaignName && (
+                      <div className="fw-field">
+                        <span className="fw-caption">CAMPAIGN</span>
+                        <span className="fw-body">{draft.campaignName}</span>
+                      </div>
+                    )}
+
+                    {draft.pronouns && (
+                      <div className="fw-field">
+                        <span className="fw-caption">PRONOUNS</span>
+                        <span className="fw-body">{draft.pronouns}</span>
+                      </div>
+                    )}
+
+                    {heightWeight && (
+                      <div className="fw-field">
+                        <span className="fw-caption">HEIGHT / WEIGHT</span>
+                        <span className="fw-body">{heightWeight}</span>
+                      </div>
+                    )}
+
+                    {appearanceParts.length > 0 && (
+                      <div className="fw-field">
+                        <span className="fw-caption">APPEARANCE</span>
+                        <span className="fw-body">{appearanceParts.join(' · ')}</span>
+                      </div>
+                    )}
+
+                    {draft.appearance && (
+                      <div className="fw-field">
+                        <span className="fw-caption">DESCRIPTION</span>
+                        <p className="fw-body-sm">{draft.appearance}</p>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
+
               <section className="fw-card">
                 <p className="fw-caption">Ability Scores</p>
                 <div className="fw-grimoire-sheet__ability-grid">
@@ -415,6 +545,49 @@ export function CharacterSheetView({
                   <p className="fw-h3">{formatModifier(proficiencyBonus(draft.level))}</p>
                 </article>
               </section>
+
+              {(draft.activeConditions.length > 0 || (draft.exhaustionLevel ?? 0) > 0) && (
+                <section className="fw-card">
+                  {draft.activeConditions.length > 0 && (
+                    <div className="fw-field">
+                      <span className="fw-caption">CONDITIONS</span>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        {draft.activeConditions.map((condition) => (
+                          <span key={condition} className="fw-pill">{condition}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {(draft.exhaustionLevel ?? 0) > 0 && (
+                    <div className="fw-field">
+                      <span className="fw-caption">EXHAUSTION</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span className="fw-pill blood">
+                          Level {draft.exhaustionLevel}
+                        </span>
+                        <span className="fw-caption fw-muted">
+                          {exhaustionDescription(draft.exhaustionLevel ?? 0)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {draft.xp !== undefined && (
+                <section className="fw-card">
+                  <div className="fw-field">
+                    <span className="fw-caption">EXPERIENCE POINTS</span>
+                    <span className="fw-mono">
+                      {draft.xp?.toLocaleString()}
+                      {draft.xpThreshold
+                        ? ` / ${draft.xpThreshold.toLocaleString()} XP`
+                        : ' XP'}
+                    </span>
+                  </div>
+                </section>
+              )}
 
               <section className="fw-grimoire-sheet__meta-grid">
                 <div className="fw-card">
@@ -532,6 +705,34 @@ export function CharacterSheetView({
                   value={draft.backstory}
                 />
               </section>
+
+              {hasAdditionalInfo && (
+                <section className="fw-card">
+                  <h3 className="fw-h3">Additional Info</h3>
+                  <div className="fw-grimoire-sheet__meta-grid">
+                    {draft.alliesOrganizations && (
+                      <div className="fw-field">
+                        <span className="fw-caption">ALLIES & ORGANIZATIONS</span>
+                        <p className="fw-body-sm">{draft.alliesOrganizations}</p>
+                      </div>
+                    )}
+
+                    {draft.additionalFeatures && (
+                      <div className="fw-field">
+                        <span className="fw-caption">ADDITIONAL FEATURES & TRAITS</span>
+                        <p className="fw-body-sm">{draft.additionalFeatures}</p>
+                      </div>
+                    )}
+
+                    {draft.treasure && (
+                      <div className="fw-field">
+                        <span className="fw-caption">TREASURE</span>
+                        <p className="fw-body-sm">{draft.treasure}</p>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
 
               <section className="fw-card">
                 <div className="fw-grimoire-sheet__misc-grid">

@@ -13,10 +13,10 @@ import type {
   EncounterState,
   GamePhase,
   GameSession,
+  Item,
   SceneFlow,
   StoryMessage,
 } from '../types';
-import { AI_CONTEXT_CHAR_BUDGET, normalizeAiDmPresetId, normalizeAiDmRequestMode } from './aiDm';
 import { supabase } from './supabase';
 
 type MessageRow = {
@@ -41,7 +41,7 @@ type AiRulesContext = {
   sessionRecap?: string;
 };
 
-const AI_DM_TIMEOUT_MS = 45_000;
+const AI_CONTEXT_CHAR_BUDGET = 12_000;
 
 function requireClient() {
   if (!supabase) {
@@ -49,25 +49,6 @@ function requireClient() {
   }
 
   return supabase;
-}
-
-function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, message: string) {
-  return new Promise<T>((resolve, reject) => {
-    const timeout = globalThis.setTimeout(() => {
-      reject(new Error(message));
-    }, timeoutMs);
-
-    promise.then(
-      (value) => {
-        globalThis.clearTimeout(timeout);
-        resolve(value);
-      },
-      (error) => {
-        globalThis.clearTimeout(timeout);
-        reject(error);
-      },
-    );
-  });
 }
 
 function formatTime(value: string) {
@@ -168,6 +149,20 @@ export async function sendSessionMessage(
   return mapMessage(data as MessageRow);
 }
 
+export async function updateSessionMessageMetadata(messageId: string, metadata: Record<string, unknown>) {
+  const client = requireClient();
+  const { data, error } = await client
+    .from('chat_messages')
+    .update({ metadata })
+    .eq('id', messageId)
+    .select('id,speaker,author,body,metadata,created_at')
+    .single();
+
+  if (error) throw error;
+
+  return mapMessage(data as MessageRow);
+}
+
 export function subscribeToSessionMessages(
   sessionId: string,
   onMessage: (message: StoryMessage) => void,
@@ -178,12 +173,15 @@ export function subscribeToSessionMessages(
     .on(
       'postgres_changes',
       {
-        event: 'INSERT',
+        event: '*',
         schema: 'public',
         table: 'chat_messages',
         filter: `session_id=eq.${sessionId}`,
       },
-      (payload) => onMessage(mapMessage(payload.new as MessageRow)),
+      (payload) => {
+        if (payload.eventType === 'DELETE') return;
+        onMessage(mapMessage(payload.new as MessageRow));
+      },
     )
     .subscribe();
 }
@@ -197,6 +195,11 @@ const confirmActionTypes = new Set<AiConfirmActionType>([
   'start_combat',
   'next_turn',
   'previous_turn',
+  'add_item',
+  'remove_item',
+  'use_resource',
+  'complete_objective',
+  'advance_threat_clock',
 ]);
 
 function normalizeConfirmActions(events: unknown): AiConfirmAction[] {
@@ -210,6 +213,7 @@ function normalizeConfirmActions(events: unknown): AiConfirmAction[] {
     if (!confirmActionTypes.has(type as AiConfirmActionType)) return;
 
     const targetName = typeof item.targetName === 'string' ? item.targetName : typeof item.target === 'string' ? item.target : undefined;
+    const rawItem = item.item && typeof item.item === 'object' ? (item.item as Partial<Item>) : undefined;
     const label =
       typeof item.label === 'string'
         ? item.label
@@ -232,6 +236,12 @@ function normalizeConfirmActions(events: unknown): AiConfirmAction[] {
             : typeof item.encounter_name === 'string'
               ? item.encounter_name
               : undefined,
+        itemId: pickString(item, ['itemId', 'item_id']),
+        itemName: pickString(item, ['itemName', 'item_name']),
+        item: rawItem,
+        resourceId: pickString(item, ['resourceId', 'resource_id']),
+        objectiveId: pickString(item, ['objectiveId', 'objective_id']),
+        clockId: pickString(item, ['clockId', 'clock_id']),
         note: typeof item.note === 'string' ? item.note : undefined,
       });
   });
@@ -666,93 +676,173 @@ function extractDmReply(data: unknown) {
   }
 }
 
-export async function requestAiDmReply(
-  sessionId: string,
-  characterName: string,
-  message: string,
-  recentMessages: StoryMessage[],
-  rulesContext?: AiRulesContext,
-) {
-  const client = requireClient();
-  const sceneContext = useGameStore.getState().getSceneContext();
-  const aiContextMessages = buildAiContext(recentMessages);
-  const dmPresetId = normalizeAiDmPresetId(rulesContext?.dmPresetId ?? rulesContext?.session?.dmPreset);
-  const requestMode = normalizeAiDmRequestMode(rulesContext?.requestMode);
-  const { data, error } = await withTimeout(
-    client.functions.invoke('ai-dm', {
-      body: {
-        sessionId,
-        characterName,
-        message,
-        dmPresetId,
-        requestMode,
-        smartContext: {
-          budget: AI_CONTEXT_CHAR_BUDGET,
-          includedMessages: aiContextMessages.length,
-        },
-        sceneContext: sceneContext ?? null,
-        recentMessages: aiContextMessages.map((item) => ({
-          author: item.author,
-          body: item.body,
-          metadata: item.metadata ?? {},
-          speaker: item.speaker,
-        })),
-        rulesContext: rulesContext
+function summarizeInventory(character: Character | null | undefined) {
+  const inventory = character?.inventory;
+  if (!inventory) {
+    return {
+      equippedItems: [],
+      carriedItems: [],
+      carryWeight: { current: 0, max: 0 },
+      currency: null,
+    };
+  }
+
+  const currentWeight = inventory.items.reduce((sum, item) => sum + item.weight * item.quantity, 0);
+  return {
+    equippedItems: inventory.items
+      .filter((item) => item.equipped)
+      .map((item) => ({
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        quantity: item.quantity,
+        attuned: item.attuned,
+        weapon: item.weapon
           ? {
-              playMode: rulesContext.session?.playMode,
-              gamePhase: rulesContext.gamePhase ?? rulesContext.session?.phase,
-              aiMode: rulesContext.aiMode ?? 'adventure',
-              requestMode,
-              dmPresetId,
-              sessionRecap: rulesContext.sessionRecap ?? rulesContext.session?.sessionRecap ?? '',
-              rules: rulesContext.session?.rules,
-              theme: rulesContext.session?.theme,
-              character: rulesContext.character
-                ? {
-                    name: rulesContext.character.name,
-                    ancestry: rulesContext.character.ancestry,
-                    className: rulesContext.character.className,
-                    level: rulesContext.character.level,
-                    armorClass: rulesContext.character.armorClass,
-                    hitPoints: rulesContext.character.hitPoints,
-                    maxHitPoints: rulesContext.character.maxHitPoints,
-                    abilities: rulesContext.character.abilities,
-                    skills: rulesContext.character.skills,
-                    hexHeroBuild: rulesContext.character.systemData.hexplore ?? null,
-                  }
-                : null,
-              encounter: rulesContext.encounter,
-              latestScene: rulesContext.latestScene ?? null,
-              partySummary: rulesContext.partySummary,
-              recentMetadata: aiContextMessages
-                .map((item) => item.metadata)
-                .filter(Boolean),
+              damageDice: item.weapon.damageDice,
+              damageType: item.weapon.damageType,
+              properties: item.weapon.properties,
             }
-          : undefined,
-      },
-    }),
-    AI_DM_TIMEOUT_MS,
-    'AI DM timed out. Please try again or check the deployed Edge Function.',
-  );
+          : null,
+        armor: item.armor
+          ? {
+              type: item.armor.type,
+              baseAC: item.armor.baseAC,
+            }
+          : null,
+      }))
+      .slice(0, 12),
+    carriedItems: inventory.items
+      .filter((item) => !item.equipped)
+      .map((item) => ({
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        quantity: item.quantity,
+        rarity: item.rarity,
+      }))
+      .slice(0, 24),
+    carryWeight: {
+      current: currentWeight,
+      max: inventory.maxCarryWeight,
+    },
+    currency: inventory.currency,
+  };
+}
 
-  if (error) throw new Error(await getInvokeErrorMessage(error));
+function summarizeCharacter(character: Character | null | undefined) {
+  if (!character) return null;
+  return {
+    id: character.id,
+    name: character.name,
+    ancestry: character.ancestry,
+    className: character.className,
+    level: character.level,
+    armorClass: character.armorClass,
+    hitPoints: character.hitPoints,
+    maxHitPoints: character.maxHitPoints,
+    conditions: character.activeConditions,
+    abilities: character.abilities,
+    skills: character.skills,
+    spellSlots: character.spellSlots,
+    resources: character.systemData.classRuntime?.resources ?? [],
+    hexHeroBuild: character.systemData.hexplore ?? null,
+  };
+}
 
-  const reply = extractDmReply(data);
-  const kind = reply.scene
-    ? rulesContext?.gamePhase === 'setup'
-      ? 'scene_opening'
-      : 'scene_objective'
-    : 'ai_dm_reply';
+function summarizeCombat(encounter: EncounterState | null | undefined) {
+  if (!encounter) return null;
+  return {
+    id: encounter.id,
+    name: encounter.name,
+    round: encounter.round,
+    activeIndex: encounter.activeIndex,
+    activeCombatantId: encounter.combatants[encounter.activeIndex]?.id ?? null,
+    isActive: encounter.isActive,
+    combatants: encounter.combatants.map((combatant) => ({
+      id: combatant.id,
+      name: combatant.name,
+      type: combatant.type,
+      armorClass: combatant.armorClass,
+      hitPoints: combatant.hitPoints,
+      maxHitPoints: combatant.maxHitPoints,
+      tempHitPoints: combatant.tempHitPoints,
+      initiative: combatant.initiative,
+      conditions: combatant.conditions,
+      status: combatant.status,
+    })),
+  };
+}
 
-  return sendSessionMessage(sessionId, 'dm', 'Dungeon Master', reply.body, {
-    kind,
-    aiMode: rulesContext?.aiMode ?? 'adventure',
-    requestMode,
-    dmPresetId,
-    confirmActions: reply.confirmActions,
-    choices: reply.choices,
-    scene: reply.scene,
-    suggestedRoll: reply.suggestedRoll,
-    partyMode: reply.partyMode === true,
-  });
+function buildStructuredAiContext(
+  fallbackCharacter: Character | null | undefined,
+  fallbackEncounter: EncounterState | null | undefined,
+  aiContextMessages: StoryMessage[],
+) {
+  const store = useGameStore.getState();
+  const character = store.activeCharacter ?? fallbackCharacter ?? null;
+  const scene = store.sceneState;
+  const combat = store.combatState ?? fallbackEncounter ?? null;
+  const location = scene?.location.toLowerCase() ?? '';
+
+  const relationships = store.relationshipState.records
+    .filter((record) => !location || record.npcName.toLowerCase().includes(location) || record.npcRole?.toLowerCase().includes(location))
+    .slice(0, 12)
+    .map((record) => ({
+      npcId: record.npcId,
+      npcName: record.npcName,
+      npcRole: record.npcRole,
+      affinity: record.affinity,
+      tier: record.tier,
+      latestHistory: record.history.slice(-3),
+    }));
+
+  return {
+    scene: scene
+      ? {
+          id: scene.id,
+          mode: scene.mode,
+          location: scene.location,
+          description: scene.description,
+          danger: scene.flags.dangerLevel,
+          realityStability: scene.flags.realityStability,
+          flags: scene.flags,
+          objectives: scene.objectives,
+          threatClocks: scene.threatClocks,
+          turnNumber: scene.turnNumber,
+        }
+      : null,
+    character: summarizeCharacter(character),
+    inventory: summarizeInventory(character),
+    combat: summarizeCombat(combat),
+    companions: store.companionState.companions
+      .filter((companion) => companion.isActive)
+      .map((companion) => ({
+        id: companion.id,
+        name: companion.name,
+        type: companion.type,
+        behavior: companion.behavior,
+        controlMode: companion.controlMode,
+        loyalty: companion.loyalty,
+        hp: companion.characterSnapshot.hitPoints,
+        maxHp: companion.characterSnapshot.maxHitPoints,
+        armorClass: companion.characterSnapshot.armorClass,
+        conditions: companion.characterSnapshot.conditions,
+        resources: companion.resources,
+      })),
+    relationships,
+    recentJournalEntries: store.journalState.entries
+      .slice()
+      .sort((left, right) => right.createdAt - left.createdAt)
+      .slice(0, 5)
+      .map((entry) => ({
+        id: entry.id,
+        type: entry.type,
+        title: entry.title,
+        content: entry.content,
+        tags: entry.tags,
+        createdAt: entry.createdAt,
+      })),
+    recentMetadata: aiContextMessages.map((item) => item.metadata).filter(Boolean),
+  };
 }

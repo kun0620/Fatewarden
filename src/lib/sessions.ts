@@ -15,7 +15,6 @@ import type {
   SessionTheme,
 } from '../types';
 import type { RoomSetupDraft } from './roomSetup';
-import { normalizeAiDmPresetId } from './aiDm';
 import { normalizeEncounterState } from './combat';
 import { normalizeGamePhase } from './gamePhases';
 import { normalizePlayMode } from './playModes';
@@ -65,6 +64,10 @@ const combatSessionSelect =
   'id,title,join_code,created_at,updated_at,status,created_by,play_mode,game_phase,combat_state,rules_version,enabled_modules,house_rules';
 const legacySessionSelect = 'id,title,join_code,created_at,created_by,play_mode,game_phase,rules_version,enabled_modules,house_rules';
 const baseSessionSelect = 'id,title,join_code,created_at,created_by,rules_version,enabled_modules,house_rules';
+
+function normalizeAiDmPresetId(value: unknown): AiDmPresetId {
+  return value === 'grim' || value === 'heroic' || value === 'mystery' ? value : 'balanced';
+}
 
 type SessionMemberRow = {
   id: string;

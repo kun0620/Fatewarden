@@ -3,7 +3,7 @@ import { performAttackRoll } from '../dice/rollEngine';
 import { rollDice } from '../dice/dice';
 import { rehydrateParticipant } from '../inventory/inventoryEngine';
 import type { Character } from '../../types';
-import type { ApplyDamageEvent, GameEvent } from '../events/types';
+import type { ApplyDamageEvent, ConcentrationSaveCheckEvent, GameEvent } from '../events/types';
 import type { ActionResult, CombatAction, CombatState } from './combatTypes';
 
 function findParticipant(combat: CombatState, participantId: string) {
@@ -49,6 +49,26 @@ function buildApplyDamageEvent(
     amount: Math.max(0, Math.trunc(amount)),
     damageType,
     isCritical,
+  };
+}
+
+function buildConcentrationSaveCheckEvent(
+  combat: CombatState,
+  action: CombatAction,
+  characterId: string,
+  damage: number,
+): ConcentrationSaveCheckEvent {
+  return {
+    id: crypto.randomUUID(),
+    type: 'CONCENTRATION_SAVE_CHECK',
+    sessionId: combat.roomId ?? combat.id,
+    actorId: action.actorId,
+    targetId: characterId,
+    createdAt: nowIso(),
+    source: 'system',
+    characterId,
+    dc: Math.max(10, Math.floor(damage / 2)),
+    damage,
   };
 }
 
@@ -177,7 +197,12 @@ export function performAttackAction(
     resolvedDamage.damageType,
   );
 
-  return { result, events: [damageEvent] };
+  const concentrationEvent =
+    target.type === 'player' && linkedTargetCharacter?.systemData.activeConcentration && finalDamage > 0 && target.characterId
+      ? buildConcentrationSaveCheckEvent(combat, action, target.characterId, finalDamage)
+      : null;
+
+  return { result, events: concentrationEvent ? [damageEvent, concentrationEvent] : [damageEvent] };
 }
 
 export function performDashAction(combat: CombatState, action: CombatAction): CombatActionResolution {

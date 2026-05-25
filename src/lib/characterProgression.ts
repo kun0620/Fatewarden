@@ -115,7 +115,7 @@ export function getLevelUpChoices(character: Character): LevelUpChoice[] {
   return choices;
 }
 
-function applyAbilitySelection(abilities: Character['abilities'], selected: string | undefined) {
+export function applyAbilitySelection(abilities: Character['abilities'], selected: string | undefined) {
   if (!selected) return abilities;
   const trimmed = selected.trim().toLowerCase();
   if (trimmed.includes('feat')) return abilities;

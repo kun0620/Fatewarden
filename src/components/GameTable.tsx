@@ -4,10 +4,12 @@ import { Icon } from './ui/Icons';
 import { Field, Seg, Toggle } from './ui/Primitives';
 import { useGameStore } from '../store/useGameStore';
 import { InventoryPanel } from './InventoryPanel';
+import { getSpell, SPELLS } from '../data/spells';
 import { rollDice as rollFormula } from '../engine/dice/dice';
-import { performAttackRoll } from '../engine/dice/rollEngine';
+import { performAbilityCheck, performAttackRoll, performSavingThrow, performSkillCheck } from '../engine/dice/rollEngine';
 import type { GameEvent } from '../engine/events/types';
-import type { AiConfirmAction, Character, EncounterState, GameSession, SessionMember, StoryMessage } from '../types';
+import { abilityLabels, abilityModifier, initiativeModifier, savingThrowModifier, skillAbilityMap, skillModifier } from '../lib/rules';
+import type { AbilityKey, AiChoice, AiConfirmAction, AiDmRequestMode, AiSuggestedRoll, Character, EncounterState, GameSession, RollMode, SessionMember, StoryMessage } from '../types';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -50,8 +52,10 @@ export interface GameTableProps {
   onDiceRoll?: (result: DiceResult) => void;
   onUpdateCharacter?: (character: Character) => void | Promise<void>;
   onCombatChange?: (change: PendingChange) => void;
-  onAskAiAction?: (text: string, mode: ActionMode) => Promise<void>;
+  onAskAiAction?: (text: string, mode: ActionMode, requestMode?: AiDmRequestMode) => Promise<void>;
   onConfirmAiAction?: (action: AiConfirmAction, message: StoryMessage) => Promise<void> | void;
+  onSpellCast?: (spellId: string, slotLevel: number) => void;
+  aiIsProcessing?: boolean;
   combatMode?: boolean;
   onToggleCombat?: (active: boolean) => void;
   /** Slot for CombatModeView (STEP 5 will provide this) */
@@ -210,39 +214,160 @@ type AiSuggestion = {
   action: AiConfirmAction;
 };
 
-function getMessageChoices(message: StoryMessage): string[] {
+function normalizeMessageChoice(choice: unknown, index: number): AiChoice | null {
+  if (typeof choice === 'string') {
+    return {
+      number: index + 1,
+      label: choice,
+      prompt: choice,
+      intent: 'custom',
+    };
+  }
+
+  if (!choice || typeof choice !== 'object') return null;
+  const record = choice as Record<string, unknown>;
+  const label = typeof record.label === 'string' ? record.label : '';
+  const prompt = typeof record.prompt === 'string' ? record.prompt : label;
+  if (!label && !prompt) return null;
+
+  return {
+    number: typeof record.number === 'number' ? record.number : index + 1,
+    label: label || prompt,
+    prompt,
+    intent: typeof record.intent === 'string' ? (record.intent as AiChoice['intent']) : 'custom',
+    suggestedRoll: record.suggestedRoll as AiChoice['suggestedRoll'],
+  };
+}
+
+function getMessageChoices(message: StoryMessage): AiChoice[] {
   const choices = message.metadata?.choices;
   if (Array.isArray(choices)) {
     return choices
-      .map((choice) => {
-        if (typeof choice === 'string') return choice;
-        if (choice && typeof choice === 'object') {
-          const record = choice as Record<string, unknown>;
-          return typeof record.prompt === 'string'
-            ? record.prompt
-            : typeof record.label === 'string'
-            ? record.label
-            : '';
-        }
-        return '';
-      })
-      .filter(Boolean)
+      .map((choice, index) => normalizeMessageChoice(choice, index))
+      .filter((choice): choice is AiChoice => Boolean(choice))
       .slice(0, 4);
   }
 
   const scene = message.metadata?.scene;
   if (scene && typeof scene === 'object') {
     const nextActions = (scene as Record<string, unknown>).nextActions;
-    if (Array.isArray(nextActions)) return nextActions.filter((item): item is string => typeof item === 'string').slice(0, 4);
+    if (Array.isArray(nextActions)) {
+      return nextActions
+        .filter((item): item is string => typeof item === 'string')
+        .slice(0, 4)
+        .map((item, index) => ({
+          number: index + 1,
+          label: item,
+          prompt: item,
+          intent: 'custom',
+        }));
+    }
   }
 
   return [];
 }
 
+function getMessageSuggestedRoll(message: StoryMessage): AiSuggestedRoll | null {
+  const suggestedRoll = message.metadata?.suggestedRoll;
+  if (!suggestedRoll || typeof suggestedRoll !== 'object') return null;
+  return suggestedRoll as AiSuggestedRoll;
+}
+
+function normalizeSuggestedSkill(skill?: string) {
+  if (!skill) return undefined;
+  return Object.keys(skillAbilityMap).find((knownSkill) => knownSkill.toLowerCase() === skill.toLowerCase()) ?? skill;
+}
+
+function resolveSuggestedAbility(suggestedRoll: AiSuggestedRoll): AbilityKey {
+  const skill = normalizeSuggestedSkill(suggestedRoll.skill);
+  if (suggestedRoll.ability) return suggestedRoll.ability;
+  if (skill && skillAbilityMap[skill]) return skillAbilityMap[skill];
+  return 'wis';
+}
+
+function resolveSuggestedModifier(character: Character, suggestedRoll: AiSuggestedRoll) {
+  const skill = normalizeSuggestedSkill(suggestedRoll.skill);
+  const ability = resolveSuggestedAbility(suggestedRoll);
+  if (suggestedRoll.type === 'initiative') return initiativeModifier(character);
+  if (suggestedRoll.type === 'save') return savingThrowModifier(character, ability);
+  if (skill) return skillModifier(character, skill);
+  return abilityModifier(character.abilities[ability]);
+}
+
+function resolveSuggestedRollMode(suggestedRoll: AiSuggestedRoll): RollMode {
+  return suggestedRoll.mode === 'advantage' || suggestedRoll.mode === 'disadvantage' ? suggestedRoll.mode : 'normal';
+}
+
+function formatSuggestedRollTitle(suggestedRoll: AiSuggestedRoll) {
+  const skill = normalizeSuggestedSkill(suggestedRoll.skill);
+  const ability = resolveSuggestedAbility(suggestedRoll);
+  const base = suggestedRoll.label
+    ?? (skill
+      ? `${skill} Check`
+      : suggestedRoll.type === 'save'
+      ? `${abilityLabels[ability]} Save`
+      : suggestedRoll.type === 'initiative'
+      ? 'Initiative'
+      : suggestedRoll.type === 'attack'
+      ? 'Attack Roll'
+      : `${abilityLabels[ability]} Check`);
+  return suggestedRoll.dc ? `${base} · DC ${suggestedRoll.dc}` : base;
+}
+
+function rollSuggestedCheck(character: Character, suggestedRoll: AiSuggestedRoll): DiceResult {
+  const modifier = resolveSuggestedModifier(character, suggestedRoll);
+  const mode = resolveSuggestedRollMode(suggestedRoll);
+  const rollContext = {
+    abilityModifier: modifier,
+    proficiencyBonus: 0,
+    isProficient: false,
+    advantageState: mode,
+  };
+  const result = suggestedRoll.type === 'save'
+    ? performSavingThrow(rollContext)
+    : suggestedRoll.type === 'attack'
+    ? performAttackRoll(rollContext)
+    : suggestedRoll.type === 'ability' || suggestedRoll.type === 'initiative' || !suggestedRoll.skill
+    ? performAbilityCheck(rollContext)
+    : performSkillCheck(rollContext);
+  const total = result.outcome.total;
+  return {
+    die: mode === 'normal' ? '1d20' : `1d20 ${mode}`,
+    label: formatSuggestedRollTitle(suggestedRoll),
+    value: result.keptRoll ?? result.outcome.natural ?? total,
+    bonus: signed(result.modifierTotal),
+    target: suggestedRoll.dc,
+    total,
+    rolls: [...result.dice.rolls],
+    kind: result.outcome.isCriticalSuccess
+      ? 'crit'
+      : result.outcome.isCriticalFailure
+      ? 'fumble'
+      : suggestedRoll.dc && total < suggestedRoll.dc
+      ? 'failure'
+      : 'success',
+  };
+}
+
+function formatDiceResultPrompt(result: DiceResult, suggestedRoll: AiSuggestedRoll) {
+  const outcome = suggestedRoll.dc
+    ? result.total && result.total >= suggestedRoll.dc
+      ? 'success'
+      : 'failure'
+    : 'rolled';
+  return [
+    `Dice result: ${result.label ?? 'Suggested roll'}`,
+    `Roll: ${result.die} ${result.bonus} = ${result.total ?? result.value}`,
+    suggestedRoll.dc ? `DC: ${suggestedRoll.dc} (${outcome})` : undefined,
+    suggestedRoll.reason ? `Reason: ${suggestedRoll.reason}` : undefined,
+    'Narrate the outcome and propose any canon state changes as confirmable events.',
+  ].filter(Boolean).join('\n');
+}
+
 function getSuggestedActions(messages: StoryMessage[]): string[] {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const actions = getMessageChoices(messages[index]);
-    if (actions.length) return actions;
+    if (actions.length) return actions.map((action) => action.prompt);
   }
   return [];
 }
@@ -252,10 +377,32 @@ function getLatestAiSuggestion(messages: StoryMessage[], dismissedIds: Set<strin
     const message = messages[index];
     const actions = message.metadata?.confirmActions;
     if (!Array.isArray(actions)) continue;
-    const action = (actions as AiConfirmAction[]).find((item) => !dismissedIds.has(`${message.id}:${item.id}`));
+    const confirmedIds = new Set(
+      Array.isArray(message.metadata?.confirmedActions)
+        ? (message.metadata.confirmedActions as unknown[]).filter((v): v is string => typeof v === 'string')
+        : [],
+    );
+    const action = (actions as AiConfirmAction[]).find((item) => {
+      const key = `${message.id}:${item.id}`;
+      return !dismissedIds.has(key) && !confirmedIds.has(item.id);
+    });
     if (action) return { message, action };
   }
   return null;
+}
+
+function getMessageConfirmActions(message: StoryMessage, dismissedIds: Set<string>) {
+  const actions = message.metadata?.confirmActions;
+  if (!Array.isArray(actions)) return [];
+  const confirmedIds = new Set(
+    Array.isArray(message.metadata?.confirmedActions)
+      ? (message.metadata.confirmedActions as unknown[]).filter((value): value is string => typeof value === 'string')
+      : [],
+  );
+  return (actions as AiConfirmAction[]).filter((action) => {
+    const key = `${message.id}:${action.id}`;
+    return !dismissedIds.has(key) && !confirmedIds.has(action.id);
+  });
 }
 
 function getStoryKind(message: StoryMessage) {
@@ -337,6 +484,8 @@ export function GameTable({
   onCombatChange,
   onAskAiAction,
   onConfirmAiAction,
+  onSpellCast,
+  aiIsProcessing = false,
   combatMode = false,
   onToggleCombat,
   combatView,
@@ -357,12 +506,30 @@ export function GameTable({
   const [aiStrict, setAiStrict] = useState('Standard');
   const [showSceneModal, setShowSceneModal] = useState(false);
   const [dismissedAiSuggestionIds, setDismissedAiSuggestionIds] = useState<Set<string>>(() => new Set());
+  const [busyConfirmActionId, setBusyConfirmActionId] = useState<string | null>(null);
 
   const storyRef = useRef<HTMLDivElement>(null);
 
   const handleChange = (change: PendingChange) => {
     onCombatChange?.(change);
     setPendingChange(change);
+  };
+
+  const handleEndConcentration = () => {
+    if (!tableCharacter) return;
+
+    setActiveCharacter(tableCharacter);
+    const result = dispatch({
+      ...eventMeta(tableCharacter.id),
+      type: 'CONCENTRATION_END',
+      characterId: tableCharacter.id,
+      reason: 'manual',
+    });
+
+    if (result.character) {
+      setActiveCharacter(result.character);
+      void onUpdateCharacter?.(result.character);
+    }
   };
 
   const recordRoll = (result: DiceResult) => {
@@ -427,6 +594,49 @@ export function GameTable({
       await onSendMessage?.(body, mode);
     }
     setActionDraft('');
+  };
+  const handleChoiceSelect = async (choice: AiChoice) => {
+    const prompt = choice.prompt || choice.label;
+    if (!prompt.trim()) return;
+    setActionDraft(prompt);
+    if (onAskAiAction) {
+      await onAskAiAction(prompt, 'act');
+    } else {
+      await onSendMessage?.(prompt, 'act');
+    }
+    setActionDraft('');
+  };
+  const handleSuggestedRoll = async (message: StoryMessage, suggestedRoll: AiSuggestedRoll) => {
+    if (!tableCharacter) return;
+    setRolling(true);
+    window.setTimeout(() => {
+      void (async () => {
+        try {
+          const result = rollSuggestedCheck(tableCharacter, suggestedRoll);
+          recordRoll(result);
+          if (onAskAiAction) {
+            await onAskAiAction(`${formatDiceResultPrompt(result, suggestedRoll)}\nSource message: ${message.id ?? 'latest AI roll request'}`, 'act', 'dice_result');
+          } else {
+            await onSendMessage?.(`${formatDiceResultPrompt(result, suggestedRoll)}\nSource message: ${message.id ?? 'latest AI roll request'}`, 'act');
+          }
+        } finally {
+          setRolling(false);
+        }
+      })();
+    }, 450);
+  };
+  const handleConfirmAiSuggestion = async (action: AiConfirmAction, message: StoryMessage) => {
+    const suggestionId = `${message.id}:${action.id}`;
+    setBusyConfirmActionId(suggestionId);
+    try {
+      await onConfirmAiAction?.(action, message);
+      setDismissedAiSuggestionIds((current) => new Set(current).add(suggestionId));
+    } finally {
+      setBusyConfirmActionId(null);
+    }
+  };
+  const handleDismissAiSuggestion = (action: AiConfirmAction, message: StoryMessage) => {
+    setDismissedAiSuggestionIds((current) => new Set(current).add(`${message.id}:${action.id}`));
   };
   const handleSpendResource = async (resourceId: string, amount = 1) => {
     if (!tableCharacter) return;
@@ -497,7 +707,14 @@ export function GameTable({
 
           <div className="fw-scroll" style={{ flex: 1, padding: 14 }}>
             {leftTab === 'party'  && <GtPartyPanel party={partyMembers} hasSessionMembers={Boolean(sessionMembers?.length)} />}
-            {leftTab === 'char'   && <GtCharPanel character={tableCharacter} onSpendResource={handleSpendResource} />}
+            {leftTab === 'char'   && (
+              <GtCharPanel
+                character={tableCharacter}
+                onEndConcentration={handleEndConcentration}
+                onSpendResource={handleSpendResource}
+                onSpellCast={onSpellCast}
+              />
+            )}
             {leftTab === 'bag'    && (tableCharacter
               ? <InventoryPanel character={tableCharacter} onUpdateCharacter={onUpdateCharacter ?? ((nextCharacter) => setActiveCharacter(nextCharacter))} />
               : <GtInventoryStub onUse={handleChange} />
@@ -564,7 +781,18 @@ export function GameTable({
                 ) : visibleStoryMessages.length === 0 ? (
                   <GtEmptyStoryTab label={getStoryTabEmptyText(storyTab)} />
                 ) : visibleStoryMessages.map((msg, i) => (
-                  <GtStoryEntry key={msg.id ?? i} message={msg} />
+                  <GtStoryEntry
+                    key={msg.id ?? i}
+                    message={msg}
+                    character={tableCharacter}
+                    rolling={rolling}
+                    onChoiceSelect={handleChoiceSelect}
+                    onSuggestedRoll={handleSuggestedRoll}
+                    dismissedSuggestionIds={dismissedAiSuggestionIds}
+                    busyConfirmActionId={busyConfirmActionId}
+                    onConfirmAction={handleConfirmAiSuggestion}
+                    onDismissAction={handleDismissAiSuggestion}
+                  />
                 ))}
                 {diceResult && <GtRollRequest dice={diceResult} onRoll={() => rollDie(20)} rolling={rolling} />}
               </div>
@@ -573,17 +801,18 @@ export function GameTable({
                 value={actionDraft}
                 setValue={setActionDraft}
                 suggestions={suggestedActions}
-                onCommitSuggestion={async (suggestion) => {
+                onCommitSuggestion={async (suggestion, mode) => {
                   setActionDraft(suggestion);
                   if (onAskAiAction) {
-                    await onAskAiAction(suggestion, 'act');
+                    await onAskAiAction(suggestion, mode);
                   } else {
-                    await onSendMessage?.(suggestion, 'act');
+                    await onSendMessage?.(suggestion, mode);
                   }
                   setActionDraft('');
                 }}
                 onSend={handleSend}
                 onRollDice={() => rollDie(20)}
+                busy={aiIsProcessing}
               />
             </>
           )}
@@ -632,10 +861,7 @@ export function GameTable({
               <GtAIDMPanel
                 latestSuggestion={latestAiSuggestion}
                 on={aiOn}
-                onAcceptSuggestion={async (action, message) => {
-                  await onConfirmAiAction?.(action, message);
-                  setDismissedAiSuggestionIds((current) => new Set(current).add(`${message.id}:${action.id}`));
-                }}
+                onAcceptSuggestion={handleConfirmAiSuggestion}
                 onAskAiAction={onAskAiAction}
                 onDismissSuggestion={(id) => setDismissedAiSuggestionIds((current) => new Set(current).add(id))}
                 setOn={setAiOn}
@@ -813,7 +1039,17 @@ function GtPartyPanel({ party, hasSessionMembers }: { party: PartyMember[]; hasS
 
 // ─── Left: Character Panel ────────────────────────────────────────────────────
 
-function GtCharPanel({ character, onSpendResource }: { character: Character | null; onSpendResource: (resourceId: string, amount?: number) => Promise<void> | void }) {
+function GtCharPanel({
+  character,
+  onEndConcentration,
+  onSpendResource,
+  onSpellCast,
+}: {
+  character: Character | null;
+  onEndConcentration: () => void;
+  onSpendResource: (resourceId: string, amount?: number) => Promise<void> | void;
+  onSpellCast?: (spellId: string, slotLevel: number) => void;
+}) {
   if (!character) {
     return (
       <div style={{ color: 'var(--text-3)', fontSize: 12, textAlign: 'center', padding: 20 }}>
@@ -834,6 +1070,7 @@ function GtCharPanel({ character, onSpendResource }: { character: Character | nu
     .filter((slot) => slot.max > 0)
     .sort((a, b) => a.level - b.level);
   const resources = character.systemData.classRuntime?.resources ?? [];
+  const activeConcentration = character.systemData.activeConcentration;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -860,8 +1097,26 @@ function GtCharPanel({ character, onSpendResource }: { character: Character | nu
         ))}
       </div>
 
+      {activeConcentration && (
+        <div className="fw-field">
+          <span className="fw-caption">CONCENTRATING</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className="fw-pill blood">
+              {getSpell(activeConcentration.spellId)?.name ?? activeConcentration.spellId}
+            </span>
+            <button
+              className="fw-btn fw-btn--ghost fw-btn--sm"
+              onClick={onEndConcentration}
+              type="button"
+            >
+              End
+            </button>
+          </div>
+        </div>
+      )}
+
       <GtResourceList resources={resources} onSpend={onSpendResource} />
-      <GtSpellList spells={spells} slots={spellSlots} />
+      <GtSpellList spells={spells} slots={spellSlots} onSpellCast={onSpellCast} />
     </div>
   );
 }
@@ -914,7 +1169,26 @@ function GtResourceList({
   );
 }
 
-function GtSpellList({ spells, slots }: { spells: string[]; slots: Array<{ level: number; used: number; max: number }> }) {
+function normalizeSpellId(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+function resolveSpellData(value: string) {
+  const normalized = normalizeSpellId(value);
+  return getSpell(value) ?? getSpell(normalized) ?? SPELLS.find((spell) => spell.name.toLowerCase() === value.trim().toLowerCase());
+}
+
+function GtSpellList({
+  spells,
+  slots,
+  onSpellCast,
+}: {
+  spells: string[];
+  slots: Array<{ level: number; used: number; max: number }>;
+  onSpellCast?: (spellId: string, slotLevel: number) => void;
+}) {
+  const [selectedSlots, setSelectedSlots] = useState<Record<string, number>>({});
+
   return (
     <div style={{ background: 'var(--surface)', border: '1px solid var(--border-soft)', borderRadius: 8, padding: 10 }}>
       <div className="fw-eyebrow" style={{ marginBottom: 8 }}>Spells</div>
@@ -931,15 +1205,46 @@ function GtSpellList({ spells, slots }: { spells: string[]; slots: Array<{ level
         <div style={{ color: 'var(--text-3)', fontSize: 12 }}>No spells known</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {spells.slice(0, 6).map((spell) => (
-            <div key={spell} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', background: 'var(--bg-deep)', border: '1px solid var(--border-soft)', borderRadius: 6 }}>
-              <span style={{ color: 'var(--gold)', display: 'grid', placeItems: 'center', width: 18 }}>{Icon('sparkles', { size: 12 })}</span>
-              <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: 'var(--text)' }}>{spell}</span>
-              <button className="fw-btn fw-btn-ghost fw-btn-sm" disabled title="No existing GameEvent uses spell slots yet." type="button">
-                Cast
-              </button>
-            </div>
-          ))}
+          {spells.slice(0, 6).map((spell) => {
+            const spellData = resolveSpellData(spell);
+            const spellId = spellData?.id ?? normalizeSpellId(spell);
+            const isCantrip = spellData?.level === 0;
+            const availableSlots = spellData
+              ? slots.filter((slot) => slot.level >= spellData.level && slot.used < slot.max).map((slot) => slot.level)
+              : [];
+            const selectedSlot = availableSlots.includes(selectedSlots[spellId])
+              ? selectedSlots[spellId]
+              : availableSlots[0] ?? spellData?.level ?? 1;
+            const disabled = !spellData || (!isCantrip && availableSlots.length === 0);
+
+            return (
+              <div key={spell} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', background: 'var(--bg-deep)', border: '1px solid var(--border-soft)', borderRadius: 6 }}>
+                <span style={{ color: 'var(--gold)', display: 'grid', placeItems: 'center', width: 18 }}>{Icon('sparkles', { size: 12 })}</span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: 'var(--text)' }}>{spellData?.name ?? spell}</span>
+                {!isCantrip && spellData ? (
+                  <select
+                    className="fw-select"
+                    value={selectedSlot}
+                    onChange={(event) => setSelectedSlots((current) => ({ ...current, [spellId]: Number(event.target.value) }))}
+                    style={{ width: 82, height: 28, fontSize: 11 }}
+                  >
+                    {availableSlots.map((level) => (
+                      <option key={level} value={level}>Lv.{level}</option>
+                    ))}
+                  </select>
+                ) : null}
+                <button
+                  className="fw-btn fw-btn-ghost fw-btn-sm"
+                  disabled={disabled}
+                  onClick={() => onSpellCast?.(spellId, isCantrip ? 0 : selectedSlot)}
+                  title={!spellData ? 'Spell data not found.' : disabled ? 'No slots remaining' : undefined}
+                  type="button"
+                >
+                  {isCantrip ? 'Use' : 'Cast'}
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -1096,7 +1401,27 @@ function GtSceneHeader({ sceneState }: { sceneState: { location?: string; descri
 
 // ─── Center: Story Entry ──────────────────────────────────────────────────────
 
-function GtStoryEntry({ message }: { message: StoryMessage }) {
+function GtStoryEntry({
+  message,
+  character,
+  rolling,
+  dismissedSuggestionIds,
+  busyConfirmActionId,
+  onChoiceSelect,
+  onSuggestedRoll,
+  onConfirmAction,
+  onDismissAction,
+}: {
+  message: StoryMessage;
+  character: Character | null;
+  rolling: boolean;
+  dismissedSuggestionIds: Set<string>;
+  busyConfirmActionId: string | null;
+  onChoiceSelect?: (choice: AiChoice, message: StoryMessage) => void | Promise<void>;
+  onSuggestedRoll?: (message: StoryMessage, suggestedRoll: AiSuggestedRoll) => void | Promise<void>;
+  onConfirmAction?: (action: AiConfirmAction, message: StoryMessage) => void | Promise<void>;
+  onDismissAction?: (action: AiConfirmAction, message: StoryMessage) => void;
+}) {
   const kind = getStoryKind(message);
   const mode = typeof message.metadata?.mode === 'string' ? message.metadata.mode : '';
   const time = formatStoryTime(message.createdAt);
@@ -1104,6 +1429,8 @@ function GtStoryEntry({ message }: { message: StoryMessage }) {
   const isSystem = message.speaker === 'system' && !isDm;
   const author = message.author || (isDm ? 'Dungeon Master' : isSystem ? 'System' : 'Player');
   const choices = getMessageChoices(message);
+  const suggestedRoll = getMessageSuggestedRoll(message);
+  const confirmActions = getMessageConfirmActions(message, dismissedSuggestionIds);
 
   if (isDm) {
     return (
@@ -1115,10 +1442,36 @@ function GtStoryEntry({ message }: { message: StoryMessage }) {
             {time && <span style={{ fontSize: 10, color: 'var(--text-4)', fontFamily: 'var(--f-mono)' }}>{time}</span>}
           </div>
           <p className="fw-serif" style={{ fontSize: 16, color: 'var(--text)', lineHeight: 1.6 }}>{message.body}</p>
+          {suggestedRoll && (
+            <GtSuggestedRollBanner
+              character={character}
+              rolling={rolling}
+              suggestedRoll={suggestedRoll}
+              onRoll={() => void onSuggestedRoll?.(message, suggestedRoll)}
+            />
+          )}
+          {confirmActions.length > 0 && (
+            <GtMessageConfirmActions
+              actions={confirmActions}
+              busyConfirmActionId={busyConfirmActionId}
+              message={message}
+              onConfirmAction={onConfirmAction}
+              onDismissAction={onDismissAction}
+            />
+          )}
           {choices.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-              {choices.map((choice) => (
-                <span className="fw-pill" key={choice}>{choice}</span>
+            <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+              {choices.map((choice, index) => (
+                <button
+                  className="fw-btn fw-btn-ghost fw-btn-sm"
+                  key={`${message.id}:${choice.number}:${choice.label}`}
+                  onClick={() => void onChoiceSelect?.(choice, message)}
+                  style={{ justifyContent: 'flex-start', textAlign: 'left', whiteSpace: 'normal' }}
+                  type="button"
+                >
+                  <span className="fw-pill">{String.fromCharCode(65 + index)}</span>
+                  {choice.label}
+                </button>
               ))}
             </div>
           )}
@@ -1155,6 +1508,93 @@ function GtEmptyStoryTab({ label }: { label: string }) {
 
 // ─── Center: Roll Request ─────────────────────────────────────────────────────
 
+function GtSuggestedRollBanner({
+  character,
+  rolling,
+  suggestedRoll,
+  onRoll,
+}: {
+  character: Character | null;
+  rolling: boolean;
+  suggestedRoll: AiSuggestedRoll;
+  onRoll: () => void;
+}) {
+  const modifier = character ? resolveSuggestedModifier(character, suggestedRoll) : 0;
+  return (
+    <div className="fw-fade" style={{ padding: 14, marginTop: 10, marginBottom: 10, background: 'linear-gradient(180deg, rgba(214,168,79,0.07), rgba(214,168,79,0.01))', border: '1px solid rgba(214,168,79,0.4)', borderRadius: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ color: 'var(--gold)' }}>{Icon('dice', { size: 16 })}</span>
+        <div style={{ flex: 1 }}>
+          <div className="fw-eyebrow" style={{ color: 'var(--gold-bright)' }}>DM REQUESTS</div>
+          <div className="fw-h3" style={{ fontSize: 13 }}>{formatSuggestedRollTitle(suggestedRoll)}</div>
+          {suggestedRoll.reason && (
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{suggestedRoll.reason}</div>
+          )}
+        </div>
+        <button className="fw-btn fw-btn-gold" disabled={!character || rolling} onClick={onRoll} title={!character ? 'Choose a character before rolling.' : undefined} type="button">
+          <svg className={'fw-d20 ' + (rolling ? 'rolling' : '')} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 3l8.5 5v8L12 21 3.5 16V8z"/><path d="M12 3v18M3.5 8L20.5 16M20.5 8L3.5 16"/>
+          </svg>
+          Roll d20{signed(modifier)}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function GtMessageConfirmActions({
+  actions,
+  busyConfirmActionId,
+  message,
+  onConfirmAction,
+  onDismissAction,
+}: {
+  actions: AiConfirmAction[];
+  busyConfirmActionId: string | null;
+  message: StoryMessage;
+  onConfirmAction?: (action: AiConfirmAction, message: StoryMessage) => void | Promise<void>;
+  onDismissAction?: (action: AiConfirmAction, message: StoryMessage) => void;
+}) {
+  return (
+    <div style={{ display: 'grid', gap: 8, marginTop: 10, marginBottom: 10 }}>
+      {actions.map((action) => {
+        const suggestionId = `${message.id}:${action.id}`;
+        const busy = busyConfirmActionId === suggestionId;
+        return (
+          <div key={suggestionId} style={{ padding: 12, background: 'linear-gradient(180deg, rgba(124,58,237,0.10), rgba(124,58,237,0.02))', border: '1px solid rgba(124,58,237,0.35)', borderRadius: 8 }}>
+            <div className="fw-eyebrow" style={{ marginBottom: 6 }}>AI Warden Suggests</div>
+            <div style={{ fontSize: 12.5, color: 'var(--text)', lineHeight: 1.4 }}>{action.label}</div>
+            {action.note && (
+              <div className="fw-serif" style={{ marginTop: 4, fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic' }}>{action.note}</div>
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 10 }}>
+              <button
+                className="fw-btn fw-btn-gold fw-btn-sm"
+                disabled={busy || !onConfirmAction}
+                onClick={() => void onConfirmAction?.(action, message)}
+                title={!onConfirmAction ? 'AI action handler is not available.' : undefined}
+                type="button"
+                style={{ justifyContent: 'center' }}
+              >
+                {Icon('check', { size: 11 })} {busy ? 'Applying...' : 'Accept as canon'}
+              </button>
+              <button
+                className="fw-btn fw-btn-ghost fw-btn-sm"
+                disabled={busy}
+                onClick={() => onDismissAction?.(action, message)}
+                type="button"
+                style={{ justifyContent: 'center' }}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function GtRollRequest({ dice, onRoll, rolling }: { dice: DiceResult; onRoll: () => void; rolling: boolean }) {
   return (
     <div className="fw-fade" style={{ padding: 14, marginBottom: 18, background: 'linear-gradient(180deg, rgba(214,168,79,0.07), rgba(214,168,79,0.01))', border: '1px solid rgba(214,168,79,0.4)', borderRadius: 8 }}>
@@ -1187,12 +1627,13 @@ interface ActionInputProps {
   value: string;
   setValue: (v: string) => void;
   suggestions: string[];
-  onCommitSuggestion: (suggestion: string) => Promise<void> | void;
+  onCommitSuggestion: (suggestion: string, mode: ActionMode) => Promise<void> | void;
   onSend: (mode: ActionMode) => void;
   onRollDice: () => void;
+  busy?: boolean;
 }
 
-function GtActionInput({ value, setValue, suggestions, onCommitSuggestion, onSend, onRollDice }: ActionInputProps) {
+function GtActionInput({ value, setValue, suggestions, onCommitSuggestion, onSend, onRollDice, busy = false }: ActionInputProps) {
   const [mode, setMode] = useState<ActionMode>('speak');
 
   const placeholder = mode === 'speak'
@@ -1211,7 +1652,7 @@ function GtActionInput({ value, setValue, suggestions, onCommitSuggestion, onSen
           </span>
           {suggestions.map((s, i) => (
             <button key={i} className="fw-btn fw-btn-ghost fw-btn-sm" style={{ fontSize: 11.5, padding: '4px 10px', borderColor: 'rgba(124,58,237,0.3)', color: 'var(--text-2)' }}
-              onClick={() => void onCommitSuggestion(s)}
+              onClick={() => void onCommitSuggestion(s, mode)}
               type="button">
               {s}
             </button>
@@ -1248,8 +1689,8 @@ function GtActionInput({ value, setValue, suggestions, onCommitSuggestion, onSen
           <button className="fw-btn fw-btn-icon fw-btn-ghost" onClick={onRollDice} type="button">{Icon('dice', { size: 14 })}</button>
           <button className="fw-btn fw-btn-icon fw-btn-ghost" disabled={!suggestions[0]} onClick={() => suggestions[0] && setValue(suggestions[0])} title={suggestions[0] ? 'Insert latest AI suggestion.' : 'No AI suggestion available.'} type="button">{Icon('sparkles', { size: 14 })}</button>
         </div>
-        <button className="fw-btn fw-btn-gold fw-btn-lg" style={{ height: '100%' }} onClick={() => onSend(mode)} type="button">
-          {Icon('send', { size: 13 })} Commit
+        <button className="fw-btn fw-btn-gold fw-btn-lg" style={{ height: '100%' }} onClick={() => onSend(mode)} type="button" disabled={busy}>
+          {busy ? <>{Icon('loader', { size: 13 })} Warden...</> : <>{Icon('send', { size: 13 })} Commit</>}
         </button>
       </div>
     </div>
@@ -1468,7 +1909,7 @@ interface AIDMPanelProps {
   tone: string; setTone: (v: string) => void;
   strict: string; setStrict: (v: string) => void;
   onAcceptSuggestion: (action: AiConfirmAction, message: StoryMessage) => Promise<void> | void;
-  onAskAiAction?: (text: string, mode: ActionMode) => Promise<void>;
+  onAskAiAction?: (text: string, mode: ActionMode, requestMode?: AiDmRequestMode) => Promise<void>;
   onDismissSuggestion: (id: string) => void;
 }
 
@@ -1587,6 +2028,11 @@ function GtAiSuggestionCard({
 }) {
   const { action, message } = suggestion;
   const suggestionId = `${message.id}:${action.id}`;
+  const isConfirmed = (
+    Array.isArray(message.metadata?.confirmedActions)
+      ? (message.metadata.confirmedActions as unknown[]).filter((v): v is string => typeof v === 'string')
+      : []
+  ).includes(action.id);
 
   return (
     <div style={{ padding: 12, background: 'linear-gradient(180deg, rgba(124,58,237,0.10), rgba(124,58,237,0.02))', border: '1px solid rgba(124,58,237,0.35)', borderRadius: 8 }}>
@@ -1596,8 +2042,15 @@ function GtAiSuggestionCard({
         <div className="fw-serif" style={{ marginTop: 4, fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic' }}>{action.note}</div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 10 }}>
-        <button className="fw-btn fw-btn-gold fw-btn-sm" disabled={busy} onClick={() => void onAccept(action, message)} type="button" style={{ justifyContent: 'center' }}>
-          {Icon('check', { size: 11 })} Accept as canon
+        <button
+          className="fw-btn fw-btn-gold fw-btn-sm"
+          disabled={busy || isConfirmed}
+          onClick={() => { if (!isConfirmed) void onAccept(action, message); }}
+          type="button"
+          style={{ justifyContent: 'center', opacity: isConfirmed ? 0.6 : undefined }}
+          title={isConfirmed ? 'Already applied.' : undefined}
+        >
+          {Icon('check', { size: 11 })} {isConfirmed ? 'Applied' : 'Accept as canon'}
         </button>
         <button className="fw-btn fw-btn-ghost fw-btn-sm" disabled={busy} onClick={() => void onResuggest(`Re-suggest this event with a safer alternative: ${action.label}`)} type="button" style={{ justifyContent: 'center' }}>
           {Icon('sparkles', { size: 11 })} Re-suggest

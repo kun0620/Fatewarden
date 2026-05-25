@@ -5,6 +5,7 @@ import {
   calcACFromInventory,
   calcCarryWeight,
 } from '../lib/inventory';
+import { isEncumbered } from '../engine/inventory/inventoryEngine';
 import { Tooltip } from './ui/Tooltip';
 import type { GameEvent, InventoryEquipSlot } from '../engine/events/types';
 import type { Character, Inventory, Item, ItemCategory } from '../types';
@@ -97,6 +98,7 @@ export function InventoryPanel({ character, onUpdateCharacter, disabled = false 
     [inventory, activeCharacter],
   );
   const carryRatio = Math.max(0, Math.min(100, (totalWeight / Math.max(1, inventory?.maxCarryWeight ?? 1)) * 100));
+  const encumbered = inventory && activeCharacter ? isEncumbered(inventory, activeCharacter.abilities.str) : false;
 
   function showToast(msg: string) {
     setEquipToast(msg);
@@ -526,6 +528,7 @@ export function InventoryPanel({ character, onUpdateCharacter, disabled = false 
       <div className="fw-inventory-encumbrance">
         <p className="fw-caption">
           Carry weight: <strong>{formatWeight(totalWeight)}</strong> / <strong>{formatWeight(inventory.maxCarryWeight)}</strong>
+          {encumbered && <span className="fw-pill blood" style={{ marginLeft: 6 }}>Encumbered</span>}
         </p>
         <div
           className="fw-hp"

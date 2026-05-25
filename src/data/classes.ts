@@ -24,8 +24,11 @@ export type ClassFeature = {
 };
 
 export type SubclassOption = {
+  id?: string;
   name: string;
   description: string;
+  features?: ClassFeature[];
+  spells?: string[];
 };
 
 export type ClassDefinition = {
@@ -72,6 +75,29 @@ export const classes: ClassDefinition[] = [
     subclasses: [
       { name: 'Path of the Berserker', description: 'Channel rage into frenzied melee attacks.' },
       { name: 'Path of the Totem Warrior', description: 'Form a spiritual bond with a totem animal.' },
+      {
+        id: 'path_of_the_world_tree',
+        name: 'Path of the World Tree',
+        description: 'Draw primal power from the cosmic tree that links worlds and shelters allies.',
+        features: [
+          { level: 3, name: 'Vitality of the Tree', description: 'While raging, call on world-tree vitality to protect yourself or an ally with restorative primal energy.' },
+          { level: 6, name: 'Branches of the Tree', description: 'Use spectral branches to pull creatures through space and reshape the battlefield around your rage.' },
+          { level: 10, name: 'Battering Roots', description: 'Your roots extend your reach and let your weapon strikes push, topple, or reposition enemies.' },
+          { level: 14, name: 'Travel Along the Tree', description: 'Step through the World Tree to teleport yourself and allies to tactically powerful positions.' },
+        ],
+      },
+      {
+        id: 'path_of_the_wild_heart',
+        name: 'Path of the Wild Heart',
+        description: 'Bond with primal animal spirits and let their instincts shape each rage.',
+        features: [
+          { level: 3, name: 'Animal Speaker', description: 'Commune with beasts and primal spirits through ritual magic and instinctive understanding.' },
+          { level: 3, name: 'Rage of the Wilds', description: 'Choose a wild aspect when you rage, gaining an animal-inspired combat benefit.' },
+          { level: 6, name: 'Animal Fury', description: 'Deepen your animal aspect to gain a movement, survival, or combat adaptation.' },
+          { level: 10, name: 'Greater Rage of the Wilds', description: 'Your rage calls stronger animal magic, expanding the benefits of your chosen aspect.' },
+          { level: 14, name: 'Indomitable Beast', description: 'Your primal spirit hardens against control, fear, and battlefield disruption.' },
+        ],
+      },
     ],
     features: [
       { level: 1, name: 'Rage', description: 'Enter a rage as a bonus action. Gain advantage on STR checks/saves, bonus to damage, resistance to bludgeoning/piercing/slashing. Lasts 1 minute. Uses per long rest: 2 (rises with level).', recoveryType: 'long' },
@@ -120,6 +146,28 @@ export const classes: ClassDefinition[] = [
     subclasses: [
       { name: 'College of Lore', description: 'Expand your knowledge and cutting words to hinder foes.' },
       { name: 'College of Valor', description: 'Inspire allies in battle and wade into combat yourself.' },
+      {
+        id: 'college_of_dance',
+        name: 'College of Dance',
+        description: 'Channel magic through movement, rhythm, and impossible footwork.',
+        features: [
+          { level: 3, name: 'Dazzling Footwork', description: 'Your unarmored movement and performance-honed agility turn dance into defense and offense.' },
+          { level: 3, name: 'Inspiring Movement', description: 'Spend Bardic Inspiration to move with an ally, letting rhythm carry the party out of danger.' },
+          { level: 6, name: 'Tandem Footwork', description: 'Guide your companions through coordinated motion, improving initiative and battlefield timing.' },
+          { level: 14, name: 'Leading Evasion', description: 'Your movement lets you and nearby allies slip through dangerous effects with uncanny grace.' },
+        ],
+      },
+      {
+        id: 'college_of_glamour',
+        name: 'College of Glamour',
+        description: 'Weave fey grandeur and beguiling presence into every performance.',
+        features: [
+          { level: 3, name: 'Mantle of Inspiration', description: 'Spend Bardic Inspiration to grant temporary vitality and movement to chosen allies.' },
+          { level: 3, name: 'Enthralling Performance', description: 'After performing, charm an audience and turn admirers into helpful contacts.' },
+          { level: 6, name: 'Mantle of Majesty', description: 'Wrap yourself in fey authority and command creatures with supernatural presence.' },
+          { level: 14, name: 'Unbreakable Majesty', description: 'Your majestic aura makes enemies hesitate to attack and punishes those who defy your presence.' },
+        ],
+      },
     ],
     features: [
       { level: 1, name: 'Bardic Inspiration', description: 'Bonus action: give one creature within 60 ft a Bardic Inspiration die (d6). They can add it to one ability check, attack, or save within 10 min. Uses = CHA modifier (min 1). Recovers on long rest.', recoveryType: 'long' },
@@ -174,6 +222,19 @@ export const classes: ClassDefinition[] = [
       { name: 'Knowledge Domain', description: 'Learn the secrets of the world.' },
       { name: 'Nature Domain', description: 'Commune with nature and its creatures.' },
       { name: 'Tempest Domain', description: 'Command thunder, lightning, and storms.' },
+      {
+        id: 'death_domain',
+        name: 'Death Domain',
+        description: 'Command necrotic power, reap life force, and turn divine wrath toward death itself.',
+        features: [
+          { level: 1, name: 'Reaper', description: 'Learn a necromancy cantrip from any spell list and target two nearby creatures when casting certain necromancy cantrips.' },
+          { level: 1, name: 'Bonus Proficiencies', description: 'Gain proficiency with martial weapons and heavy armor.' },
+          { level: 2, name: 'Channel Divinity: Touch of Death', description: 'When you hit a creature with a melee attack, Channel Divinity adds necrotic damage equal to 5 + twice your cleric level.', recoveryType: 'short' },
+          { level: 6, name: 'Inescapable Destruction', description: 'Your necrotic damage from cleric spells and Channel Divinity ignores resistance to necrotic damage.' },
+          { level: 8, name: 'Divine Strike (Necrotic)', description: 'Once on each of your turns, add necrotic damage to a weapon hit. The bonus increases at higher level.' },
+          { level: 17, name: 'Improved Reaper', description: 'When casting certain necromancy spells that target one creature, also target a second nearby creature.' },
+        ],
+      },
     ],
     features: [
       { level: 1, name: 'Divine Domain', description: 'Choose your Divine Domain. Grants domain spells and features.', isChoice: true },
@@ -264,6 +325,37 @@ export const classes: ClassDefinition[] = [
       { name: 'Champion', description: 'Hone your combat prowess to perfection. Critical hits on 19–20.' },
       { name: 'Battle Master', description: 'Use combat maneuvers to gain a tactical edge.' },
       { name: 'Eldritch Knight', description: 'Combine martial mastery with wizard spellcasting.' },
+      {
+        id: 'psi_warrior',
+        name: 'Psi Warrior',
+        description: 'Awaken psionic talent to shield allies, empower strikes, and move objects with thought.',
+        features: [
+          { level: 3, name: 'Psionic Power', description: 'Gain a Psionic Energy dice pool equal to your proficiency bonus. Dice begin as d6 and improve to d8, d10, then d12 as you level.' },
+          { level: 3, name: 'Protective Field', description: 'Use a Psionic Energy die to reduce damage taken by a nearby creature.' },
+          { level: 3, name: 'Psionic Strike', description: 'After hitting with a weapon attack, expend a Psionic Energy die to deal extra force damage.' },
+          { level: 3, name: 'Telekinetic Movement', description: 'Move an object or willing creature with telekinetic force.' },
+          { level: 7, name: 'Telekinetic Adept', description: 'Your psionic discipline expands into aerial movement and forceful control.' },
+          { level: 7, name: 'Psi-Powered Leap', description: 'Propel yourself with psionic force, gaining a flying speed for the turn.' },
+          { level: 7, name: 'Telekinetic Thrust', description: 'When Psionic Strike damages a target, force it to resist being knocked prone or pushed.' },
+          { level: 10, name: 'Guarded Mind', description: 'Gain resistance to psychic damage and expend a Psionic Energy die to end charmed or frightened on yourself.' },
+          { level: 15, name: 'Bulwark of Force', description: 'Project a psionic barrier that grants half-cover to yourself and nearby allies.' },
+          { level: 18, name: 'Telekinetic Master', description: 'Cast telekinesis through psionic mastery and make a weapon attack as part of sustaining the power.' },
+        ],
+      },
+      {
+        id: 'rune_knight',
+        name: 'Rune Knight',
+        description: 'Carve giant runes into your gear and swell with ancient giant might.',
+        features: [
+          { level: 3, name: 'Bonus Proficiencies', description: 'Gain proficiency with smith\'s tools and learn to speak, read, and write Giant.' },
+          { level: 3, name: 'Rune Carver', description: 'Learn two runes from Cloud, Fire, Frost, Hill, Stone, and Storm. Your known runes increase to three, then four at higher levels.' },
+          { level: 3, name: 'Giant\'s Might', description: 'As a bonus action, become Large if space allows and deal an extra 1d6 damage once each turn while empowered.' },
+          { level: 7, name: 'Runic Shield', description: 'Use your reaction to force a reroll when a nearby ally is hit by an attack roll.' },
+          { level: 10, name: 'Great Stature', description: 'Your giant magic permanently increases your stature and Giant\'s Might bonus damage becomes 1d4 stronger.' },
+          { level: 15, name: 'Master of Runes', description: 'You can invoke each rune you know twice per short or long rest instead of once.' },
+          { level: 18, name: 'Runic Juggernaut', description: 'Giant\'s Might can make you Huge, increases your reach, and raises bonus damage to 1d8.' },
+        ],
+      },
     ],
     features: [
       { level: 1, name: 'Fighting Style', description: 'Choose a fighting style: Archery, Defense, Dueling, Great Weapon Fighting, Protection, or Two-Weapon Fighting.', isChoice: true },
@@ -365,6 +457,34 @@ export const classes: ClassDefinition[] = [
       { name: 'Oath of the Ancients', description: 'Protect the light of life and the beauty of nature.' },
       { name: 'Oath of Vengeance', description: 'Hunt down and punish those who commit great evils.' },
       { name: 'Oathbreaker', description: 'Fallen paladin who serves darkness (DM option).' },
+      {
+        id: 'oath_of_glory',
+        name: 'Oath of Glory',
+        description: 'Swear to pursue heroic excellence and inspire companions through legendary deeds.',
+        spells: ['guiding bolt', 'heroism', 'enhance ability', 'magic weapon', 'haste', 'protection from energy', 'compulsion', 'freedom of movement', 'legend lore', 'commune'],
+        features: [
+          { level: 3, name: 'Oath Spells', description: 'Gain oath spells: guiding bolt, heroism, enhance ability, magic weapon, haste, protection from energy, compulsion, freedom of movement, legend lore, and commune.' },
+          { level: 3, name: 'Channel Divinity: Inspiring Smite', description: 'After Divine Smite, distribute healing aura energy equal to 2d8 + your paladin level among nearby allies.', recoveryType: 'short' },
+          { level: 3, name: 'Channel Divinity: Peerless Athlete', description: 'As an action, gain advantage on Athletics and Acrobatics checks, double carrying capacity, and double jump distance for 10 minutes.', recoveryType: 'short' },
+          { level: 7, name: 'Aura of Alacrity', description: 'Your speed increases by 10 ft. Allies starting their turn within your 5 ft aura also gain +10 ft speed for that turn.' },
+          { level: 15, name: 'Glorious Defense', description: 'When an ally is hit, use your reaction to add your CHA modifier to their AC. If the attack misses, make an attack against the attacker.' },
+          { level: 20, name: 'Living Legend', description: 'For 1 minute, use CHA in place of STR or DEX checks, reroll one missed attack each turn, and turn one failed save into a success.' },
+        ],
+      },
+      {
+        id: 'oath_of_the_watchers',
+        name: 'Oath of the Watchers',
+        description: 'Stand guard against extraplanar threats and ward allies from alien magic.',
+        spells: ['alarm', 'detect magic', 'moonbeam', 'see invisibility', 'counterspell', 'nondetection', 'aura of purity', 'banishment', 'hold monster', 'scrying'],
+        features: [
+          { level: 3, name: 'Oath Spells', description: 'Gain oath spells: alarm, detect magic, moonbeam, see invisibility, counterspell, nondetection, aura of purity, banishment, hold monster, and scrying.' },
+          { level: 3, name: 'Channel Divinity: Abjure the Extraplanar', description: 'Turn aberrations, celestials, elementals, fey, and fiends with divine abjuration.', recoveryType: 'short' },
+          { level: 3, name: 'Channel Divinity: Watcher\'s Will', description: 'Grant a number of creatures equal to your CHA modifier advantage on saves against magic for 1 minute.', recoveryType: 'short' },
+          { level: 7, name: 'Aura of the Sentinel', description: 'You and allies in your aura add your proficiency bonus to initiative rolls.' },
+          { level: 15, name: 'Vigilant Rebuke', description: 'When an ally succeeds on an INT, WIS, or CHA save, use your reaction to deal 2d8 + CHA necrotic damage to the caster.' },
+          { level: 20, name: 'Mortal Bulwark', description: 'For 1 minute, gain truesight 120 ft, advantage on attacks against extraplanar creatures, and banish a target on hit without concentration.' },
+        ],
+      },
     ],
     features: [
       { level: 1, name: 'Divine Sense', description: 'Action: know locations of celestials, fiends, undead within 60 ft until end of next turn. Uses = 1 + CHA modifier, recover on long rest.', recoveryType: 'long' },
@@ -412,6 +532,34 @@ export const classes: ClassDefinition[] = [
     subclasses: [
       { name: 'Hunter', description: 'Specialize in fighting powerful monsters with lethal techniques.' },
       { name: 'Beast Master', description: 'Form a magical bond with a beast companion.' },
+      {
+        id: 'gloom_stalker',
+        name: 'Gloom Stalker',
+        description: 'Master ambush, darkness, and sudden violence in the places monsters fear.',
+        spells: ['disguise self', 'rope trick', 'fear', 'greater invisibility', 'seeming'],
+        features: [
+          { level: 3, name: 'Gloom Stalker Magic', description: 'Gain gloom stalker spells: disguise self, rope trick, fear, greater invisibility, and seeming.' },
+          { level: 3, name: 'Dread Ambusher', description: 'Add WIS to initiative. On your first turn, gain an extra attack that deals +1d8 damage on hit.' },
+          { level: 3, name: 'Umbral Sight', description: 'Gain darkvision 60 ft or increase existing darkvision by 60 ft. While in darkness, you are invisible to creatures relying on darkvision.' },
+          { level: 7, name: 'Iron Mind', description: 'Gain proficiency in WIS saves, or choose INT or CHA save proficiency if you already have WIS.' },
+          { level: 11, name: 'Stalker\'s Flurry', description: 'Once on each of your turns, make another weapon attack when you miss.' },
+          { level: 15, name: 'Shadowy Dodge', description: 'Use your reaction when attacked to impose disadvantage on the attack roll.' },
+        ],
+      },
+      {
+        id: 'fey_wanderer',
+        name: 'Fey Wanderer',
+        description: 'Carry fey magic through the world, turning charm, fear, and strange beauty into weapons.',
+        spells: ['charm person', 'misty step', 'dispel magic', 'dimension door', 'mislead'],
+        features: [
+          { level: 3, name: 'Fey Wanderer Magic', description: 'Gain fey wanderer spells: charm person, misty step, dispel magic, dimension door, and mislead.' },
+          { level: 3, name: 'Dreadful Strikes', description: 'Once each turn, deal an extra 1d4 psychic damage when you hit with a weapon attack.' },
+          { level: 3, name: 'Otherworldly Glamour', description: 'Add your WIS modifier to CHA checks and gain proficiency in one CHA skill.' },
+          { level: 7, name: 'Beguiling Twist', description: 'When a nearby creature succeeds against charm or frighten, use your reaction to redirect that magic to another creature for 1 minute.' },
+          { level: 11, name: 'Fey Reinforcements', description: 'Cast summon fey once per long rest without a slot, or with spell slots; the casting can require no concentration.' },
+          { level: 15, name: 'Misty Wanderer', description: 'Cast misty step without expending a slot and bring one willing creature with you.' },
+        ],
+      },
     ],
     features: [
       { level: 1, name: 'Favored Enemy', description: 'Choose a favored enemy type (aberrations, beasts, celestials, constructs, dragons, elementals, fey, fiends, giants, monstrosities, oozes, plants, undead, or 2 humanoid races). Advantage on Survival to track and Intelligence to recall info about them.', isChoice: true },
@@ -461,6 +609,32 @@ export const classes: ClassDefinition[] = [
       { name: 'Thief', description: 'Hone your larcenous skills to near-perfection.' },
       { name: 'Assassin', description: 'Eliminate targets with deadly precision and disguise.' },
       { name: 'Arcane Trickster', description: 'Augment physical skills with illusion and enchantment magic.' },
+      {
+        id: 'soulknife',
+        name: 'Soulknife',
+        description: 'Shape psionic energy into silent blades, telepathic talent, and impossible mobility.',
+        features: [
+          { level: 3, name: 'Psionic Power', description: 'Gain Psionic Energy dice starting as 2d6. Recover one die as a bonus action once per short rest.' },
+          { level: 3, name: 'Psychic Blades', description: 'Manifest a 1d6 psychic finesse thrown blade with 60 ft range and no ammunition. As a bonus action, manifest an off-hand 1d4 psychic blade without adding your ability modifier.' },
+          { level: 9, name: 'Soul Blades', description: 'Your psionic blades gain Homing Strikes and Psychic Teleportation.' },
+          { level: 9, name: 'Homing Strikes', description: 'When Psychic Blades miss, spend a Psionic Energy die and add the roll to the attack.' },
+          { level: 9, name: 'Psychic Teleportation', description: 'As a bonus action, spend a Psionic Energy die and teleport up to 5 ft times the number rolled.' },
+          { level: 13, name: 'Psychic Veil', description: 'Become invisible for 1 hour once per long rest, or by expending a Psionic Energy die.' },
+          { level: 17, name: 'Rend Mind', description: 'When Psychic Blades damage a creature, force a STR save against DC 8 + proficiency + DEX modifier or stun it until the end of your next turn. Use once per long rest or spend 3 Psionic Energy dice.' },
+        ],
+      },
+      {
+        id: 'swashbuckler',
+        name: 'Swashbuckler',
+        description: 'Win duels with charm, speed, daring footwork, and a blade always one beat ahead.',
+        features: [
+          { level: 3, name: 'Fancy Footwork', description: 'When you make a melee attack against a creature, that target cannot make opportunity attacks against you for the rest of the turn.' },
+          { level: 3, name: 'Rakish Audacity', description: 'Add CHA to initiative and use Sneak Attack in a one-on-one duel without needing advantage or an adjacent ally.' },
+          { level: 9, name: 'Panache', description: 'Use Persuasion against a target\'s Insight to charm an ally for 1 minute or force a hostile creature to focus its attacks on you.' },
+          { level: 13, name: 'Elegant Maneuver', description: 'As a bonus action, gain advantage on your next Athletics or Acrobatics check this turn.' },
+          { level: 17, name: 'Master Duelist', description: 'When you miss with an attack, reroll it with advantage once per short rest.' },
+        ],
+      },
     ],
     features: [
       { level: 1, name: 'Expertise', description: 'Choose 2 skill proficiencies (or thieves\' tools): double proficiency bonus.', isChoice: true },
@@ -509,6 +683,33 @@ export const classes: ClassDefinition[] = [
     subclasses: [
       { name: 'Draconic Bloodline', description: 'Magic flows from draconic ancestry, granting resilience and elemental power.' },
       { name: 'Wild Magic', description: 'Magic surges chaotically from wild forces, causing random effects.' },
+      {
+        id: 'aberrant_mind',
+        name: 'Aberrant Mind',
+        description: 'A mind touched by alien thought, psionic whispers, and reality-warping influence.',
+        spells: ['arms of hadar', 'dissonant whispers', 'calm emotions', 'detect thoughts', 'hunger of hadar', 'sending', 'evard\'s black tentacles', 'summon aberration', 'telekinesis', 'rary\'s telepathic bond'],
+        features: [
+          { level: 1, name: 'Telepathic Speech', description: 'As a bonus action, form a telepathic link with a creature for 1 minute per point of your INT modifier.' },
+          { level: 1, name: 'Psionic Spells', description: 'Gain psionic spells: arms of hadar, dissonant whispers, calm emotions, detect thoughts, hunger of hadar, sending, evard\'s black tentacles, summon aberration, telekinesis, and rary\'s telepathic bond.' },
+          { level: 6, name: 'Psionic Sorcery', description: 'Cast a psionic spell using only a spell slot and no components.' },
+          { level: 6, name: 'Psychic Defenses', description: 'Gain resistance to psychic damage and immunity to the charmed and frightened conditions.' },
+          { level: 14, name: 'Revelation in Flesh', description: 'Spend sorcery points for 10 minutes of aberrant adaptations: see invisible, swim and breathe water, burrow 30 ft, or fly 40 ft.' },
+          { level: 18, name: 'Warping Implosion', description: 'Teleport up to 120 ft and force creatures within 30 ft of your old space to take 4d10 force damage and risk being pulled toward that space.' },
+        ],
+      },
+      {
+        id: 'clockwork_soul',
+        name: 'Clockwork Soul',
+        description: 'Channel the perfect order of cosmic machinery to cancel chaos and restore balance.',
+        spells: ['alarm', 'protection from evil and good', 'aid', 'lesser restoration', 'dispel magic', 'protection from energy', 'freedom of movement', 'summon construct', 'greater restoration', 'wall of force'],
+        features: [
+          { level: 1, name: 'Clockwork Magic', description: 'Gain clockwork spells: alarm, protection from evil and good, aid, lesser restoration, dispel magic, protection from energy, freedom of movement, summon construct, greater restoration, and wall of force.' },
+          { level: 1, name: 'Restore Balance', description: 'As a reaction, cancel advantage or disadvantage on a roll a number of times per long rest equal to your proficiency bonus.', recoveryType: 'long' },
+          { level: 6, name: 'Bastion of Law', description: 'As an action, spend 1 to 5 sorcery points to ward a creature. The ward absorbs damage equal to 5 times the points spent and lasts until your next long rest.' },
+          { level: 14, name: 'Trance of Order', description: 'As a bonus action for 1 minute, attacks against you cannot gain advantage from disorder, and your attack rolls, checks, and saves below 10 count as 10.' },
+          { level: 18, name: 'Clockwork Cavalcade', description: 'Create a 30 ft sphere of order for 1 minute, repairing objects, ending spells of 5th level or lower, and dispelling magical effects.' },
+        ],
+      },
     ],
     features: [
       { level: 1, name: 'Spellcasting', description: 'Cast sorcerer spells using CHA. Know a limited number of spells.' },
@@ -551,6 +752,34 @@ export const classes: ClassDefinition[] = [
       { name: 'The Archfey', description: 'Bargained with a lord of the fey; wield enchantment and fear.' },
       { name: 'The Fiend', description: 'Pact with a powerful devil or demon; deal fire damage and gain temporary HP.' },
       { name: 'The Great Old One', description: 'Patron is an alien entity; gain telepathy and forbidden knowledge.' },
+      {
+        id: 'the_celestial',
+        name: 'The Celestial',
+        description: 'Forge a pact with a radiant being and channel healing light, holy fire, and celestial endurance.',
+        spells: ['sacred flame', 'light', 'cure wounds', 'guiding bolt', 'flaming sphere', 'lesser restoration', 'daylight', 'revivify', 'guardian of faith', 'wall of fire'],
+        features: [
+          { level: 1, name: 'Expanded Spell List', description: 'Gain celestial spells: sacred flame, light, cure wounds, guiding bolt, flaming sphere, lesser restoration, daylight, revivify, guardian of faith, and wall of fire.' },
+          { level: 1, name: 'Healing Light', description: 'As a bonus action, heal with a d6 pool equal to your warlock level. Spend up to 1 + CHA modifier dice per use and recover all dice on a long rest.', recoveryType: 'long' },
+          { level: 6, name: 'Radiant Soul', description: 'Gain resistance to radiant damage and add CHA to one radiant or fire spell damage roll against one target.' },
+          { level: 10, name: 'Celestial Resilience', description: 'After a short or long rest, gain temporary HP equal to your warlock level + CHA modifier, and up to five allies gain half that amount.' },
+          { level: 14, name: 'Searing Vengeance', description: 'When you make a death save, recover half your HP and burst with radiance. Enemies within 30 ft take 2d8 + CHA radiant damage, are blinded until the end of their turn, and you gain 30 ft fly speed until the end of your turn.' },
+        ],
+      },
+      {
+        id: 'the_fathomless',
+        name: 'The Fathomless',
+        description: 'Draw power from the crushing depths, calling spectral tentacles, sea-born endurance, and abyssal passage.',
+        spells: ['create or destroy water', 'thunderwave', 'gust of wind', 'silence', 'lightning bolt', 'sleet storm', 'control water', 'summon elemental', 'cone of cold', 'maelstrom'],
+        features: [
+          { level: 1, name: 'Expanded Spell List', description: 'Gain fathomless spells: create or destroy water, thunderwave, gust of wind, silence, lightning bolt, sleet storm, control water, summon elemental, cone of cold, and maelstrom.' },
+          { level: 1, name: 'Tentacle of the Deeps', description: 'As a bonus action, summon a spectral tentacle within 10 ft for 1 minute once per short rest. It attacks with your spell attack, deals 1d8 cold damage, slows the target by 10 ft, and can move 30 ft as a bonus action.', recoveryType: 'short' },
+          { level: 1, name: 'Gift of the Sea', description: 'Gain a 40 ft swimming speed and the ability to breathe underwater.' },
+          { level: 6, name: 'Oceanic Soul', description: 'Gain resistance to cold damage and telepathically communicate with creatures while both of you are underwater or breathing water.' },
+          { level: 6, name: 'Guardian Coil', description: 'Use your reaction when a creature in your tentacle range takes damage to reduce that damage by 1d8.' },
+          { level: 10, name: 'Grasping Tentacles', description: 'Cast evard\'s black tentacles once per long rest without a spell slot. Gain temporary HP equal to your warlock level when you cast it, and your concentration on it cannot be broken by damage.', recoveryType: 'long' },
+          { level: 14, name: 'Fathomless Plunge', description: 'As an action, teleport yourself and up to eight willing creatures up to 1 mile to a body of water such as an ocean, lake, or river once per short rest.', recoveryType: 'short' },
+        ],
+      },
     ],
     features: [
       { level: 1, name: 'Otherworldly Patron', description: 'Choose your Patron subclass.', isChoice: true },
@@ -604,6 +833,30 @@ export const classes: ClassDefinition[] = [
       { name: 'School of Illusion', description: 'Weave phantasms to deceive and manipulate.' },
       { name: 'School of Necromancy', description: 'Manipulate the line between life and death.' },
       { name: 'School of Transmutation', description: 'Transform matter and creatures.' },
+      {
+        id: 'bladesinging',
+        name: 'Bladesinging',
+        description: 'Blend elven swordplay and wizardry into a precise dance of warding magic and steel.',
+        features: [
+          { level: 2, name: 'Training in War and Song', description: 'Gain proficiency with light armor, one one-handed melee weapon, and Performance if you do not already have it.' },
+          { level: 2, name: 'Bladesong', description: 'As a bonus action, enter Bladesong for 1 minute a number of times per long rest equal to proficiency bonus. Gain +INT to AC, +10 ft walking speed, advantage on Acrobatics, and +INT to CON saves for concentration.', recoveryType: 'long' },
+          { level: 6, name: 'Extra Attack', description: 'Attack twice when you take the Attack action, and replace one of those attacks with a cantrip.' },
+          { level: 10, name: 'Song of Defense', description: 'While Bladesong is active, use your reaction and expend a spell slot to reduce damage by 5 times the slot level.' },
+          { level: 14, name: 'Song of Victory', description: 'While Bladesong is active, add your INT modifier to melee weapon damage rolls.' },
+        ],
+      },
+      {
+        id: 'order_of_scribes',
+        name: 'Order of Scribes',
+        description: 'Awaken your spellbook as a magical companion and wield written arcana with unmatched speed.',
+        features: [
+          { level: 2, name: 'Wizardly Quill', description: 'As a bonus action, create a magic quill that produces its own ink, copies spells at 2 minutes per spell level, and can erase your own writing.' },
+          { level: 2, name: 'Awakened Spellbook', description: 'Use your spellbook as an arcane focus, cast ritual spells without adding 10 minutes, and change a spell damage type to another type from a spell in your book when casting.' },
+          { level: 6, name: 'Manifest Mind', description: 'As a bonus action, summon a spectral mind within 300 ft. See and hear through it, cast spells through it, move it 30 ft as a bonus action, and keep it until dismissed once per long rest or by expending a spell slot.', recoveryType: 'long' },
+          { level: 10, name: 'Master Scrivener', description: 'After a long rest, create one free 1st- or 2nd-level spell scroll that only you can use and that loses magic at your next long rest.' },
+          { level: 14, name: 'One with the Word', description: 'While Manifest Mind is active, use your reaction when damaged to prevent all damage, then roll 3d6 and temporarily lose spells of those levels from your spellbook until a long rest.', recoveryType: 'long' },
+        ],
+      },
     ],
     features: [
       { level: 1, name: 'Spellcasting', description: 'Cast wizard spells using INT. Ritual casting from spellbook.' },

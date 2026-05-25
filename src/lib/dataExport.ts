@@ -1,5 +1,4 @@
 import type { User } from '@supabase/supabase-js';
-import type { Campaign } from '../engine/campaign/campaignTypes';
 import { listVaultCharacters } from './characters';
 import { listJoinedSessions } from './sessions';
 import { supabase } from './supabase';
@@ -10,8 +9,8 @@ type CampaignExportRow = {
   title: string;
   summary?: string | null;
   description?: string | null;
-  draft_data?: Campaign | null;
-  published_data?: Campaign | null;
+  draft_data?: Record<string, unknown> | null;
+  published_data?: Record<string, unknown> | null;
   updated_at?: string | null;
   created_at?: string | null;
 };

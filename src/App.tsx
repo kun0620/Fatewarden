@@ -3,9 +3,6 @@ import type { ReactNode } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { AuthPanel } from './components/AuthPanel';
 import { MainMenu } from './components/MainMenu';
-import { CampaignLibrary } from './components/CampaignLibrary';
-import CampaignCreator from './components/CampaignCreator';
-import { AiCampaignGenerator } from './components/AiCampaignGenerator';
 import { SettingsPage } from './components/SettingsPage';
 import { RoomSetupPage } from './components/RoomSetupPage';
 import { LobbyScreen } from './components/LobbyScreen';
@@ -22,21 +19,21 @@ import { Icon } from './components/ui/Icons';
 import { PartyChoicePanel } from './components/PartyChoicePanel';
 import { NarrativePanel } from './components/NarrativePanel';
 import { useAuthFlow } from './hooks/useAuthFlow';
-import { useAiDm } from './hooks/useAiDm';
 import { useCharacterSync } from './hooks/useCharacterSync';
 import { useGamePhase } from './hooks/useGamePhase';
 import { usePartyChoiceSync } from './hooks/usePartyChoiceSync';
 import { useSessionFlow } from './hooks/useSessionFlow';
 import { demoCharacter, demoMessages } from './data/demo';
+import { getSpell } from './data/spells';
 import { createEventQueueState, processEventQueue, type EventRuntimeState } from './engine/events/eventQueue';
 import type { GameEvent } from './engine/events/types';
+import { mapAiEventToGameEvent } from './lib/aiEventMapper';
+import type { AiEventMapperContext } from './lib/aiEventMapper';
 import { getGamePhaseDefinition } from './lib/gamePhases';
 import { createEmptyInventory } from './lib/inventory';
-import { AI_DM_PRESETS, normalizeAiDmPresetId } from './lib/aiDm';
-import { requestAiDmReply, sendSessionMessage } from './lib/messages';
+import { sendSessionMessage, updateSessionMessageMetadata } from './lib/messages';
 import { getPlayModeDefinition } from './lib/playModes';
 import { getSessionThemeDefinition } from './lib/sessionThemes';
-import { saveCampaignCreatorDraft } from './lib/campaignDraft';
 import { sendNotification } from './lib/notifications';
 import {
   ensureSessionMember,
@@ -55,13 +52,15 @@ import { computeAppStage, getGateSteps, isGateStage } from './lib/appFlow';
 import { hasSupabaseConfig, supabase } from './lib/supabase';
 import type {
   AiConfirmAction,
-  AiDmPresetId,
   Character,
   Combatant,
   DiceRoll,
   EncounterState,
   GamePhase,
   GameSession,
+  Item,
+  ItemCategory,
+  ItemRarity,
   SessionMember,
   StoryMessage,
 } from './types';
@@ -139,6 +138,33 @@ function formatLocalTime() {
 function addUniqueMessage(messages: StoryMessage[], next: StoryMessage) {
   if (messages.some((message) => message.id === next.id)) return messages;
   return [...messages, next];
+}
+
+function replaceStoryMessage(messages: StoryMessage[], next: StoryMessage) {
+  return messages.map((message) => (message.id === next.id ? next : message));
+}
+
+/** Returns the list of confirmed action IDs stored on a message. */
+function getAppliedConfirmActionIds(message: StoryMessage): string[] {
+  const value = message.metadata?.confirmedActions;
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+/**
+ * Return a copy of `message` with `action.id` appended to
+ * `metadata.confirmedActions: string[]`.  This is the canonical shape
+ * persisted to Supabase and synced to all multiplayer clients.
+ */
+function withAppliedConfirmAction(message: StoryMessage, action: AiConfirmAction): StoryMessage {
+  const existing = getAppliedConfirmActionIds(message);
+  const confirmedActions = existing.includes(action.id) ? existing : [...existing, action.id];
+  return {
+    ...message,
+    metadata: {
+      ...(message.metadata ?? {}),
+      confirmedActions,
+    },
+  };
 }
 
 function storyInitials(name: string) {
@@ -569,17 +595,7 @@ function PrototypeLeftPanel({
   );
 }
 
-function PrototypeRightPanel({
-  aiPresetId,
-  onAiPresetSelect,
-  onOpenCombat,
-  tab,
-}: {
-  aiPresetId: AiDmPresetId;
-  onAiPresetSelect: (presetId: AiDmPresetId) => void;
-  onOpenCombat: () => void;
-  tab: RightSidebarTab;
-}) {
+function PrototypeRightPanel({ onOpenCombat, tab }: { onOpenCombat: () => void; tab: RightSidebarTab }) {
   if (tab === 'combat') {
     const turn = [
       { n: 'Kessra', ini: 22, hp: '64/70', ally: true },
@@ -660,14 +676,9 @@ function PrototypeRightPanel({
         <div>
           <div className="fw-proto-section-title">Tone</div>
           <div className="fw-ai-tone-grid">
-            {AI_DM_PRESETS.map((preset) => (
-              <button
-                className={preset.id === aiPresetId ? 'active' : ''}
-                key={preset.id}
-                onClick={() => onAiPresetSelect(preset.id)}
-                type="button"
-              >
-                {preset.shortLabel}
+            {['Manual', 'Run', 'Rules'].map((mode) => (
+              <button className={mode === 'Manual' ? 'active' : ''} disabled key={mode} type="button">
+                {mode}
               </button>
             ))}
           </div>
@@ -882,6 +893,60 @@ function asPersistedCharacterId(characterId: string) {
     : null;
 }
 
+const aiItemCategories = new Set<ItemCategory>([
+  'weapon',
+  'armor',
+  'shield',
+  'gear',
+  'consumable',
+  'potion',
+  'scroll',
+  'tool',
+  'material',
+  'ammunition',
+  'quest',
+  'currency',
+  'misc',
+]);
+
+const aiItemRarities = new Set<ItemRarity>(['common', 'uncommon', 'rare', 'very_rare', 'legendary', 'artifact']);
+
+function normalizeAiItemCategory(value: unknown): ItemCategory {
+  return typeof value === 'string' && aiItemCategories.has(value as ItemCategory) ? (value as ItemCategory) : 'misc';
+}
+
+function normalizeAiItemRarity(value: unknown): ItemRarity {
+  return typeof value === 'string' && aiItemRarities.has(value as ItemRarity) ? (value as ItemRarity) : 'common';
+}
+
+function normalizeAiItem(action: AiConfirmAction): Item {
+  const source = action.item ?? {};
+  const quantity = typeof source.quantity === 'number' ? source.quantity : action.amount;
+
+  return {
+    id: typeof source.id === 'string' ? source.id : crypto.randomUUID(),
+    templateId: typeof source.templateId === 'string' ? source.templateId : undefined,
+    name: typeof source.name === 'string' ? source.name : action.itemName ?? action.targetName ?? action.label,
+    description: typeof source.description === 'string' ? source.description : action.note ?? '',
+    category: normalizeAiItemCategory(source.category),
+    rarity: normalizeAiItemRarity(source.rarity),
+    weight: typeof source.weight === 'number' ? source.weight : 0,
+    value: typeof source.value === 'number' ? source.value : 0,
+    quantity: Math.max(1, Math.trunc(quantity ?? 1)),
+    equipped: source.equipped === true,
+    attunement: source.attunement === true,
+    attuned: source.attuned === true,
+    effects: Array.isArray(source.effects) ? source.effects : [],
+  };
+}
+
+function findInventoryItemId(character: Character, action: AiConfirmAction) {
+  if (action.itemId) return action.itemId;
+  const needle = (action.itemName ?? action.targetName ?? '').trim().toLocaleLowerCase();
+  if (!needle) return null;
+  return character.inventory.items.find((item) => item.name.toLocaleLowerCase() === needle)?.id ?? null;
+}
+
 export function App() {
   const [storyMessages, setStoryMessages] = useState<StoryMessage[]>(hasSupabaseConfig ? [] : demoMessages);
   const [localPhase, setLocalPhase] = useState<GamePhase>('setup');
@@ -894,8 +959,6 @@ export function App() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [pendingRoomSetup, setPendingRoomSetup] = useState(false);
   const [pendingLibrary, setPendingLibrary] = useState(false);
-  const [pendingCampaignCreator, setPendingCampaignCreator] = useState(false);
-  const [pendingAiCampaignGenerator, setPendingAiCampaignGenerator] = useState(false);
   const [pendingSettings, setPendingSettings] = useState(false);
   const [pendingLobby, setPendingLobby] = useState(false);
   const [pendingCharSheet, setPendingCharSheet] = useState(false);
@@ -904,8 +967,6 @@ export function App() {
   const [pendingDmDash, setPendingDmDash] = useState(false);
   const [pendingBestiary, setPendingBestiary] = useState(false);
   const [combatActive, setCombatActive] = useState(false);
-  const [aiDmPresetId, setAiDmPresetId] = useState<AiDmPresetId>('balanced');
-  const [aiPanelBusy, setAiPanelBusy] = useState(false);
   const [pendingConfirmAction, setPendingConfirmAction] = useState<AiConfirmAction | null>(null);
   const [pendingConfirmSourceMessage, setPendingConfirmSourceMessage] = useState<StoryMessage | null>(null);
   const [dismissedConfirmActionKeys, setDismissedConfirmActionKeys] = useState<Set<string>>(new Set());
@@ -968,10 +1029,6 @@ export function App() {
     setActiveSession,
     setStoryMessages,
   );
-
-  useEffect(() => {
-    setAiDmPresetId(normalizeAiDmPresetId(activeSession?.dmPreset));
-  }, [activeSession?.dmPreset]);
 
   useEffect(() => {
     if (!activeSession || !supabase || activeSession.status === 'ended') return;
@@ -1041,21 +1098,6 @@ export function App() {
     };
   }, [membershipSession?.id, character.id, user]);
 
-  const handleAiPresetSelect = useCallback(
-    (presetId: AiDmPresetId) => {
-      setAiDmPresetId(presetId);
-      if (!activeSession || !supabase) return;
-
-      void updateSessionAiState(activeSession.id, {
-        dmPreset: presetId,
-        markAutosaved: true,
-      }).catch((error) => {
-        console.warn('Could not persist AI DM preset', error);
-      });
-    },
-    [activeSession],
-  );
-
   const partyChoiceState = useGameStore((state) => state.partyChoiceState);
   const dispatchGameEvent = useGameStore((state) => state.dispatch);
   const sceneState = useGameStore((state) => state.sceneState);
@@ -1065,6 +1107,15 @@ export function App() {
   const relationshipState = useGameStore((state) => state.relationshipState);
   const addJournalEntry = useGameStore((state) => state.addJournalEntry);
   const adjustAffinity = useGameStore((state) => state.adjustAffinity);
+  const requestedGamePhase = useGameStore((state) => state.requestedGamePhase);
+  const clearRequestedGamePhase = useGameStore((state) => state.clearRequestedGamePhase);
+
+  // Sync GAME_PHASE_CHANGE events dispatched through the store back to Supabase/local phase state.
+  useEffect(() => {
+    if (!requestedGamePhase || requestedGamePhase === currentPhase) return;
+    clearRequestedGamePhase();
+    void changeGamePhase(requestedGamePhase);
+  }, [requestedGamePhase, currentPhase, changeGamePhase, clearRequestedGamePhase]);
 
   // Initialize default sceneState when entering a session (GameSession has no sceneState field)
   useEffect(() => {
@@ -1105,7 +1156,12 @@ export function App() {
     }
 
     const confirmActions = latestWithActions.metadata?.confirmActions as AiConfirmAction[];
-    const nextAction = confirmActions.find((action) => !dismissedConfirmActionKeys.has(`${latestWithActions.id}:${action.id}`)) ?? null;
+    const confirmedIds = new Set(getAppliedConfirmActionIds(latestWithActions));
+    const nextAction =
+      confirmActions.find((action) => {
+        const key = `${latestWithActions.id}:${action.id}`;
+        return !dismissedConfirmActionKeys.has(key) && !confirmedIds.has(action.id);
+      }) ?? null;
 
     setPendingConfirmAction(nextAction);
     setPendingConfirmSourceMessage(nextAction ? latestWithActions : null);
@@ -1119,8 +1175,6 @@ export function App() {
     pendingSession,
     pendingRoomSetup,
     pendingLibrary,
-    pendingCampaignCreator,
-    pendingAiCampaignGenerator,
     pendingSettings,
     pendingLobby,
     pendingCharSheet,
@@ -1134,8 +1188,6 @@ export function App() {
   const returnToMainMenu = useCallback(() => {
     setPendingRoomSetup(false);
     setPendingLibrary(false);
-    setPendingCampaignCreator(false);
-    setPendingAiCampaignGenerator(false);
     setPendingSettings(false);
     setPendingLobby(false);
     setPendingCharSheet(false);
@@ -1165,11 +1217,9 @@ export function App() {
   );
 
   const navigateTo = useCallback(
-    (target: 'menu' | 'game' | 'char-sheet' | 'char-vault' | 'char-wizard' | 'dm-dashboard' | 'bestiary' | 'library' | 'campaign-creator' | 'ai-campaign-generator' | 'settings') => {
+    (target: 'menu' | 'game' | 'char-sheet' | 'char-vault' | 'char-wizard' | 'dm-dashboard' | 'bestiary' | 'library' | 'settings') => {
       setPendingRoomSetup(false);
       setPendingLibrary(false);
-      setPendingCampaignCreator(false);
-      setPendingAiCampaignGenerator(false);
       setPendingSettings(false);
       setPendingLobby(false);
       setPendingCharSheet(false);
@@ -1198,12 +1248,6 @@ export function App() {
         case 'library':
           setPendingLibrary(true);
           break;
-        case 'campaign-creator':
-          setPendingCampaignCreator(true);
-          break;
-        case 'ai-campaign-generator':
-          setPendingAiCampaignGenerator(true);
-          break;
         case 'settings':
           setPendingSettings(true);
           break;
@@ -1219,8 +1263,6 @@ export function App() {
   const openCharacterSheet = useCallback(() => {
     setPendingRoomSetup(false);
     setPendingLibrary(false);
-    setPendingCampaignCreator(false);
-    setPendingAiCampaignGenerator(false);
     setPendingSettings(false);
     setPendingLobby(false);
     setPendingCharVault(false);
@@ -1244,8 +1286,6 @@ export function App() {
       if (pendingSession) setPendingSession(null);
       if (pendingRoomSetup) setPendingRoomSetup(false);
       if (pendingLibrary) setPendingLibrary(false);
-      if (pendingCampaignCreator) setPendingCampaignCreator(false);
-      if (pendingAiCampaignGenerator) setPendingAiCampaignGenerator(false);
       if (pendingSettings) setPendingSettings(false);
       if (pendingLobby) setPendingLobby(false);
       if (pendingCharSheet) setPendingCharSheet(false);
@@ -1254,16 +1294,11 @@ export function App() {
       if (pendingDmDash) setPendingDmDash(false);
       if (pendingBestiary) setPendingBestiary(false);
     }
-  }, [user, pendingSession, pendingRoomSetup, pendingLibrary, pendingCampaignCreator, pendingAiCampaignGenerator, pendingSettings, pendingLobby, pendingCharSheet, pendingCharVault, pendingCharWizard, pendingDmDash, pendingBestiary]);
+  }, [user, pendingSession, pendingRoomSetup, pendingLibrary, pendingSettings, pendingLobby, pendingCharSheet, pendingCharVault, pendingCharWizard, pendingDmDash, pendingBestiary]);
 
-  const { openingSceneBusy, hasOpeningScene, askAiToOpenScene, askAiForRestSummary } = useAiDm(
-    activeSession,
-    character,
-    encounter,
-    user,
-    storyMessages,
-    setStoryMessages,
-  );
+  const aiBusy = false;
+  const openingSceneBusy = false;
+  const hasOpeningScene = storyMessages.some((message) => message.metadata?.kind === 'scene_opening');
 
   const phaseDefinition = getGamePhaseDefinition(currentPhase);
   const playModeDefinition = getPlayModeDefinition(activeSession?.playMode);
@@ -1459,13 +1494,21 @@ export function App() {
       if (phaseBusy || openingSceneBusy) return;
 
       if (!hasOpeningScene) {
-        const opened = await askAiToOpenScene(premise);
-        if (!opened) return;
+        setStoryMessages((current) =>
+          addUniqueMessage(current, {
+            id: crypto.randomUUID(),
+            speaker: 'system',
+            author: 'Table',
+            body: premise.trim() || 'The run begins.',
+            createdAt: formatLocalTime(),
+            metadata: { kind: 'scene_opening', source: 'manual' },
+          }),
+        );
       }
 
       await changeGamePhase('exploration');
     },
-    [askAiToOpenScene, changeGamePhase, hasOpeningScene, openingSceneBusy, phaseBusy],
+    [changeGamePhase, hasOpeningScene, openingSceneBusy, phaseBusy],
   );
 
   const changeEncounter = useCallback(
@@ -1495,44 +1538,230 @@ export function App() {
 
   const applyAiConfirmAction = useCallback(
     async (action: AiConfirmAction, sourceMessage: StoryMessage) => {
+      const markApplied = async () => {
+        const nextMessage = withAppliedConfirmAction(sourceMessage, action);
+        setStoryMessages((current) => replaceStoryMessage(current, nextMessage));
+
+        if (activeSession && user && supabase) {
+          try {
+            const savedMessage = await updateSessionMessageMetadata(sourceMessage.id, nextMessage.metadata ?? {});
+            setStoryMessages((current) => replaceStoryMessage(current, savedMessage));
+          } catch (error) {
+            console.warn('Could not persist AI confirm action state', error);
+          }
+        }
+      };
+
+      const persistUpdatedCharacter = async (nextCharacter: Character) => {
+        setCharacter(nextCharacter);
+        if (hasSupabaseConfig && activeSession && user) {
+          await persistCharacter(nextCharacter);
+        } else {
+          await saveLocalCharacter(nextCharacter);
+        }
+      };
+
+      const characterEventBase = {
+        id: crypto.randomUUID(),
+        sessionId: activeSession?.id ?? 'local-session',
+        actorId: character.id,
+        targetId: character.id,
+        createdAt: new Date().toISOString(),
+        source: 'ai' as const,
+      };
+
       if (action.type === 'phase_change') {
-        if (!action.phase) throw new Error('AI action is missing a target phase.');
-        await changeGamePhase(action.phase);
+        const phaseCtx: AiEventMapperContext = {
+          sessionId: activeSession?.id ?? 'local-session',
+          actorId: character.id,
+        };
+        const phaseEvent = mapAiEventToGameEvent(action, phaseCtx);
+        if (!phaseEvent) throw new Error('AI phase_change requires a valid phase value.');
+        const phaseResult = dispatchGameEvent(phaseEvent);
+        if (phaseResult.failed.length > 0) throw new Error(phaseResult.failed[0]);
+        await markApplied();
         return;
       }
 
       if (action.type === 'start_combat') {
-        const nextEncounter: EncounterState = {
-          id: crypto.randomUUID(),
-          name: action.encounterName || action.label || 'AI Suggested Encounter',
-          round: 1,
-          activeIndex: 0,
-          isActive: true,
-          combatants: [
-            {
-              id: `pc-${character.id}`,
-              name: character.name,
-              type: 'player',
-              armorClass: character.armorClass,
-              hitPoints: character.hitPoints,
-              maxHitPoints: character.maxHitPoints,
-              tempHitPoints: 0,
-              initiative: 0,
-              conditions: [],
-              deathSaves: { successes: 0, failures: 0 },
-            },
-          ],
+        const startCtx: AiEventMapperContext = {
+          sessionId: activeSession?.id ?? 'local-session',
+          actorId: character.id,
+          playerCharacter: character,
         };
-        await changeEncounter(nextEncounter);
+        const startEvent = mapAiEventToGameEvent(action, startCtx);
+        if (!startEvent) throw new Error('AI start_combat requires player character.');
+        const startResult = dispatchGameEvent(startEvent);
+        if (startResult.failed.length > 0) throw new Error(startResult.failed[0]);
         if (currentPhase !== 'combat') {
-          await changeGamePhase('combat');
+          dispatchGameEvent({
+            id: crypto.randomUUID(),
+            sessionId: activeSession?.id ?? 'local-session',
+            actorId: character.id,
+            createdAt: new Date().toISOString(),
+            source: 'ai',
+            type: 'GAME_PHASE_CHANGE',
+            phase: 'combat',
+          });
         }
-        await postCombatEvent(`Encounter started: ${nextEncounter.name}.`, {
+        const nextEncounter = useGameStore.getState().combatState;
+        await postCombatEvent(`Encounter started: ${nextEncounter?.name ?? action.encounterName ?? 'AI Suggested Encounter'}.`, {
           kind: 'combat_event',
           action: action.type,
           aiAction: action,
           sourceMessageId: sourceMessage.id,
         });
+        await markApplied();
+        return;
+      }
+
+      if (action.type === 'add_item') {
+        const event: GameEvent = {
+          ...characterEventBase,
+          type: 'add_item',
+          item: normalizeAiItem(action),
+        };
+        const result = dispatchGameEvent(event);
+        if (result.failed.length > 0 || !result.character) {
+          throw new Error(result.failed[0] ?? 'AI add item failed.');
+        }
+        await persistUpdatedCharacter(result.character);
+        await postCombatEvent(`${result.character.name} received ${event.item.quantity}x ${event.item.name}.`, {
+          kind: 'ai_confirm_event',
+          action: action.type,
+          aiAction: action,
+          sourceMessageId: sourceMessage.id,
+        });
+        await markApplied();
+        return;
+      }
+
+      if (action.type === 'remove_item') {
+        const itemId = findInventoryItemId(character, action);
+        if (!itemId) {
+          throw new Error('Could not match the AI action to an inventory item.');
+        }
+        const event: GameEvent = {
+          ...characterEventBase,
+          type: 'remove_item',
+          itemId,
+          quantity: action.amount && action.amount > 0 ? Math.trunc(action.amount) : undefined,
+        };
+        const result = dispatchGameEvent(event);
+        if (result.failed.length > 0 || !result.character) {
+          throw new Error(result.failed[0] ?? 'AI remove item failed.');
+        }
+        await persistUpdatedCharacter(result.character);
+        await postCombatEvent(`${character.name} removed ${action.itemName ?? action.targetName ?? 'an item'} from inventory.`, {
+          kind: 'ai_confirm_event',
+          action: action.type,
+          aiAction: action,
+          sourceMessageId: sourceMessage.id,
+        });
+        await markApplied();
+        return;
+      }
+
+      if (action.type === 'use_resource') {
+        if (!action.resourceId) {
+          throw new Error('AI use_resource requires resourceId.');
+        }
+        const event: GameEvent = {
+          ...characterEventBase,
+          type: 'SPEND_RESOURCE',
+          characterId: character.id,
+          resourceId: action.resourceId,
+          amount: Math.max(1, Math.trunc(action.amount ?? 1)),
+        };
+        const result = dispatchGameEvent(event);
+        if (result.failed.length > 0 || !result.character) {
+          throw new Error(result.failed[0] ?? 'AI use resource failed.');
+        }
+        await persistUpdatedCharacter(result.character);
+        await postCombatEvent(`${character.name} spent ${event.amount} ${action.resourceId}.`, {
+          kind: 'ai_confirm_event',
+          action: action.type,
+          aiAction: action,
+          sourceMessageId: sourceMessage.id,
+        });
+        await markApplied();
+        return;
+      }
+
+      if (action.type === 'complete_objective') {
+        if (!action.objectiveId) {
+          throw new Error('AI complete_objective requires objectiveId.');
+        }
+        const event: GameEvent = {
+          ...characterEventBase,
+          type: 'SCENE_OBJECTIVE_UPDATE',
+          sessionId: sceneState?.sessionId ?? activeSession?.id ?? 'local-session',
+          objectiveId: action.objectiveId,
+          status: 'completed',
+        };
+        const result = dispatchGameEvent(event);
+        if (result.failed.length > 0) {
+          throw new Error(result.failed[0]);
+        }
+        await postCombatEvent(`Objective completed: ${action.label}.`, {
+          kind: 'ai_confirm_event',
+          action: action.type,
+          aiAction: action,
+          sourceMessageId: sourceMessage.id,
+        });
+        await markApplied();
+        return;
+      }
+
+      if (action.type === 'advance_threat_clock') {
+        if (!action.clockId) {
+          throw new Error('AI advance_threat_clock requires clockId.');
+        }
+        const event: GameEvent = {
+          ...characterEventBase,
+          type: 'THREAT_CLOCK_ADVANCE',
+          sessionId: sceneState?.sessionId ?? activeSession?.id ?? 'local-session',
+          clockId: action.clockId,
+          amount: Math.max(1, Math.trunc(action.amount ?? 1)),
+        };
+        const result = dispatchGameEvent(event);
+        if (result.failed.length > 0) {
+          throw new Error(result.failed[0]);
+        }
+        await postCombatEvent(`Threat clock advanced: ${action.label}.`, {
+          kind: 'ai_confirm_event',
+          action: action.type,
+          aiAction: action,
+          sourceMessageId: sourceMessage.id,
+        });
+        await markApplied();
+        return;
+      }
+
+      if (
+        action.type === 'add_objective' ||
+        action.type === 'change_relationship' ||
+        action.type === 'add_journal_entry'
+      ) {
+        const narrativeCtx: AiEventMapperContext = {
+          sessionId: activeSession?.id ?? 'local-session',
+          actorId: character.id,
+        };
+        const narrativeEvent = mapAiEventToGameEvent(action, narrativeCtx);
+        if (!narrativeEvent) {
+          throw new Error(`AI ${action.type} is missing required fields.`);
+        }
+        const result = dispatchGameEvent(narrativeEvent);
+        if (result.failed.length > 0) {
+          throw new Error(result.failed[0]);
+        }
+        await postCombatEvent(`${action.label}.`, {
+          kind: 'ai_confirm_event',
+          action: action.type,
+          aiAction: action,
+          sourceMessageId: sourceMessage.id,
+        });
+        await markApplied();
         return;
       }
 
@@ -1540,141 +1769,73 @@ export function App() {
         throw new Error('Start an encounter before applying combat actions.');
       }
 
-      let eventText = action.label;
-      let nextEncounter = encounter;
+      // Resolve combatant target for target-based actions.
+      const combatTarget =
+        action.type === 'next_turn' || action.type === 'previous_turn'
+          ? null
+          : findCombatant(encounter.combatants, action);
 
-      if (action.type === 'next_turn' || action.type === 'previous_turn') {
-        const direction = action.type === 'next_turn' ? 1 : -1;
-        const nextIndex = encounter.activeIndex + direction;
-        const wrappedForward = nextIndex >= encounter.combatants.length;
-        const wrappedBackward = nextIndex < 0;
-        const activeIndex = wrappedForward
-          ? 0
-          : wrappedBackward
-            ? encounter.combatants.length - 1
-            : nextIndex;
-        const round = wrappedForward ? encounter.round + 1 : wrappedBackward ? Math.max(1, encounter.round - 1) : encounter.round;
-        const activeCombatant = encounter.combatants[activeIndex];
-        nextEncounter = { ...encounter, activeIndex, round };
-        eventText = `Turn started: ${activeCombatant.name} (Round ${round})`;
-      } else {
-        const target = findCombatant(encounter.combatants, action);
-        if (!target) {
-          throw new Error('Could not match the AI action to a combatant.');
-        }
-
-        const toGameEvent = (): GameEvent | null => {
-          const base = {
-            id: crypto.randomUUID(),
-            sessionId: activeSession?.id ?? 'local-session',
-            actorId: action.targetId ?? character.id,
-            targetId: target.id,
-            createdAt: new Date().toISOString(),
-            source: 'ai' as const,
-          };
-
-          if (action.type === 'damage') {
-            return {
-              ...base,
-              type: 'apply_damage',
-              amount: Math.max(0, action.amount ?? 0),
-            };
-          }
-
-          if (action.type === 'healing') {
-            return {
-              ...base,
-              type: 'recover_hp',
-              amount: Math.max(0, action.amount ?? 0),
-              recoveryKind: 'healing',
-            };
-          }
-
-          if (action.type === 'add_condition' && action.condition) {
-            return {
-              ...base,
-              type: 'apply_condition',
-              condition: action.condition,
-            };
-          }
-
-          if (action.type === 'remove_condition' && action.condition) {
-            return {
-              ...base,
-              type: 'remove_condition',
-              condition: action.condition,
-            };
-          }
-
-          return null;
-        };
-
-        const nextEvent = toGameEvent();
-        if (!nextEvent) {
-          throw new Error('Unsupported AI combat event.');
-        }
-
-        const result = dispatchGameEvent(nextEvent);
-        if (result.failed.length > 0) {
-          throw new Error(result.failed[0]);
-        }
-        nextEncounter = useGameStore.getState().combatState ?? encounter;
-        const processedCombatant = nextEncounter.combatants.find((combatant) => combatant.id === target.id) ?? target;
-
-        if (action.type === 'damage') {
-          eventText = `${target.name} took ${Math.max(0, action.amount ?? 0)} damage. HP ${processedCombatant.hitPoints}/${processedCombatant.maxHitPoints}.`;
-        } else if (action.type === 'healing') {
-          eventText = `${target.name} healed ${Math.max(0, action.amount ?? 0)}. HP ${processedCombatant.hitPoints}/${processedCombatant.maxHitPoints}.`;
-        } else if (action.type === 'add_condition' && action.condition) {
-          eventText = `${action.condition} added to ${target.name}.`;
-        } else if (action.type === 'remove_condition' && action.condition) {
-          eventText = `${action.condition} removed from ${target.name}.`;
-        }
+      if (action.type !== 'next_turn' && action.type !== 'previous_turn' && !combatTarget) {
+        throw new Error('Could not match the AI action to a combatant.');
       }
 
-      await changeEncounter(nextEncounter);
+      const combatCtx: AiEventMapperContext = {
+        sessionId: activeSession?.id ?? 'local-session',
+        actorId: character.id,
+        targetId: combatTarget?.id,
+        playerCharacter: character,
+      };
+
+      const combatEvent = mapAiEventToGameEvent(action, combatCtx);
+      if (!combatEvent) {
+        throw new Error('Unsupported AI combat event.');
+      }
+
+      const combatResult = dispatchGameEvent(combatEvent);
+      if (combatResult.failed.length > 0) {
+        throw new Error(combatResult.failed[0]);
+      }
+
+      const nextEncounter = useGameStore.getState().combatState ?? encounter;
+
+      let eventText = action.label;
+      if (action.type === 'next_turn' || action.type === 'previous_turn') {
+        const activeCombatant = nextEncounter.combatants[nextEncounter.activeIndex];
+        eventText = `Turn started: ${activeCombatant?.name ?? '?'} (Round ${nextEncounter.round})`;
+      } else if (combatTarget) {
+        const processedCombatant =
+          nextEncounter.combatants.find((c) => c.id === combatTarget.id) ?? combatTarget;
+        if (action.type === 'damage') {
+          eventText = `${combatTarget.name} took ${Math.max(0, action.amount ?? 0)} damage. HP ${processedCombatant.hitPoints}/${processedCombatant.maxHitPoints}.`;
+        } else if (action.type === 'healing') {
+          eventText = `${combatTarget.name} healed ${Math.max(0, action.amount ?? 0)}. HP ${processedCombatant.hitPoints}/${processedCombatant.maxHitPoints}.`;
+        } else if (action.type === 'add_condition' && action.condition) {
+          eventText = `${action.condition} added to ${combatTarget.name}.`;
+        } else if (action.type === 'remove_condition' && action.condition) {
+          eventText = `${action.condition} removed from ${combatTarget.name}.`;
+        }
+      }
       await postCombatEvent(eventText, {
         kind: 'combat_event',
         action: action.type,
         aiAction: action,
         sourceMessageId: sourceMessage.id,
       });
+      await markApplied();
     },
-    [changeEncounter, changeGamePhase, character, currentPhase, encounter, postCombatEvent],
-  );
-
-  const handleAiPanelAction = useCallback(
-    async (label: string, prompt: string) => {
-      if (!activeSession || !user || !supabase) {
-        throw new Error('AI Warden needs an active synced session.');
-      }
-
-      setAiPanelBusy(true);
-      try {
-        const author = user.email?.split('@')[0] || character.name;
-        const playerMessage = await sendSessionMessage(activeSession.id, 'player', author, prompt, {
-          kind: 'ai_panel_action',
-          label,
-        });
-        setStoryMessages((current) => addUniqueMessage(current, playerMessage));
-
-        const aiMessage = await requestAiDmReply(activeSession.id, character.name, prompt, [...storyMessages, playerMessage], {
-          session: activeSession,
-          gamePhase: currentPhase,
-          character,
-          encounter,
-          aiMode: 'adventure',
-          requestMode: 'reply',
-          dmPresetId: aiDmPresetId,
-          sessionRecap: activeSession.sessionRecap,
-          partySummary: `${character.name}, level ${character.level} ${character.ancestry} ${character.className}`,
-        });
-        setStoryMessages((current) => addUniqueMessage(current, aiMessage));
-      } finally {
-        setAiPanelBusy(false);
-      }
-    },
-    [activeSession, aiDmPresetId, character, currentPhase, encounter, storyMessages, user],
+    [
+      activeSession,
+      character,
+      currentPhase,
+      dispatchGameEvent,
+      encounter,
+      persistCharacter,
+      postCombatEvent,
+      saveLocalCharacter,
+      sceneState?.sessionId,
+      setCharacter,
+      user,
+    ],
   );
 
   const handleAiPanelConfirmAction = useCallback(
@@ -1756,6 +1917,83 @@ export function App() {
     [activeSession, persistCharacter, saveLocalCharacter, user],
   );
 
+  const handleSpellCast = useCallback(
+    (spellId: string, slotLevel: number) => {
+      const currentCharacter = useGameStore.getState().activeCharacter ?? character;
+      if (!currentCharacter || !activeSession || !user) return;
+
+      const newSpell = getSpell(spellId);
+      const currentConcentration = currentCharacter.systemData.activeConcentration;
+      const currentConcentrationSpell = currentConcentration
+        ? getSpell(currentConcentration.spellId)
+        : null;
+
+      if (newSpell?.concentration && currentConcentration) {
+        const confirmed = window.confirm(
+          `กำลัง concentrate "${currentConcentrationSpell?.name ?? currentConcentration.spellId}" อยู่\n` +
+          `การร่ายคาถา "${newSpell.name}" จะยกเลิก concentration\n\n` +
+          `ยืนยันไหม?`,
+        );
+        if (!confirmed) return;
+
+        const endResult = dispatchGameEvent({
+          id: crypto.randomUUID(),
+          type: 'CONCENTRATION_END',
+          sessionId: activeSession.id,
+          actorId: user.id,
+          targetId: currentCharacter.id,
+          createdAt: new Date().toISOString(),
+          source: 'user',
+          characterId: currentCharacter.id,
+          reason: 'new_spell',
+        });
+
+        if (endResult.character) {
+          setCharacter(endResult.character);
+        }
+      }
+
+      const result = dispatchGameEvent({
+        id: crypto.randomUUID(),
+        type: 'CAST_SPELL',
+        sessionId: activeSession.id,
+        actorId: user.id,
+        targetId: currentCharacter.id,
+        createdAt: new Date().toISOString(),
+        source: 'user',
+        spellId,
+        slotLevel,
+        characterId: currentCharacter.id,
+        upcasting: slotLevel > (newSpell?.level ?? slotLevel),
+      });
+
+      const nextCharacter = result.character;
+      if (nextCharacter) {
+        setCharacter(nextCharacter);
+      }
+
+      const spell = newSpell;
+      const spellName = spell?.name ?? spellId;
+      const body = result.failed.length
+        ? `${currentCharacter.name} ไม่มี spell slot เหลือ`
+        : slotLevel === 0
+          ? `${currentCharacter.name} ใช้คาถา ${spellName}`
+          : `${currentCharacter.name} ร่ายคาถา ${spellName} ด้วย slot ระดับ ${slotLevel}`;
+
+      setStoryMessages((current) =>
+        addUniqueMessage(current, {
+          id: crypto.randomUUID(),
+          speaker: 'system',
+          author: 'Table',
+          body: spell?.concentration && !result.failed.length ? `${body} + กำลัง concentrate` : body,
+          createdAt: formatLocalTime(),
+          metadata: { kind: 'spell_cast', spellId, slotLevel, failed: result.failed },
+        }),
+      );
+    },
+    [activeSession, character, dispatchGameEvent, setCharacter, user],
+  );
+
   const handleGameTableCombatChange = useCallback(
     (change: { kind: string; target?: string; amount?: number | string; source?: string }) => {
       void changeEncounter(useGameStore.getState().combatState);
@@ -1799,22 +2037,16 @@ export function App() {
               setPendingRoomSetup(false);
               setPendingSession(null);
               setPendingSettings(false);
-              setPendingCampaignCreator(false);
-              setPendingAiCampaignGenerator(false);
               setPendingLibrary(true);
             }}
             onRequestSettings={() => {
               setPendingRoomSetup(false);
               setPendingSession(null);
               setPendingLibrary(false);
-              setPendingCampaignCreator(false);
-              setPendingAiCampaignGenerator(false);
               setPendingSettings(true);
             }}
             onRequestRoomSetup={() => {
               setPendingLibrary(false);
-              setPendingCampaignCreator(false);
-              setPendingAiCampaignGenerator(false);
               setPendingSettings(false);
               setPendingSession(null);
               setRoomModal(null);
@@ -1843,37 +2075,17 @@ export function App() {
 
       if (appStage === 'library') {
         return (
-          <CampaignLibrary
-            user={user}
-            onBack={returnToMainMenu}
-            onCreateCampaign={() => {
-              setPendingLibrary(false);
-              setPendingCampaignCreator(true);
-            }}
-            onGenerateCampaign={() => {
-              setPendingLibrary(false);
-              setPendingAiCampaignGenerator(true);
-            }}
-            onEnterSession={(session) => requestEnterSession(session, user)}
-          />
+          <article className="fw-card">
+            <div className="fw-card-body">
+              <p className="fw-eyebrow">Warden's Run</p>
+              <strong>Campaign library runtime has been retired.</strong>
+              <p className="fw-body-sm fw-muted">The new run engine is being wired as the replacement progression layer.</p>
+              <button className="fw-btn fw-btn--ghost" onClick={returnToMainMenu} type="button">
+                Back to hearth
+              </button>
+            </div>
+          </article>
         );
-      }
-
-      if (appStage === 'ai-campaign-generator') {
-        return (
-          <AiCampaignGenerator
-            user={user}
-            onBack={() => navigateTo('library')}
-            onImportCampaign={(campaign) => {
-              saveCampaignCreatorDraft(campaign);
-              navigateTo('campaign-creator');
-            }}
-          />
-        );
-      }
-
-      if (appStage === 'campaign-creator') {
-        return <CampaignCreator user={user} onBack={() => navigateTo('library')} />;
       }
 
       if (appStage === 'settings') {
@@ -1929,7 +2141,7 @@ export function App() {
       }
 
       if (appStage === 'char-sheet') {
-        return <CharacterSheetPage user={user} onBack={returnFromCharacterSheet} />;
+        return <CharacterSheetPage user={user} onBack={returnFromCharacterSheet} onSpellCast={handleSpellCast} />;
       }
 
       if (appStage === 'dm-dashboard') {
@@ -2059,10 +2271,9 @@ export function App() {
               onSendMessage={handleGameTableMessage}
               onUpdateCharacter={handleGameTableCharacterUpdate}
               onCombatChange={handleGameTableCombatChange}
-              onAskAiAction={async (text, mode) => {
-                await handleAiPanelAction(mode, text);
-              }}
               onConfirmAiAction={applyAiConfirmAction}
+              onSpellCast={handleSpellCast}
+              aiIsProcessing={aiBusy}
               combatMode={combatActive}
               onToggleCombat={(active) => setCombatActive(active)}
               combatView={

@@ -2,15 +2,22 @@ import { create } from 'zustand';
 import { createEventQueueState, processEventQueue, type EventRuntimeState } from '../engine/events/eventQueue';
 import { addParticipant, type CombatParticipant, type CombatState as EngineCombatState } from '../engine/combat';
 import { applyLongRest, applyShortRest } from '../engine/character/rest';
-import { getSceneContext as buildSceneContext, type SceneState } from '../engine/scene';
+import { addObjective, getSceneContext as buildSceneContext, type SceneState } from '../engine/scene';
+import type { SceneObjective } from '../engine/scene/sceneTypes';
 import type { RaceRuntime } from '../engine/races/raceRuntime';
-import type { GameEvent } from '../engine/events/types';
 import type { PartyChoice, PartyChoiceState } from '../engine/party/partyChoiceTypes';
 import type { CompanionSheet, CompanionState } from '../engine/companion/companionTypes';
 import { addEntry, removeEntry } from '../engine/journal/journalEngine';
 import type { JournalEntry, JournalState } from '../engine/journal/journalTypes';
 import { adjustAffinity as adjustAffinityEngine } from '../engine/relationship/relationshipEngine';
 import type { RelationshipState } from '../engine/relationship/relationshipTypes';
+import { generateRun } from '../engine/run/mapGenerator';
+import {
+  completeNode as completeRunNode,
+  selectNode as selectRunNode,
+  type NodeResult,
+} from '../engine/run/runEngine';
+import type { RunState } from '../engine/run/runTypes';
 import {
   processPartyChoiceCreated,
   processPartyChoiceResolved,
@@ -48,7 +55,15 @@ import {
   processCombatSortInitiative,
   processCombatUseAction,
 } from '../engine/events/processors/combatProcessor';
-import type { Character, Combatant, EncounterState, Inventory } from '../types';
+import { processCastSpell, processConcentrationEnd } from '../engine/events/processors/spellProcessor';
+import type {
+  CastSpellEvent,
+  ConcentrationEndEvent,
+  ConcentrationSaveCheckEvent,
+  ConcentrationStartEvent,
+  GameEvent,
+} from '../engine/events/types';
+import type { Character, Combatant, EncounterState, GamePhase, Inventory } from '../types';
 
 type DispatchResult = {
   character: Character | null;
@@ -63,11 +78,14 @@ type GameStoreState = {
   partyChoiceState: PartyChoiceState;
   journalState: JournalState;
   relationshipState: RelationshipState;
+  runState: RunState | null;
   activeCharacter: Character | null;
   classRuntime: Character['systemData']['classRuntime'] | null;
   raceRuntime: RaceRuntime | null;
   inventory: Inventory | null;
   partyChoiceAiResponder: ((input: string) => void | Promise<void>) | null;
+  requestedGamePhase: GamePhase | null;
+  clearRequestedGamePhase: () => void;
   setCombatState: (combatState: EncounterState | null) => void;
   setSceneState: (sceneState: SceneState | null) => void;
   addCompanion: (companion: CompanionSheet) => void;
@@ -81,6 +99,10 @@ type GameStoreState = {
   addJournalEntry: (entry: JournalEntry) => void;
   removeJournalEntry: (entryId: string) => void;
   adjustAffinity: (characterId: string, npcId: string, npcName: string, delta: number, reason: string) => void;
+  startRun: (partyIds: string[], positions: Record<string, 1 | 2 | 3 | 4>, sessionId?: string) => void;
+  selectNode: (nodeId: string) => { error?: string };
+  completeNode: (nodeId: string, result: NodeResult) => void;
+  endRun: (victory: boolean) => void;
   eventMeta: (characterId: string) => {
     id: string;
     sessionId: string;
@@ -230,11 +252,14 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   },
   journalState: { entries: [] },
   relationshipState: { records: [] },
+  runState: null,
   activeCharacter: null,
   classRuntime: null,
   raceRuntime: null,
   inventory: null,
   partyChoiceAiResponder: null,
+  requestedGamePhase: null,
+  clearRequestedGamePhase: () => set({ requestedGamePhase: null }),
   setCombatState: (combatState) => set({ combatState }),
   setSceneState: (sceneState) => set({ sceneState }),
   addCompanion: (companion) =>
@@ -282,6 +307,39 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     set((state) => ({
       relationshipState: adjustAffinityEngine(state.relationshipState, characterId, npcId, npcName, delta, reason),
     })),
+  startRun: (partyIds, positions, sessionId = 'local-run') =>
+    set(() => {
+      const run = generateRun(sessionId);
+      return {
+        runState: {
+          ...run,
+          partyCharacterIds: [...partyIds],
+          partyPositions: { ...positions },
+        },
+      };
+    }),
+  selectNode: (nodeId) => {
+    const current = get().runState;
+    if (!current) return { error: 'No active run.' };
+    const next = selectRunNode(current, nodeId);
+    if ('error' in next) return next;
+    set({ runState: next });
+    return {};
+  },
+  completeNode: (nodeId, result) =>
+    set((state) => ({
+      runState: state.runState ? completeRunNode(state.runState, nodeId, result) : state.runState,
+    })),
+  endRun: (victory) =>
+    set((state) => ({
+      runState: state.runState
+        ? {
+            ...state.runState,
+            status: victory ? 'victory' : 'defeat',
+            endedAt: new Date().toISOString(),
+          }
+        : state.runState,
+    })),
   setActiveCharacter: (character) =>
     set({
       activeCharacter: character,
@@ -303,6 +361,100 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     source: 'user',
   }),
   dispatch: (event) => {
+    if (event.type === 'CAST_SPELL') {
+      const currentCharacter = get().activeCharacter;
+      if (!currentCharacter) {
+        return { character: null, appliedCount: 0, failed: ['No active character in runtime store.'] };
+      }
+      const result = processCastSpell(currentCharacter, event as CastSpellEvent);
+      set({
+        activeCharacter: result.character,
+        classRuntime: mapClassRuntime(result.character),
+        raceRuntime: mapRaceRuntime(result.character),
+        inventory: mapInventory(result.character),
+      });
+      result.sideEffects.forEach((sideEffect) => {
+        void get().dispatch(sideEffect as GameEvent);
+      });
+      const failed = result.sideEffects
+        .map((sideEffect) => (sideEffect as { error?: string }).error)
+        .filter((error): error is string => Boolean(error));
+      return { character: result.character, appliedCount: failed.length ? 0 : 1, failed };
+    }
+
+    if (event.type === 'CONCENTRATION_START') {
+      const currentCharacter = get().activeCharacter;
+      if (!currentCharacter) {
+        return { character: null, appliedCount: 0, failed: ['No active character in runtime store.'] };
+      }
+      const concentrationEvent = event as ConcentrationStartEvent;
+      const nextCharacter = {
+        ...currentCharacter,
+        systemData: {
+          ...currentCharacter.systemData,
+          activeConcentration: {
+            spellId: concentrationEvent.spellId,
+            duration: concentrationEvent.duration,
+            startedAt: new Date().toISOString(),
+          },
+        },
+      };
+      set({
+        activeCharacter: nextCharacter,
+        classRuntime: mapClassRuntime(nextCharacter),
+        raceRuntime: mapRaceRuntime(nextCharacter),
+        inventory: mapInventory(nextCharacter),
+      });
+      return { character: nextCharacter, appliedCount: 1, failed: [] };
+    }
+
+    if (event.type === 'CONCENTRATION_END') {
+      const currentCharacter = get().activeCharacter;
+      if (!currentCharacter) {
+        return { character: null, appliedCount: 0, failed: ['No active character in runtime store.'] };
+      }
+      const nextCharacter = processConcentrationEnd(currentCharacter, event as ConcentrationEndEvent);
+      set({
+        activeCharacter: nextCharacter,
+        classRuntime: mapClassRuntime(nextCharacter),
+        raceRuntime: mapRaceRuntime(nextCharacter),
+        inventory: mapInventory(nextCharacter),
+      });
+      return { character: nextCharacter, appliedCount: 1, failed: [] };
+    }
+
+    if (event.type === 'CONCENTRATION_SAVE_CHECK') {
+      const concentrationEvent = event as ConcentrationSaveCheckEvent;
+      const currentCharacter = get().activeCharacter;
+      if (!currentCharacter?.systemData.activeConcentration) {
+        return { character: currentCharacter, appliedCount: 0, failed: [] };
+      }
+      if (concentrationEvent.characterId !== currentCharacter.id) {
+        return { character: currentCharacter, appliedCount: 0, failed: [] };
+      }
+
+      const conModifier = Math.floor(((currentCharacter.abilities.con ?? 10) - 10) / 2);
+      const saveBonus = currentCharacter.systemData.featBonuses?.savingThrows?.con ?? 0;
+      const roll = Math.floor(Math.random() * 20) + 1;
+      const total = roll + conModifier + saveBonus;
+
+      if (total < concentrationEvent.dc) {
+        void get().dispatch({
+          id: crypto.randomUUID(),
+          type: 'CONCENTRATION_END',
+          sessionId: concentrationEvent.sessionId,
+          actorId: concentrationEvent.actorId,
+          targetId: concentrationEvent.targetId,
+          createdAt: new Date().toISOString(),
+          source: 'system',
+          characterId: concentrationEvent.characterId,
+          reason: 'damage',
+        });
+      }
+
+      return { character: get().activeCharacter, appliedCount: 1, failed: [] };
+    }
+
     if (event.type === 'COMBAT_CREATE_ENCOUNTER') {
       const result = processCombatCreateEncounter(event, {});
       if (!result.applied) {
@@ -515,6 +667,28 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             return { character: get().activeCharacter, appliedCount: 0, failed: [result.error ?? 'Failed to update combat target.'] };
           }
           get().setCombatState(result.combatState);
+          const activeCharacter = get().activeCharacter;
+          if (
+            event.type === 'apply_damage' &&
+            event.amount > 0 &&
+            target.type === 'player' &&
+            target.characterId &&
+            activeCharacter?.id === target.characterId &&
+            activeCharacter.systemData.activeConcentration
+          ) {
+            void get().dispatch({
+              id: crypto.randomUUID(),
+              type: 'CONCENTRATION_SAVE_CHECK',
+              sessionId: event.sessionId,
+              actorId: event.actorId,
+              targetId: target.id,
+              createdAt: new Date().toISOString(),
+              source: 'system',
+              characterId: target.characterId,
+              dc: Math.max(10, Math.floor(event.amount / 2)),
+              damage: event.amount,
+            });
+          }
           return { character: get().activeCharacter, appliedCount: 1, failed: [] };
         }
       }
@@ -755,6 +929,58 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         appliedCount: 1,
         failed: [],
       };
+    }
+
+    if (event.type === 'GAME_PHASE_CHANGE') {
+      set({ requestedGamePhase: event.phase });
+      return { character: get().activeCharacter, appliedCount: 1, failed: [] };
+    }
+
+    if (event.type === 'COMBAT_REVERT_TURN') {
+      return get().dispatch({
+        id: event.id,
+        type: 'COMBAT_ADVANCE_TURN',
+        sessionId: event.sessionId,
+        actorId: event.actorId,
+        targetId: event.targetId,
+        createdAt: event.createdAt,
+        source: event.source,
+        direction: -1,
+      });
+    }
+
+    if (event.type === 'ADD_OBJECTIVE') {
+      const sceneState = get().sceneState;
+      if (!sceneState) {
+        return { character: get().activeCharacter, appliedCount: 0, failed: ['No active scene for ADD_OBJECTIVE.'] };
+      }
+      const newObjective: SceneObjective = {
+        id: crypto.randomUUID(),
+        description: event.description,
+        status: 'active',
+        isHidden: false,
+      };
+      set({ sceneState: addObjective(sceneState, newObjective) });
+      return { character: get().activeCharacter, appliedCount: 1, failed: [] };
+    }
+
+    if (event.type === 'CHANGE_RELATIONSHIP') {
+      get().adjustAffinity(event.characterId, event.npcId, event.npcName, event.delta, event.reason ?? '');
+      return { character: get().activeCharacter, appliedCount: 1, failed: [] };
+    }
+
+    if (event.type === 'ADD_JOURNAL_ENTRY') {
+      get().addJournalEntry({
+        id: crypto.randomUUID(),
+        sessionId: event.sessionId,
+        characterId: event.characterId,
+        type: event.entryType,
+        title: event.title,
+        content: event.content,
+        tags: [],
+        createdAt: Date.now(),
+      });
+      return { character: get().activeCharacter, appliedCount: 1, failed: [] };
     }
 
     const currentCharacter = get().activeCharacter;

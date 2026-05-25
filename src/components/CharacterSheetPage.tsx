@@ -6,6 +6,7 @@ import { listVaultCharacters, saveVaultCharacter } from '../lib/characters';
 import { abilityLabels, abilityModifier, formatModifier, skillAbilityMap } from '../lib/rules';
 import { uploadUserImage } from '../lib/storage';
 import { useGameStore } from '../store/useGameStore';
+import { getSpell, SPELLS } from '../data/spells';
 import type { AbilityKey, Character, Item, SpellSlotState, VaultCharacter } from '../types';
 import { CharacterSheetView } from './CharacterSheetView';
 import { LevelUpModal } from './LevelUpModal';
@@ -14,6 +15,7 @@ import { Icon } from './ui/Icons';
 type CharacterSheetPageProps = {
   user: User;
   onBack: () => void;
+  onSpellCast?: (spellId: string, slotLevel: number) => void;
 };
 
 type TabId = 'skills' | 'features' | 'spells' | 'items' | 'lore';
@@ -295,7 +297,16 @@ function FeaturesPanel({ character }: { character: Character }) {
   );
 }
 
-function SpellsPanel({ character }: { character: Character }) {
+function normalizeSpellId(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+function resolveSpellData(value: string) {
+  const normalized = normalizeSpellId(value);
+  return getSpell(value) ?? getSpell(normalized) ?? SPELLS.find((spell) => spell.name.toLowerCase() === value.trim().toLowerCase());
+}
+
+function SpellsPanel({ character, onSpellCast }: { character: Character; onSpellCast?: (spellId: string, slotLevel: number) => void }) {
   const spells = character.spellsKnown?.length ? character.spellsKnown : character.spells;
   const slots = Object.entries(character.spellSlots ?? {})
     .map(([level, state]) => [Number(level), state] as [number, SpellSlotState])
@@ -303,7 +314,7 @@ function SpellsPanel({ character }: { character: Character }) {
     .sort(([a], [b]) => a - b);
   const spellSaveDC = character.systemData.derivedStats?.spellSaveDC;
   const spellAttackBonus = character.systemData.derivedStats?.spellAttackBonus;
-  const castReason = 'Spell casting from the character sheet is not wired yet.';
+  const [selectedSlots, setSelectedSlots] = useState<Record<string, number>>({});
 
   return (
     <div>
@@ -335,24 +346,53 @@ function SpellsPanel({ character }: { character: Character }) {
             right={<span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-3)' }}>{spells.length} known <LockedBadge /></span>}
           />
           <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {spells.map((spell) => (
-              <div key={spell} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--surface-2)', border: '1px solid var(--border-soft)', borderRadius: 6 }}>
-                <span style={{ color: 'var(--arcane-bright)' }}>{Icon('flame', { size: 13 })}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, color: 'var(--text)' }}>{spell}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--f-mono)' }}>Edit spell notes in the full sheet.</div>
+            {spells.map((spell) => {
+              const spellData = resolveSpellData(spell);
+              const spellId = spellData?.id ?? normalizeSpellId(spell);
+              const isCantrip = spellData?.level === 0;
+              const availableSlots = spellData
+                ? slots.filter(([level, state]) => level >= spellData.level && state.used < state.max).map(([level]) => level)
+                : [];
+              const selectedSlot = availableSlots.includes(selectedSlots[spellId])
+                ? selectedSlots[spellId]
+                : availableSlots[0] ?? spellData?.level ?? 1;
+              const disabled = !spellData || (!isCantrip && availableSlots.length === 0);
+              const castTitle = !spellData ? 'Spell data not found.' : disabled ? 'No slots remaining' : undefined;
+
+              return (
+                <div key={spell} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--surface-2)', border: '1px solid var(--border-soft)', borderRadius: 6 }}>
+                  <span style={{ color: 'var(--arcane-bright)' }}>{Icon('flame', { size: 13 })}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: 'var(--text)' }}>{spellData?.name ?? spell}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--f-mono)' }}>
+                      {spellData ? (isCantrip ? 'Cantrip' : `Level ${spellData.level} spell`) : 'Edit spell notes in the full sheet.'}
+                    </div>
+                  </div>
+                  {!isCantrip && spellData ? (
+                    <select
+                      className="fw-select"
+                      value={selectedSlot}
+                      onChange={(event) => setSelectedSlots((current) => ({ ...current, [spellId]: Number(event.target.value) }))}
+                      style={{ width: 92, height: 28, fontSize: 11 }}
+                    >
+                      {availableSlots.map((level) => (
+                        <option key={level} value={level}>Slot Lv.{level}</option>
+                      ))}
+                    </select>
+                  ) : null}
+                  <button
+                    className="fw-btn fw-btn-ghost fw-btn-sm"
+                    disabled={disabled}
+                    onClick={() => onSpellCast?.(spellId, isCantrip ? 0 : selectedSlot)}
+                    title={castTitle}
+                    type="button"
+                    style={{ padding: '3px 8px', fontSize: 10.5 }}
+                  >
+                    {Icon('dice', { size: 10 })} {isCantrip ? 'Use' : 'Cast'}
+                  </button>
                 </div>
-                <button
-                  className="fw-btn fw-btn-ghost fw-btn-sm"
-                  disabled
-                  title={castReason}
-                  type="button"
-                  style={{ padding: '3px 8px', fontSize: 10.5 }}
-                >
-                  {Icon('dice', { size: 10 })} Cast
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </Card>
       ) : (
@@ -429,7 +469,7 @@ function LorePanel({ character }: { character: Character }) {
   );
 }
 
-export function CharacterSheetPage({ user, onBack }: CharacterSheetPageProps) {
+export function CharacterSheetPage({ user, onBack, onSpellCast }: CharacterSheetPageProps) {
   const [tab, setTab] = useState<TabId>('skills');
   const [characters, setCharacters] = useState<VaultCharacter[]>([]);
   const [selectedId, setSelectedId] = useState('');
@@ -439,6 +479,7 @@ export function CharacterSheetPage({ user, onBack }: CharacterSheetPageProps) {
   const [error, setError] = useState('');
   const [editOpen, setEditOpen] = useState(false);
   const [levelUpOpen, setLevelUpOpen] = useState(false);
+  const [shortRestDice, setShortRestDice] = useState(1);
   const dispatch = useGameStore((state) => state.dispatch);
   const eventMeta = useGameStore((state) => state.eventMeta);
   const setActiveCharacter = useGameStore((state) => state.setActiveCharacter);
@@ -556,7 +597,7 @@ export function CharacterSheetPage({ user, onBack }: CharacterSheetPageProps) {
       ...eventMeta(selectedCharacter.id),
       type: 'SHORT_REST',
       characterId: selectedCharacter.id,
-      hitDiceSpent: 1,
+      hitDiceSpent: shortRestDice,
     });
     if (result.failed.length) {
       setError(result.failed.join(' '));
@@ -782,7 +823,7 @@ export function CharacterSheetPage({ user, onBack }: CharacterSheetPageProps) {
             <div style={{ marginTop: 16 }}>
               {tab === 'skills' ? <SkillsPanel character={selectedCharacter} /> : null}
               {tab === 'features' ? <FeaturesPanel character={selectedCharacter} /> : null}
-              {tab === 'spells' ? <SpellsPanel character={selectedCharacter} /> : null}
+              {tab === 'spells' ? <SpellsPanel character={selectedCharacter} onSpellCast={onSpellCast} /> : null}
               {tab === 'items' ? <ItemsPanel character={selectedCharacter} /> : null}
               {tab === 'lore' ? <LorePanel character={selectedCharacter} /> : null}
             </div>
@@ -806,9 +847,24 @@ export function CharacterSheetPage({ user, onBack }: CharacterSheetPageProps) {
                   .map(([level, slot]) => (
                     <ResourceBar key={level} label={`Spell Slots (Lv ${level})`} cur={slot.max - slot.used} max={slot.max} color="arcane" />
                   ))}
+                {(selectedCharacter.systemData.classRuntime?.resources ?? [])
+                  .filter((resource) => resource.max > 0)
+                  .map((resource) => (
+                    <ResourceBar key={resource.id} label={resource.name} cur={resource.current} max={resource.max} color="gold" />
+                  ))}
                 <ResourceBar label="Hit Dice" cur={selectedCharacter.hitDice} max={selectedCharacter.maxHitDice} color="gold" />
                 <ResourceBar label="Inspiration" cur={selectedCharacter.inspiration ? 1 : 0} max={1} color="gold" diamond />
                 <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <input
+                    aria-label="Hit dice to spend on short rest"
+                    disabled={saving || selectedCharacter.hitDice <= 0}
+                    max={selectedCharacter.hitDice}
+                    min={1}
+                    onChange={(e) => setShortRestDice(Math.min(selectedCharacter.hitDice, Math.max(1, e.target.valueAsNumber || 1)))}
+                    style={{ width: 44, fontFamily: 'var(--f-mono)', fontSize: 12, textAlign: 'center', border: '1px solid var(--border)', borderRadius: 4, background: 'var(--bg-deep)', color: 'var(--text)', padding: '0 4px' }}
+                    type="number"
+                    value={shortRestDice}
+                  />
                   <button
                     className="fw-btn fw-btn-ghost fw-btn-sm"
                     disabled={saving || selectedCharacter.hitDice <= 0}

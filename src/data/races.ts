@@ -1,5 +1,29 @@
 import type { AbilityKey } from '../types';
 
+export type DraconicAncestry = {
+  id: string;
+  element: 'Acid' | 'Cold' | 'Fire' | 'Lightning' | 'Poison';
+  breath: 'line 5x30ft' | 'cone 15ft';
+  save: 'dex' | 'con';
+};
+
+export const draconicAncestries: DraconicAncestry[] = [
+  { id: 'black',  element: 'Acid',      breath: 'line 5x30ft', save: 'dex' },
+  { id: 'blue',   element: 'Lightning', breath: 'line 5x30ft', save: 'dex' },
+  { id: 'brass',  element: 'Fire',      breath: 'line 5x30ft', save: 'dex' },
+  { id: 'bronze', element: 'Lightning', breath: 'line 5x30ft', save: 'dex' },
+  { id: 'copper', element: 'Acid',      breath: 'line 5x30ft', save: 'dex' },
+  { id: 'gold',   element: 'Fire',      breath: 'cone 15ft',   save: 'dex' },
+  { id: 'green',  element: 'Poison',    breath: 'cone 15ft',   save: 'con' },
+  { id: 'red',    element: 'Fire',      breath: 'cone 15ft',   save: 'dex' },
+  { id: 'silver', element: 'Cold',      breath: 'cone 15ft',   save: 'con' },
+  { id: 'white',  element: 'Cold',      breath: 'cone 15ft',   save: 'con' },
+];
+
+export function getDraconicAncestry(id?: string): DraconicAncestry | undefined {
+  return draconicAncestries.find((ancestry) => ancestry.id === id);
+}
+
 export type RacialTrait = {
   name: string;
   description: string;
@@ -25,6 +49,7 @@ export type RaceDefinition = {
   languages: string[];
   traits: RacialTrait[];
   subraces: SubraceDefinition[];
+  draconicAncestries?: DraconicAncestry[];
   darkvision: number; // ft, 0 = none
 };
 
@@ -202,7 +227,7 @@ export const races: RaceDefinition[] = [
     traits: [
       {
         name: 'Draconic Ancestry',
-        description: 'Choose a dragon type: Black (acid), Blue (lightning), Brass (fire), Bronze (lightning), Copper (acid), Gold (fire), Green (poison), Red (fire), Silver (cold), White (cold). Determines breath weapon damage type and resistance.',
+        description: 'Choose a dragon type. The ancestry determines breath weapon damage type, area, saving throw, and damage resistance.',
       },
       {
         name: 'Breath Weapon',
@@ -210,6 +235,7 @@ export const races: RaceDefinition[] = [
       },
       { name: 'Damage Resistance', description: 'Resistance to the damage type associated with your Draconic Ancestry.' },
     ],
+    draconicAncestries,
     subraces: [],
   },
 
