@@ -1,9 +1,10 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { Icon } from './ui/Icons';
 import { Field, Seg, Toggle } from './ui/Primitives';
 import { useGameStore } from '../store/useGameStore';
 import { InventoryPanel } from './InventoryPanel';
+import { RunContent } from './Run/RunContent';
 import { getSpell, SPELLS } from '../data/spells';
 import { rollDice as rollFormula } from '../engine/dice/dice';
 import { performAbilityCheck, performAttackRoll, performSavingThrow, performSkillCheck } from '../engine/dice/rollEngine';
@@ -490,7 +491,7 @@ export function GameTable({
   onToggleCombat,
   combatView,
 }: GameTableProps) {
-  const { sceneState, combatState, journalState, activeCharacter, setActiveCharacter, dispatch, eventMeta } = useGameStore();
+  const { sceneState, combatState, journalState, activeCharacter, setActiveCharacter, dispatch, eventMeta, gameMode, runState } = useGameStore();
   const tableCharacter = character ?? activeCharacter;
 
   const [leftTab,      setLeftTab]      = useState<LeftTab>('party');
@@ -657,6 +658,20 @@ export function GameTable({
   const visibleStoryMessages = messages.filter((message) => matchesStoryTab(storyTab, message));
   const partyMembers = buildPartyMembers(tableCharacter, sessionMembers, combatState, user.id);
   const questItems = buildQuestItems(sceneState, journalState.entries);
+  const visibleRightTabs = ([
+    { id: 'dice',   label: 'Dice',      icon: 'dice'   },
+    { id: 'combat', label: 'Combat',    icon: 'sword'  },
+    { id: 'ai',     label: 'AI Warden', icon: 'wand'   },
+    { id: 'tools',  label: 'Tools',     icon: 'cog'    },
+  ] as { id: RightTab; label: string; icon: string }[]).filter((tab) => (
+    gameMode !== 'warden_run' || tab.id !== 'ai'
+  ));
+
+  useEffect(() => {
+    if (gameMode === 'warden_run' && rightTab === 'ai') {
+      setRightTab('dice');
+    }
+  }, [gameMode, rightTab]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -730,7 +745,7 @@ export function GameTable({
           minHeight: 0,
           background: 'linear-gradient(180deg, rgba(20,17,29,0.2), rgba(11,10,16,0))',
         }}>
-          {combatMode && combatView ? combatView : (
+          {combatMode && combatView ? combatView : gameMode === 'warden_run' ? <RunContent /> : (
             <>
               <GtSceneHeader sceneState={sceneState} />
 
@@ -827,12 +842,7 @@ export function GameTable({
           minHeight: 0,
         }}>
           <div className="fw-tabs" style={{ paddingInline: 8 }}>
-            {([
-              { id: 'dice',   label: 'Dice',      icon: 'dice'   },
-              { id: 'combat', label: 'Combat',    icon: 'sword'  },
-              { id: 'ai',     label: 'AI Warden', icon: 'wand'   },
-              { id: 'tools',  label: 'Tools',     icon: 'cog'    },
-            ] as { id: RightTab; label: string; icon: string }[]).map(t => (
+            {visibleRightTabs.map(t => (
               <button
                 key={t.id}
                 type="button"
@@ -875,6 +885,20 @@ export function GameTable({
           </div>
         </aside>
       </div>
+
+      {gameMode === 'warden_run' && runState && (
+        <div className="wr-status-strip">
+          <span className="fw-caption">
+            FLOOR {runState.currentFloor} / {runState.floors.length}
+          </span>
+          <span className="fw-caption fw-mono">
+            ⬡ {runState.gold}
+          </span>
+          <span className="fw-caption">
+            ◈ {runState.relics?.length ?? 0} RELICS
+          </span>
+        </div>
+      )}
 
       {pendingChange && (
         <GtConfirmModal change={pendingChange} onClose={() => setPendingChange(null)} />

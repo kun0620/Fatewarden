@@ -13,11 +13,18 @@ import { adjustAffinity as adjustAffinityEngine } from '../engine/relationship/r
 import type { RelationshipState } from '../engine/relationship/relationshipTypes';
 import { generateRun } from '../engine/run/mapGenerator';
 import {
+  addGold as addRunGold,
+  addRelic as addRunRelic,
   completeNode as completeRunNode,
   selectNode as selectRunNode,
+  spendGold as spendRunGold,
   type NodeResult,
 } from '../engine/run/runEngine';
-import type { RunState } from '../engine/run/runTypes';
+import { wardenRunFoes, type RunEnemy } from '../data/enemies';
+import { WARDEN_RUN_RELICS } from '../data/relics';
+import { classes as CLASSES } from '../data/classes';
+import { SPELLS } from '../data/spells';
+import type { NodeType, PermanentProgress, RunCombatant, RunInitEntry, RunRelic, RunSkill, RunState } from '../engine/run/runTypes';
 import {
   processPartyChoiceCreated,
   processPartyChoiceResolved,
@@ -63,13 +70,24 @@ import type {
   ConcentrationStartEvent,
   GameEvent,
 } from '../engine/events/types';
-import type { Character, Combatant, EncounterState, GamePhase, Inventory } from '../types';
+import type { Character, Combatant, EncounterState, GamePhase, Inventory, VaultCharacter } from '../types';
 
 type DispatchResult = {
   character: Character | null;
   appliedCount: number;
   failed: string[];
 };
+
+type RunPosition = 1 | 2 | 3 | 4;
+
+type StartRunInput = {
+  partyIds: string[];
+  positions: Record<string, RunPosition>;
+  startingRelic?: string;
+  sessionId?: string;
+};
+
+type GameMode = 'lobby' | 'warden_run';
 
 type GameStoreState = {
   combatState: EncounterState | null;
@@ -79,6 +97,9 @@ type GameStoreState = {
   journalState: JournalState;
   relationshipState: RelationshipState;
   runState: RunState | null;
+  gameMode: GameMode;
+  vaultCharacters: VaultCharacter[];
+  permanentProgress: PermanentProgress;
   activeCharacter: Character | null;
   classRuntime: Character['systemData']['classRuntime'] | null;
   raceRuntime: RaceRuntime | null;
@@ -95,13 +116,23 @@ type GameStoreState = {
   clearActivePartyChoice: () => void;
   setPartyChoiceAiResponder: (responder: ((input: string) => void | Promise<void>) | null) => void;
   setActiveCharacter: (character: Character | null) => void;
+  setGameMode: (mode: GameMode) => void;
+  setVaultCharacters: (characters: VaultCharacter[]) => void;
+  setPermanentProgress: (progress: PermanentProgress) => void;
   getSceneContext: () => ReturnType<typeof buildSceneContext> | null;
   addJournalEntry: (entry: JournalEntry) => void;
   removeJournalEntry: (entryId: string) => void;
   adjustAffinity: (characterId: string, npcId: string, npcName: string, delta: number, reason: string) => void;
-  startRun: (partyIds: string[], positions: Record<string, 1 | 2 | 3 | 4>, sessionId?: string) => void;
+  startRun: (
+    inputOrPartyIds: StartRunInput | string[],
+    positions?: Record<string, RunPosition>,
+    sessionId?: string,
+  ) => void;
   selectNode: (nodeId: string) => { error?: string };
   completeNode: (nodeId: string, result: NodeResult) => void;
+  addRunGold: (amount: number) => void;
+  spendRunGold: (amount: number) => { error?: string };
+  addRunRelic: (relic: RunRelic) => void;
   endRun: (victory: boolean) => void;
   eventMeta: (characterId: string) => {
     id: string;
@@ -240,6 +271,218 @@ function companionToParticipant(companion: CompanionSheet): CombatParticipant {
   };
 }
 
+const defaultPermanentProgress: PermanentProgress = {
+  userId: 'local',
+  wardenPoints: 0,
+  totalPoints: 0,
+  unlockedClasses: [],
+  unlockedRaces: [],
+  unlockedRelics: [],
+  unlockedItems: [],
+  passiveBonuses: {
+    startingGold: 10,
+    startingHpBonus: 5,
+    startingItems: 0,
+    shopDiscount: 0,
+  },
+  runsCompleted: 0,
+  runsAttempted: 0,
+  bestFloor: 0,
+};
+
+function normalizeStartRunInput(
+  inputOrPartyIds: StartRunInput | string[],
+  positions?: Record<string, RunPosition>,
+  sessionId?: string,
+): StartRunInput {
+  if (Array.isArray(inputOrPartyIds)) {
+    return {
+      partyIds: inputOrPartyIds,
+      positions: positions ?? {},
+      sessionId,
+    };
+  }
+
+  return inputOrPartyIds;
+}
+
+function getWeaponDamage(character: Character): string {
+  const equippedWeapon = character.inventory.items.find((item) => item.equipped && item.weapon);
+  if (equippedWeapon?.weapon?.damageDice) return equippedWeapon.weapon.damageDice;
+
+  const classDamage: Record<string, string> = {
+    fighter: '1d8',
+    barbarian: '1d12',
+    rogue: '1d6',
+    monk: '1d6',
+    ranger: '1d8',
+    paladin: '1d8',
+    wizard: '1d4',
+    sorcerer: '1d4',
+    warlock: '1d6',
+    cleric: '1d6',
+    druid: '1d6',
+    bard: '1d6',
+  };
+
+  return classDamage[character.className?.toLowerCase() ?? ''] ?? '1d6';
+}
+
+function buildRunSkills(character: VaultCharacter): RunSkill[] {
+  const baseSkills: RunSkill[] = [
+    {
+      id: 'attack',
+      name: 'Attack',
+      kind: 'attack',
+      cost: 0,
+      dmg: getWeaponDamage(character),
+      targets: [1, 2],
+      melee: true,
+    },
+  ];
+
+  const classData = CLASSES.find((classDefinition) => classDefinition.id === character.className?.toLowerCase());
+  const classSkills: RunSkill[] = (classData?.features ?? [])
+    .filter((feature) => feature.level <= character.level)
+    .slice(0, 2)
+    .map((feature) => ({
+      id: feature.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''),
+      name: feature.name,
+      kind: 'util',
+      cost: feature.recoveryType === 'long' ? 2 : 1,
+      val: feature.description,
+      self: true,
+      desc: feature.description,
+    }));
+
+  const spellIds = character.spellsKnown?.length ? character.spellsKnown : character.spells;
+  const spellSkills: RunSkill[] = spellIds.slice(0, 3).map((spellId) => {
+    const spell = SPELLS.find((item) => item.id === spellId);
+    const spellLevel = spell?.level ?? 1;
+
+    return {
+      id: spell?.id ?? spellId,
+      name: spell?.name ?? spellId,
+      kind: spell?.damage ? 'attack' : spell?.school === 'abjuration' ? 'buff' : 'util',
+      cost: spellLevel,
+      dmg: spell?.damage?.dice,
+      slots: spellLevel === 0 ? 1 : character.spellSlots[spellLevel]?.max ?? 0,
+      used: spellLevel === 0 ? 0 : character.spellSlots[spellLevel]?.used ?? 0,
+      targets: spell?.damage ? [1, 2, 3, 4] : undefined,
+      melee: spell?.attackType === 'melee',
+      desc: spell?.description,
+    };
+  });
+
+  return [...baseSkills, ...classSkills, ...spellSkills].slice(0, 4);
+}
+
+function characterToRunCombatant(character: VaultCharacter, position: RunPosition, index: number, hpBonus: number): RunCombatant {
+  const baseMaxHp = character.maxHitPoints ?? 10;
+  const baseCurrentHp = character.hitPoints > 0 ? character.hitPoints : baseMaxHp;
+  const maxHp = Math.max(1, baseMaxHp + hpBonus);
+  const currentHp = Math.min(maxHp, Math.max(1, baseCurrentHp + hpBonus));
+
+  return {
+    id: character.id,
+    name: character.name?.trim() || `${character.className ?? 'Warden'} ${character.level ?? 1}`,
+    className: character.className,
+    portrait: character.portraitUrl || character.className.toLowerCase(),
+    color: index === 0 ? '#D6B25E' : '#9B5DE5',
+    hp: currentHp,
+    hpMax: maxHp,
+    block: 0,
+    pos: position,
+    you: index === 0,
+    down: currentHp <= 0,
+    conds: character.activeConditions.map((condition) => ({
+      k: condition,
+      kind: 'debuff',
+    })),
+    skills: buildRunSkills(character),
+  };
+}
+
+function selectFoePool(nodeType: NodeType): RunEnemy[] {
+  if (nodeType === 'boss') {
+    return wardenRunFoes.filter((foe) => foe.boss || foe.behavior === 'boss');
+  }
+
+  const nonBossFoes = wardenRunFoes.filter((foe) => !foe.boss && foe.behavior !== 'boss');
+  if (nodeType === 'elite') {
+    const eliteFoes = nonBossFoes.filter((foe) => foe.hp >= 38 || foe.behavior === 'defensive' || foe.behavior === 'caster');
+    return eliteFoes.length ? eliteFoes : nonBossFoes;
+  }
+
+  return nonBossFoes.length ? nonBossFoes : wardenRunFoes;
+}
+
+function buildRunFoes(nodeType: NodeType, floor: number): RunCombatant[] {
+  const pool = selectFoePool(nodeType);
+  const count = nodeType === 'boss' ? 1 : Math.min(2 + Math.floor(floor / 2), 4, pool.length);
+  const shuffled = [...pool].sort(() => Math.random() - 0.5);
+
+  return shuffled.slice(0, count).map((foe, index) => {
+    const scaledHp = Math.max(1, (foe.hpMax ?? foe.hp) + (floor - 1) * 5);
+
+    return {
+      id: `foe-${foe.id}-${index}`,
+      name: foe.name,
+      className: foe.behavior,
+      portrait: foe.portrait ?? 'foe',
+      color: foe.color ?? '#8B1538',
+      hp: scaledHp,
+      hpMax: scaledHp,
+      block: 0,
+      pos: Math.min(4, index + 1) as RunPosition,
+      you: false,
+      down: false,
+      boss: foe.boss || foe.behavior === 'boss',
+      conds: foe.conds ?? foe.conditions.map((condition) => ({ k: condition, kind: 'debuff' })),
+      skills: foe.attacks.map((attack) => ({
+        id: attack.id,
+        name: attack.name,
+        kind: 'attack',
+        cost: 1,
+        dmg: attack.damage,
+        targets: [1, 2, 3, 4],
+        melee: attack.type === 'melee',
+        desc: `+${attack.bonus} to hit`,
+      })),
+      intent: foe.intent ?? { kind: 'attack', val: foe.attacks[0]?.damage ?? 'Attack', target: 'front' },
+    };
+  });
+}
+
+function rollRunInitiative(party: RunCombatant[], foes: RunCombatant[]): RunInitEntry[] {
+  const entries: RunInitEntry[] = [
+    ...party.map((combatant) => ({
+      id: combatant.id,
+      side: 'ally' as const,
+      init: Math.floor(Math.random() * 20) + 1,
+      name: combatant.name,
+      portrait: combatant.portrait,
+      color: combatant.color,
+      down: combatant.down,
+    })),
+    ...foes.map((combatant) => ({
+      id: combatant.id,
+      side: 'foe' as const,
+      init: Math.floor(Math.random() * 20) + 1,
+      name: combatant.name,
+      portrait: combatant.portrait,
+      color: combatant.color,
+      down: combatant.down,
+    })),
+  ].sort((a, b) => b.init - a.init);
+
+  return entries.map((entry, index) => ({
+    ...entry,
+    now: index === 0,
+    done: false,
+  }));
+}
+
 export const useGameStore = create<GameStoreState>((set, get) => ({
   combatState: null,
   sceneState: null,
@@ -253,6 +496,9 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   journalState: { entries: [] },
   relationshipState: { records: [] },
   runState: null,
+  gameMode: 'lobby',
+  vaultCharacters: [],
+  permanentProgress: defaultPermanentProgress,
   activeCharacter: null,
   classRuntime: null,
   raceRuntime: null,
@@ -307,14 +553,38 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     set((state) => ({
       relationshipState: adjustAffinityEngine(state.relationshipState, characterId, npcId, npcName, delta, reason),
     })),
-  startRun: (partyIds, positions, sessionId = 'local-run') =>
-    set(() => {
-      const run = generateRun(sessionId);
+  setGameMode: (mode) => set({ gameMode: mode }),
+  setVaultCharacters: (characters) => set({ vaultCharacters: characters }),
+  setPermanentProgress: (progress) => set({ permanentProgress: progress }),
+  startRun: (inputOrPartyIds, positions, sessionId) =>
+    set((state) => {
+      const input = normalizeStartRunInput(inputOrPartyIds, positions, sessionId);
+      const run = generateRun(input.sessionId ?? 'local-run', 3);
+      const passiveBonuses = state.permanentProgress.passiveBonuses;
+      const selectedCharacters = input.partyIds
+        .map((id) => state.vaultCharacters.find((character) => character.id === id) ?? null)
+        .filter((character): character is VaultCharacter => character !== null);
+      const party = selectedCharacters.map((character, index) => {
+        const fallbackPosition = Math.min(4, index + 1) as RunPosition;
+        return characterToRunCombatant(
+          character,
+          input.positions[character.id] ?? fallbackPosition,
+          index,
+          passiveBonuses.startingHpBonus,
+        );
+      });
+      const startingRelic = input.startingRelic
+        ? WARDEN_RUN_RELICS.find((relic) => relic.id === input.startingRelic)
+        : undefined;
+
       return {
         runState: {
           ...run,
-          partyCharacterIds: [...partyIds],
-          partyPositions: { ...positions },
+          partyCharacterIds: [...input.partyIds],
+          partyPositions: { ...input.positions },
+          gold: run.gold + passiveBonuses.startingGold,
+          relics: startingRelic ? [startingRelic, ...run.relics] : run.relics,
+          party,
         },
       };
     }),
@@ -323,12 +593,50 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     if (!current) return { error: 'No active run.' };
     const next = selectRunNode(current, nodeId);
     if ('error' in next) return next;
-    set({ runState: next });
+    const currentFloor = next.floors[next.currentFloor - 1];
+    const currentNode = currentFloor?.nodes.find((node) => node.id === nodeId);
+
+    if (currentNode && ['combat', 'elite', 'boss'].includes(currentNode.type)) {
+      const foes = buildRunFoes(currentNode.type, next.currentFloor);
+      const party = next.party ?? [];
+      set({
+        runState: {
+          ...next,
+          foes,
+          initiativeOrder: rollRunInitiative(party, foes),
+        },
+      });
+      return {};
+    }
+
+    set({
+      runState: {
+        ...next,
+        foes: [],
+        initiativeOrder: [],
+      },
+    });
     return {};
   },
   completeNode: (nodeId, result) =>
     set((state) => ({
       runState: state.runState ? completeRunNode(state.runState, nodeId, result) : state.runState,
+    })),
+  addRunGold: (amount) =>
+    set((state) => ({
+      runState: state.runState ? addRunGold(state.runState, amount) : state.runState,
+    })),
+  spendRunGold: (amount) => {
+    const current = get().runState;
+    if (!current) return { error: 'No active run.' };
+    const next = spendRunGold(current, amount);
+    if ('error' in next) return next;
+    set({ runState: next });
+    return {};
+  },
+  addRunRelic: (relic) =>
+    set((state) => ({
+      runState: state.runState ? addRunRelic(state.runState, relic) : state.runState,
     })),
   endRun: (victory) =>
     set((state) => ({
