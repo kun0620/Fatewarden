@@ -1,9 +1,11 @@
-import { DoorOpen, LogOut, Plus, ScrollText, Trash2, X } from 'lucide-react';
+import { DoorOpen, LogOut, Plus, ScrollText, Swords, Trash2, X } from 'lucide-react';
 import { FormEvent, type ReactNode, useEffect, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { getPlayModeDefinition, playModes } from '../lib/playModes';
 import { defaultSessionTheme, getSessionThemeDefinition, sessionThemePresets, sessionThemeTones } from '../lib/sessionThemes';
+import { listVaultCharacters } from '../lib/characters';
 import { createGameSession, deleteGameSession, joinGameSession, listJoinedSessions } from '../lib/sessions';
+import { useGameStore } from '../store/useGameStore';
 import type { GameSession, SessionPlayMode, SessionThemeKey, SessionThemeTone } from '../types';
 
 export type RoomModal = 'create' | 'join' | 'continue' | null;
@@ -48,7 +50,7 @@ function RoomModalShell({ children, eyebrow, onClose, title }: RoomModalShellPro
 export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignOut, roomModal, user, modalsOnly }: SessionLobbyProps) {
   const [sessions, setSessions] = useState<GameSession[]>([]);
   const [title, setTitle] = useState('The Witchlight Tower');
-  const [playMode, setPlayMode] = useState<SessionPlayMode>('dnd');
+  const [playMode, setPlayMode] = useState<SessionPlayMode>('warden_run');
   const [themeKey, setThemeKey] = useState<SessionThemeKey>(defaultSessionTheme.key);
   const [themeTone, setThemeTone] = useState<SessionThemeTone>(defaultSessionTheme.tone);
   const [themeNotes, setThemeNotes] = useState('');
@@ -56,6 +58,8 @@ export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignO
   const [joinCode, setJoinCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const setGameMode = useGameStore((state) => state.setGameMode);
+  const setVaultCharacters = useGameStore((state) => state.setVaultCharacters);
 
   useEffect(() => {
     if (!user) {
@@ -98,7 +102,6 @@ export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignO
         themeNotes,
         ruleStrictness: 'standard',
         partySize: 4,
-        allowAiDm: true,
         visibility: 'invite_code',
         houseRules,
       }, user);
@@ -154,6 +157,22 @@ export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignO
     setBusy(false);
   }
 
+  async function openWardenRun() {
+    if (!user || busy) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      const characters = await listVaultCharacters(user);
+      setVaultCharacters(characters);
+      onRoomModalChange(null);
+      setGameMode('warden_run');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not load character vault.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <>
       {!modalsOnly ? (
@@ -189,6 +208,18 @@ export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignO
             <span className="fw-room-door__copy">
               <strong>Cross The Threshold</strong>
               <small className="fw-caption">Join with a code</small>
+            </span>
+          </button>
+          <button
+            className="fw-room-door"
+            disabled={!user || busy}
+            onClick={() => void openWardenRun()}
+            type="button"
+          >
+            <Swords size={18} aria-hidden="true" />
+            <span className="fw-room-door__copy">
+              <strong>Warden&apos;s Run</strong>
+              <small className="fw-caption">Roguelite dungeon</small>
             </span>
           </button>
           <button
@@ -252,6 +283,7 @@ export function SessionLobby({ onRequestEnterSession, onRoomModalChange, onSignO
                     type="button"
                   >
                     <strong>{mode.shortLabel}</strong>
+                    {mode.badge ? <span className="fw-badge">{mode.badge}</span> : null}
                     <small style={{ marginLeft: 'var(--sp-1)' }}>{mode.label}</small>
                   </button>
                 ))}

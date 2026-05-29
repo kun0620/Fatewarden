@@ -1,3 +1,4 @@
+import type { RunDifficulty } from '../../types';
 import type { NodeType, RunFloor, RunNode, RunState } from './runTypes';
 
 type RandomSource = () => number;
@@ -96,11 +97,12 @@ export function generateFloor(floorNumber: number, seed?: number): RunFloor {
   };
 }
 
-export function generateRun(sessionId: string, totalFloors = 3): RunState {
+export function generateRun(sessionId: string, totalFloors = 3, difficulty?: RunDifficulty): RunState {
   const floors = Array.from({ length: totalFloors }, (_, index) => generateFloor(index + 1));
   return {
     id: `run-${sessionId}-${Date.now()}`,
     sessionId,
+    difficulty,
     currentFloor: 1,
     currentNodeId: null,
     floors,

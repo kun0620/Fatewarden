@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from
 import type { User } from '@supabase/supabase-js';
 import { loadDashboard, relativeTimeLabel, type DashboardCampaign } from '../lib/dashboard';
 import { joinGameSession } from '../lib/sessions';
+import { useGameStore } from '../store/useGameStore';
 import type { GameSession, VaultCharacter } from '../types';
 import { FateSeal } from './ui/Brand';
 import { Icon } from './ui/Icons';
@@ -20,6 +21,8 @@ type MainMenuProps = {
   onRequestCharSheet?: () => void;
   onRequestDmDash?: () => void;
   onRequestBestiary?: () => void;
+  onRequestWardenRun?: () => void;
+  onRequestWardenVault?: () => void;
   onSignOut: () => void;
 };
 
@@ -282,12 +285,15 @@ export function MainMenu({
   onRequestLobby,
   onRequestCharSheet,
   onRequestDmDash,
+  onRequestWardenRun,
+  onRequestWardenVault,
 }: MainMenuProps) {
   const [sessions, setSessions] = useState<GameSession[]>([]);
   const [vaultChars, setVaultChars] = useState<VaultCharacter[]>([]);
   const [campaigns, setCampaigns] = useState<DashboardCampaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [dashboardError, setDashboardError] = useState('');
+  const setVaultCharacters = useGameStore((state) => state.setVaultCharacters);
 
   useEffect(() => {
     let alive = true;
@@ -303,6 +309,7 @@ export function MainMenu({
         if (!alive) return;
         setSessions(data.sessions);
         setVaultChars(data.characters);
+        setVaultCharacters(data.characters);
         setCampaigns(data.campaigns);
       } catch (error) {
         if (alive) setDashboardError(error instanceof Error ? error.message : 'Could not load dashboard.');
@@ -318,7 +325,7 @@ export function MainMenu({
       alive = false;
       if (interval) window.clearInterval(interval);
     };
-  }, [roomModal, user]);
+  }, [roomModal, setVaultCharacters, user]);
 
   const recentSessions = useMemo(() => sessions.slice(0, 4), [sessions]);
   const featured = recentSessions[0];
@@ -441,7 +448,8 @@ export function MainMenu({
             <ActionTile icon="login" title="Join Room" desc="With invite code" onClick={() => onRoomModalChange('join')} />
             <ActionTile icon="users" title="My Characters" desc={`${characterSummary.length} in vault`} onClick={() => onRequestCharSheet?.()} />
             <ActionTile icon="crown" gold title="DM Dashboard" desc={featured ? featured.title : 'Table controls'} onClick={() => onRequestDmDash?.()} />
-            <ActionTile icon="book" title="Campaign Library" desc={`${campaigns.length} campaigns`} onClick={() => onRequestLibrary?.()} />
+            <ActionTile icon="hex" title="Warden's Run" desc="Roguelite dungeon" onClick={() => onRequestWardenRun?.()} />
+            <ActionTile icon="hex" arcane title="Warden's Vault" desc="Spend Warden Points" onClick={() => onRequestWardenVault?.()} />
             <ActionTile icon="cog" title="Settings" desc="Audio - Rules - Theme" onClick={() => onRequestSettings?.()} />
           </div>
 

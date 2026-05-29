@@ -1,14 +1,20 @@
 import { Settings } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { NodeType, RunCombatant, RunNode, RunState } from '../../engine/run/runTypes';
 import { useGameStore } from '../../store/useGameStore';
+import { CharacterDeathScreen } from './CharacterDeathScreen';
 import { CombatArena } from './CombatArena';
+import { DefeatScreen } from './DefeatScreen';
 import { EventScreen } from './EventScreen';
+import { ForgeScreen } from './ForgeScreen';
+import { GambleScreen } from './GambleScreen';
+import { PresenceStrip } from './PresenceStrip';
 import { RestScreen } from './RestScreen';
 import { RunMapScreen } from './RunMapScreen';
-import { RunSummaryScreen } from './RunSummaryScreen';
+import { RunIntroScreen } from './RunIntroScreen';
 import { ShopScreen } from './ShopScreen';
 import { TreasureScreen } from './TreasureScreen';
+import { VictoryScreen } from './VictoryScreen';
 import { PortraitArt, WIcon } from './runVisuals';
 
 function WardenSeal({ size = 32 }: { size?: number }) {
@@ -141,6 +147,7 @@ function RunFrame({
       <div className="wr-noise" />
       <div className="wr-vignette" />
       <RunTopBar runState={runState} />
+      <PresenceStrip />
       <div className="wr-stage">{children}</div>
       {!hidePartyStrip && <PartyStrip party={runState.party ?? []} />}
     </div>
@@ -159,13 +166,83 @@ function isCombatNode(type: NodeType) {
 
 export function RunShell() {
   const { runState, completeNode, endRun } = useGameStore();
+  const [deadCharacter, setDeadCharacter] = useState<RunCombatant | null>(null);
+  const [showIntro, setShowIntro] = useState(() => Boolean(runState && runState.status === 'active' && !runState.currentNodeId));
+  const [introFloor, setIntroFloor] = useState(runState?.currentFloor ?? 1);
+  const seenRunIdRef = useRef<string | null>(runState?.id ?? null);
+  const seenFloorRef = useRef<number | null>(runState?.currentFloor ?? null);
+  const activeFloor = runState?.floors[runState.currentFloor - 1];
+  const roomNumber = useMemo(() => {
+    if (!activeFloor || !runState?.currentNodeId) return 1;
+    const index = activeFloor.nodes.findIndex((node) => node.id === runState.currentNodeId);
+    return index >= 0 ? index + 1 : 1;
+  }, [activeFloor, runState?.currentNodeId]);
+  const alivePartyCount = useMemo(() => {
+    if (!runState?.party?.length) return 0;
+    return runState.party.filter((member) => member.hp > 0 && !member.down && !runState.deadCharacterIds.includes(member.id)).length;
+  }, [runState?.deadCharacterIds, runState?.party]);
+  const handleDescend = useCallback(() => setShowIntro(false), []);
+
+  useEffect(() => {
+    if (!runState || runState.status !== 'active') {
+      if (!runState) {
+        seenRunIdRef.current = null;
+        seenFloorRef.current = null;
+      }
+      setShowIntro(false);
+      return;
+    }
+
+    if (seenRunIdRef.current !== runState.id) {
+      seenRunIdRef.current = runState.id;
+      seenFloorRef.current = runState.currentFloor;
+      setIntroFloor(runState.currentFloor);
+      setShowIntro(true);
+      return;
+    }
+
+    if (seenFloorRef.current !== runState.currentFloor) {
+      seenFloorRef.current = runState.currentFloor;
+      setIntroFloor(runState.currentFloor);
+      setShowIntro(true);
+    }
+  }, [runState?.currentFloor, runState?.id, runState?.status]);
 
   if (!runState) return null;
 
-  if (runState.status === 'victory' || runState.status === 'defeat') {
+  if (showIntro) {
+    return <RunIntroScreen floorNumber={introFloor} onDescend={handleDescend} />;
+  }
+
+  if (deadCharacter) {
+    return (
+      <CharacterDeathScreen
+        aliveCount={alivePartyCount}
+        combatant={deadCharacter}
+        currentFloor={runState.currentFloor}
+        enemiesKilled={runState.enemiesKilled}
+        roomNumber={roomNumber}
+        onContinue={() => setDeadCharacter(null)}
+        onRunEnd={() => {
+          endRun(false);
+          setDeadCharacter(null);
+        }}
+      />
+    );
+  }
+
+  if (runState.status === 'victory') {
     return (
       <RunFrame runState={runState} hidePartyStrip>
-        <RunSummaryScreen />
+        <VictoryScreen />
+      </RunFrame>
+    );
+  }
+
+  if (runState.status === 'defeat') {
+    return (
+      <RunFrame runState={runState} hidePartyStrip>
+        <DefeatScreen />
       </RunFrame>
     );
   }
@@ -184,6 +261,7 @@ export function RunShell() {
     return (
       <RunFrame runState={runState} hidePartyStrip>
         <CombatArena
+          onCharacterDeath={setDeadCharacter}
           onCombatEnd={(won) => {
             if (!won) {
               endRun(false);
@@ -229,6 +307,22 @@ export function RunShell() {
     return (
       <RunFrame runState={runState}>
         <TreasureScreen />
+      </RunFrame>
+    );
+  }
+
+  if (currentNode.type === 'forge') {
+    return (
+      <RunFrame runState={runState}>
+        <ForgeScreen />
+      </RunFrame>
+    );
+  }
+
+  if (currentNode.type === 'gamble') {
+    return (
+      <RunFrame runState={runState}>
+        <GambleScreen />
       </RunFrame>
     );
   }

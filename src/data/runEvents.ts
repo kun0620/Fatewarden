@@ -1,8 +1,20 @@
+import type {
+  RunDisplayNodeType,
+  RunEventTag,
+  RunNodeInfo,
+  RunRestChoice,
+  RunShop,
+  RunTreasureReward,
+} from '../engine/run/runTypes';
+
 export type RunEventConsequenceType = 'gold' | 'damage' | 'heal' | 'relic' | 'item' | 'combat' | 'curse' | 'map';
 
 export interface RunEventChoice {
   id: string;
   label: string;
+  title?: string;
+  desc?: string;
+  tags?: RunEventTag[];
   consequence: {
     type: RunEventConsequenceType;
     value: number | string;
@@ -14,8 +26,73 @@ export interface RunEvent {
   id: string;
   title: string;
   description: string;
+  scene?: string;
+  narration?: string[];
   choices: RunEventChoice[];
 }
+
+export const NODE_INFO: Partial<Record<RunDisplayNodeType, RunNodeInfo>> = {
+  start: {
+    icon: 'compass',
+    label: 'Entrance',
+    color: 'gold',
+    blurb: 'Where the run begins.',
+  },
+  combat: {
+    icon: 'sword',
+    label: 'Skirmish',
+    color: 'blood',
+    blurb: 'A pack of dungeon-things, hungry for warm meat. Earn gold and relic shard.',
+  },
+  elite: {
+    icon: 'crownSkull',
+    label: 'Elite',
+    color: 'blood',
+    blurb: 'A named horror. Brutal, but the loot is rare.',
+  },
+  boss: {
+    icon: 'skull',
+    label: 'Floor Boss',
+    color: 'blood',
+    blurb: 'The keeper of this stratum. Clear to descend.',
+  },
+  rest: {
+    icon: 'campfire',
+    label: 'Camp',
+    color: 'gold',
+    blurb: 'Heal, scour a wound, upgrade an item, or re-prepare spells.',
+  },
+  shop: {
+    icon: 'bag',
+    label: 'Bazaar',
+    color: 'violet',
+    blurb: 'Trade gold for relics and provisions.',
+  },
+  treasure: {
+    icon: 'chest',
+    label: 'Treasure',
+    color: 'gold',
+    blurb: 'A chest. Choose one of three relics.',
+  },
+  mystery: {
+    icon: 'question',
+    label: 'Mystery',
+    color: 'violet',
+    blurb: 'A story event with risk and reward.',
+  },
+  forge: {
+    icon: 'anvil',
+    label: 'Forge',
+    color: 'gold',
+    blurb: 'Upgrade one item once per run.',
+  },
+  gamble: {
+    icon: 'dice2',
+    label: 'Gamble',
+    color: 'violet',
+    blurb: 'Wager 50g. Win double or curse a relic.',
+  },
+};
 
 export const RUN_EVENTS: RunEvent[] = [
   {
@@ -200,6 +277,205 @@ export const RUN_EVENTS: RunEvent[] = [
   },
 ];
 
+export const WARDEN_RUN_EVENTS: RunEvent[] = [
+  {
+    id: 'held_shadow',
+    title: 'The Held Shadow',
+    scene: 'chapel',
+    description: 'A silhouette without owner is frozen in prayer beside a cold censer.',
+    narration: [
+      'Cinder-smoke curls along the chapel floor. The brazen censer above the altar still glows, though the chant that lit it has long ceased.',
+      'A figure stands where the priest once knelt: a silhouette without owner, mid-prayer, frozen. Its hand grips empty air where a chain should hang. It does not breathe. It does not blink. It is held.',
+    ],
+    choices: [
+      {
+        id: 'speak',
+        label: 'Speak to the shadow',
+        title: 'Speak to the shadow',
+        desc: 'Whisper a name. See if the binding answers.',
+        tags: [{ k: 'Wisdom', c: 'violet' }],
+        consequence: {
+          type: 'map',
+          value: 'omen',
+          description: 'Learn what the binding wants.',
+        },
+      },
+      {
+        id: 'break',
+        label: 'Disrupt the binding deliberately',
+        title: 'Disrupt the binding deliberately',
+        desc: 'Snap the warding circle. Whatever is held will be free.',
+        tags: [{ k: 'Combat likely', c: 'blood' }],
+        consequence: {
+          type: 'combat',
+          value: 'shadow_binding',
+          description: 'Trigger a dangerous encounter.',
+        },
+      },
+      {
+        id: 'search',
+        label: 'Search the chapel',
+        title: 'Search the chapel',
+        desc: 'Find the missing censer-chain. The shadow seems to want it.',
+        tags: [
+          { k: 'Investigation', c: 'violet' },
+          { k: 'Reward', c: 'gold' },
+        ],
+        consequence: {
+          type: 'item',
+          value: 'censer_chain',
+          description: 'Find the missing chain and a reward clue.',
+        },
+      },
+      {
+        id: 'leave',
+        label: 'Leave the chapel',
+        title: 'Leave the chapel',
+        desc: 'This is not your wound to bind.',
+        tags: [{ k: 'Skip', c: '' }],
+        consequence: {
+          type: 'map',
+          value: 'skip',
+          description: 'Leave without changing the event state.',
+        },
+      },
+    ],
+  },
+];
+
+export const REST_CHOICES: RunRestChoice[] = [
+  {
+    id: 'heal',
+    icon: 'campfire',
+    title: 'Tend Wounds',
+    description: 'Rest by the fire. The watch is quiet, for now.',
+    effect: "Restore 30% of each ally's max HP.",
+    color: 'good',
+  },
+  {
+    id: 'cond',
+    icon: 'potion',
+    title: 'Scour a Wound',
+    description: 'Burn the curse out before it takes root.',
+    effect: 'Remove one debuff from any ally.',
+    color: 'violet',
+  },
+  {
+    id: 'forge',
+    icon: 'hammer',
+    title: 'Mend at the Anvil',
+    description: 'A whetstone, a hammer, an hour of work.',
+    effect: 'Upgrade one item: +1 tier, permanent.',
+    color: 'gold',
+  },
+  {
+    id: 'scribe',
+    icon: 'scroll',
+    title: 'Pray + Recall',
+    description: 'Spells return as the fire dies low.',
+    effect: 'Restore all spell slots. Re-prepare prepared casters.',
+    color: 'blood',
+  },
+];
+
+export const WARDEN_RUN_SHOP: RunShop = {
+  merchant: {
+    name: 'Veska, the Ash-Mender',
+    quote: 'Coin for kindness, child. The fire is still warm.',
+  },
+  items: [
+    {
+      id: 'p1',
+      name: 'Greater Healing Vial',
+      description: 'Restore 20 HP to one ally.',
+      icon: 'potion',
+      price: 60,
+      rarity: 'common',
+    },
+    {
+      id: 'p2',
+      name: 'Smoke Bomb',
+      description: 'Whole party gains Dodge for 1 round.',
+      icon: 'flame',
+      price: 75,
+      rarity: 'uncommon',
+    },
+    {
+      id: 'r1',
+      name: 'Censer of Endings',
+      description: '+2 dmg to Hexed foes. Kills heal 4.',
+      icon: 'flame',
+      price: 180,
+      rarity: 'rare',
+    },
+    {
+      id: 'r2',
+      name: 'Pact-Iron Ring',
+      description: '+2 max HP for warlocks each kill.',
+      icon: 'rune',
+      price: 220,
+      rarity: 'rare',
+    },
+    {
+      id: 'r3',
+      name: 'Memory of a Saint',
+      description: 'Revive one fallen ally once per run.',
+      icon: 'feather',
+      price: 360,
+      rarity: 'legendary',
+    },
+    {
+      id: 'c1',
+      name: 'Bramble Crown',
+      description: 'Druid: regen +1 per round.',
+      icon: 'sparkles',
+      price: 90,
+      rarity: 'uncommon',
+    },
+    {
+      id: 's1',
+      name: 'Whetstone, Brass',
+      description: 'Upgrade one weapon: +1 tier.',
+      icon: 'anvil',
+      price: 120,
+      rarity: 'uncommon',
+    },
+    {
+      id: 'rm',
+      name: 'Reroll Stock',
+      description: "Shuffle this merchant's wares.",
+      icon: 'refresh',
+      price: 25,
+      rarity: 'common',
+      reroll: true,
+    },
+  ],
+};
+
+export const TREASURE_REWARDS: RunTreasureReward[] = [
+  {
+    id: 't1',
+    name: 'Whisper-Veil',
+    description: '+2 dodge while at full HP.',
+    icon: 'feather',
+    rarity: 'rare',
+  },
+  {
+    id: 't2',
+    name: 'Black Censer',
+    description: 'Hex spells cost 1 less. Min cost: 1.',
+    icon: 'flame',
+    rarity: 'rare',
+  },
+  {
+    id: 't3',
+    name: 'Moonlit Thread',
+    description: 'Healing also grants 4 block.',
+    icon: 'moon',
+    rarity: 'uncommon',
+  },
+];
+
 export function getRunEvent(id: string) {
-  return RUN_EVENTS.find((event) => event.id === id);
+  return [...WARDEN_RUN_EVENTS, ...RUN_EVENTS].find((event) => event.id === id);
 }

@@ -5,6 +5,8 @@ export type PlayModeDefinition = {
   label: string;
   shortLabel: string;
   description: string;
+  icon?: string;
+  badge?: string;
 };
 
 export const playModes: PlayModeDefinition[] = [
@@ -21,10 +23,12 @@ export const playModes: PlayModeDefinition[] = [
     description: 'Narrative-first, no combat tracker',
   },
   {
-    id: 'ai_dm',
-    label: 'AI DM Mode',
-    shortLabel: 'AI DM',
-    description: 'AI auto-narrates scenes & encounters',
+    id: 'warden_run',
+    label: "Warden's Run",
+    shortLabel: 'Run',
+    description: 'Roguelite dungeon crawler · 1-4 players',
+    icon: '⚔️',
+    badge: 'NEW',
   },
   {
     id: 'hexplore',
@@ -47,5 +51,6 @@ export function playModeHidesCombat(mode: SessionPlayMode): boolean {
 }
 
 export function playModeAutoNarrates(mode: SessionPlayMode): boolean {
-  return mode === 'ai_dm';
+  void mode;
+  return false;
 }

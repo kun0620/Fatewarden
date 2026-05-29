@@ -149,6 +149,49 @@ export const RELICS: Relic[] = [
   },
 ];
 
+export const WARDEN_RUN_RELICS: Relic[] = [
+  {
+    id: 'r1',
+    name: 'Censer of Endings',
+    description: '+2 dmg to Hexed foes. Each kill heals 4 HP.',
+    effect: 'hexed_damage_kill_heal',
+    icon: 'flame',
+    rarity: 'rare',
+  },
+  {
+    id: 'r2',
+    name: 'Vow of the Vanguard',
+    description: 'Front rank starts each combat with +4 Block.',
+    effect: 'front_rank_start_block',
+    icon: 'shield',
+    rarity: 'uncommon',
+  },
+  {
+    id: 'r3',
+    name: 'Coin of the Forgotten',
+    description: '+10% gold from all sources.',
+    effect: 'gold_bonus_percent',
+    icon: 'coin',
+    rarity: 'uncommon',
+  },
+  {
+    id: 'r4',
+    name: 'Bone Reliquary',
+    description: 'Once per run: revive a fallen ally at half HP.',
+    effect: 'revive_once_per_run',
+    icon: 'bones',
+    rarity: 'legendary',
+  },
+  {
+    id: 'r5',
+    name: 'Mirror of Ash',
+    description: 'Reflect 25% of a single attack.',
+    effect: 'reflect_single_attack',
+    icon: 'moon',
+    rarity: 'common',
+  },
+];
+
 export function getRelic(id: string) {
-  return RELICS.find((relic) => relic.id === id);
+  return [...WARDEN_RUN_RELICS, ...RELICS].find((relic) => relic.id === id);
 }

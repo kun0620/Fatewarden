@@ -38,7 +38,7 @@ function createMysteryItem(choice: RunEventChoice): Item {
 }
 
 export function EventScreen() {
-  const { runState, activeCharacter, completeNode, addRunGold, addRunRelic, dispatch } = useGameStore();
+  const { runState, activeCharacter, completeNode, addRunGold, addRunRelic, applyRunPartyHp, dispatch } = useGameStore();
   const [chosen, setChosen] = useState<string | null>(null);
   const currentNode = runState ? getCurrentNode(runState) : null;
   const event = useMemo(() => {
@@ -55,30 +55,10 @@ export function EventScreen() {
       addRunGold(consequence.value);
     }
     if (consequence.type === 'heal' && typeof consequence.value === 'number') {
-      dispatch({
-        id: crypto.randomUUID(),
-        type: 'recover_hp',
-        sessionId: runState.sessionId,
-        actorId: activeCharacter.id,
-        targetId: activeCharacter.id,
-        createdAt: new Date().toISOString(),
-        source: 'user',
-        amount: consequence.value,
-        recoveryKind: 'healing',
-      });
+      applyRunPartyHp(activeCharacter.id, consequence.value);
     }
     if (consequence.type === 'damage' && typeof consequence.value === 'number') {
-      dispatch({
-        id: crypto.randomUUID(),
-        type: 'apply_damage',
-        sessionId: runState.sessionId,
-        actorId: activeCharacter.id,
-        targetId: activeCharacter.id,
-        createdAt: new Date().toISOString(),
-        source: 'user',
-        amount: consequence.value,
-        damageType: 'necrotic',
-      });
+      applyRunPartyHp(activeCharacter.id, -consequence.value);
     }
     if (consequence.type === 'relic' && typeof consequence.value === 'string') {
       const relic = getRelic(consequence.value);

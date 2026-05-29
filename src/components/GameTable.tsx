@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { Icon } from './ui/Icons';
-import { Field, Seg, Toggle } from './ui/Primitives';
 import { useGameStore } from '../store/useGameStore';
 import { InventoryPanel } from './InventoryPanel';
 import { RunContent } from './Run/RunContent';
@@ -10,12 +9,12 @@ import { rollDice as rollFormula } from '../engine/dice/dice';
 import { performAbilityCheck, performAttackRoll, performSavingThrow, performSkillCheck } from '../engine/dice/rollEngine';
 import type { GameEvent } from '../engine/events/types';
 import { abilityLabels, abilityModifier, initiativeModifier, savingThrowModifier, skillAbilityMap, skillModifier } from '../lib/rules';
-import type { AbilityKey, AiChoice, AiConfirmAction, AiDmRequestMode, AiSuggestedRoll, Character, EncounterState, GameSession, RollMode, SessionMember, StoryMessage } from '../types';
+import type { AbilityKey, AiChoice, AiConfirmAction, AiSuggestedRoll, Character, EncounterState, GameSession, RollMode, SessionMember, StoryMessage } from '../types';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type LeftTab   = 'party' | 'char' | 'bag' | 'quests';
-type RightTab  = 'dice' | 'combat' | 'ai' | 'tools';
+type RightTab  = 'dice' | 'combat' | 'tools';
 type StoryTab  = 'story' | 'chat' | 'lore';
 type ActionMode = 'speak' | 'act' | 'aside';
 
@@ -53,7 +52,6 @@ export interface GameTableProps {
   onDiceRoll?: (result: DiceResult) => void;
   onUpdateCharacter?: (character: Character) => void | Promise<void>;
   onCombatChange?: (change: PendingChange) => void;
-  onAskAiAction?: (text: string, mode: ActionMode, requestMode?: AiDmRequestMode) => Promise<void>;
   onConfirmAiAction?: (action: AiConfirmAction, message: StoryMessage) => Promise<void> | void;
   onSpellCast?: (spellId: string, slotLevel: number) => void;
   aiIsProcessing?: boolean;
@@ -209,11 +207,6 @@ function buildSavedRolls(character: Character | null): SavedRoll[] {
 
   return [...equippedWeapons, ...spells];
 }
-
-type AiSuggestion = {
-  message: StoryMessage;
-  action: AiConfirmAction;
-};
 
 function normalizeMessageChoice(choice: unknown, index: number): AiChoice | null {
   if (typeof choice === 'string') {
@@ -373,25 +366,6 @@ function getSuggestedActions(messages: StoryMessage[]): string[] {
   return [];
 }
 
-function getLatestAiSuggestion(messages: StoryMessage[], dismissedIds: Set<string>): AiSuggestion | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    const actions = message.metadata?.confirmActions;
-    if (!Array.isArray(actions)) continue;
-    const confirmedIds = new Set(
-      Array.isArray(message.metadata?.confirmedActions)
-        ? (message.metadata.confirmedActions as unknown[]).filter((v): v is string => typeof v === 'string')
-        : [],
-    );
-    const action = (actions as AiConfirmAction[]).find((item) => {
-      const key = `${message.id}:${item.id}`;
-      return !dismissedIds.has(key) && !confirmedIds.has(item.id);
-    });
-    if (action) return { message, action };
-  }
-  return null;
-}
-
 function getMessageConfirmActions(message: StoryMessage, dismissedIds: Set<string>) {
   const actions = message.metadata?.confirmActions;
   if (!Array.isArray(actions)) return [];
@@ -483,7 +457,6 @@ export function GameTable({
   onDiceRoll,
   onUpdateCharacter,
   onCombatChange,
-  onAskAiAction,
   onConfirmAiAction,
   onSpellCast,
   aiIsProcessing = false,
@@ -502,9 +475,6 @@ export function GameTable({
   const [diceResult,   setDiceResult]   = useState<DiceResult | null>(null);
   const [rollHistory, setRollHistory] = useState<DiceResult[]>([]);
   const [rolling, setRolling] = useState(false);
-  const [aiOn,    setAiOn]    = useState(true);
-  const [aiTone,  setAiTone]  = useState('Balanced');
-  const [aiStrict, setAiStrict] = useState('Standard');
   const [showSceneModal, setShowSceneModal] = useState(false);
   const [dismissedAiSuggestionIds, setDismissedAiSuggestionIds] = useState<Set<string>>(() => new Set());
   const [busyConfirmActionId, setBusyConfirmActionId] = useState<string | null>(null);
@@ -589,22 +559,14 @@ export function GameTable({
   const handleSend = async (mode: ActionMode) => {
     if (!actionDraft.trim()) return;
     const body = actionDraft;
-    if (onAskAiAction) {
-      await onAskAiAction(body, mode);
-    } else {
-      await onSendMessage?.(body, mode);
-    }
+    await onSendMessage?.(body, mode);
     setActionDraft('');
   };
   const handleChoiceSelect = async (choice: AiChoice) => {
     const prompt = choice.prompt || choice.label;
     if (!prompt.trim()) return;
     setActionDraft(prompt);
-    if (onAskAiAction) {
-      await onAskAiAction(prompt, 'act');
-    } else {
-      await onSendMessage?.(prompt, 'act');
-    }
+    await onSendMessage?.(prompt, 'act');
     setActionDraft('');
   };
   const handleSuggestedRoll = async (message: StoryMessage, suggestedRoll: AiSuggestedRoll) => {
@@ -615,11 +577,7 @@ export function GameTable({
         try {
           const result = rollSuggestedCheck(tableCharacter, suggestedRoll);
           recordRoll(result);
-          if (onAskAiAction) {
-            await onAskAiAction(`${formatDiceResultPrompt(result, suggestedRoll)}\nSource message: ${message.id ?? 'latest AI roll request'}`, 'act', 'dice_result');
-          } else {
-            await onSendMessage?.(`${formatDiceResultPrompt(result, suggestedRoll)}\nSource message: ${message.id ?? 'latest AI roll request'}`, 'act');
-          }
+          await onSendMessage?.(`${formatDiceResultPrompt(result, suggestedRoll)}\nSource message: ${message.id ?? 'latest roll request'}`, 'act');
         } finally {
           setRolling(false);
         }
@@ -654,24 +612,14 @@ export function GameTable({
     }
   };
   const suggestedActions = getSuggestedActions(messages);
-  const latestAiSuggestion = getLatestAiSuggestion(messages, dismissedAiSuggestionIds);
   const visibleStoryMessages = messages.filter((message) => matchesStoryTab(storyTab, message));
   const partyMembers = buildPartyMembers(tableCharacter, sessionMembers, combatState, user.id);
   const questItems = buildQuestItems(sceneState, journalState.entries);
   const visibleRightTabs = ([
     { id: 'dice',   label: 'Dice',      icon: 'dice'   },
     { id: 'combat', label: 'Combat',    icon: 'sword'  },
-    { id: 'ai',     label: 'AI Warden', icon: 'wand'   },
     { id: 'tools',  label: 'Tools',     icon: 'cog'    },
-  ] as { id: RightTab; label: string; icon: string }[]).filter((tab) => (
-    gameMode !== 'warden_run' || tab.id !== 'ai'
-  ));
-
-  useEffect(() => {
-    if (gameMode === 'warden_run' && rightTab === 'ai') {
-      setRightTab('dice');
-    }
-  }, [gameMode, rightTab]);
+  ] as { id: RightTab; label: string; icon: string }[]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -783,14 +731,6 @@ export function GameTable({
               <div ref={storyRef} className="fw-scroll" style={{ flex: 1, padding: '18px 28px', minHeight: 0 }}>
                 {messages.length === 0 ? (
                   <GtOnboardingCard
-                    onAskAi={async () => {
-                      const prompt = 'เริ่มการผจญภัย: เปิดฉากแรกให้สั้น กระชับ มีบรรยากาศ เป้าหมายแรก และทางเลือกถัดไป';
-                      if (onAskAiAction) {
-                        await onAskAiAction(prompt, 'act');
-                      } else {
-                        await onSendMessage?.(prompt, 'act');
-                      }
-                    }}
                     onSetScene={() => setShowSceneModal(true)}
                   />
                 ) : visibleStoryMessages.length === 0 ? (
@@ -818,11 +758,7 @@ export function GameTable({
                 suggestions={suggestedActions}
                 onCommitSuggestion={async (suggestion, mode) => {
                   setActionDraft(suggestion);
-                  if (onAskAiAction) {
-                    await onAskAiAction(suggestion, mode);
-                  } else {
-                    await onSendMessage?.(suggestion, mode);
-                  }
+                  await onSendMessage?.(suggestion, mode);
                   setActionDraft('');
                 }}
                 onSend={handleSend}
@@ -867,20 +803,6 @@ export function GameTable({
               />
             )}
             {rightTab === 'combat' && <GtCombatPanel encounter={combatState} />}
-            {rightTab === 'ai'     && (
-              <GtAIDMPanel
-                latestSuggestion={latestAiSuggestion}
-                on={aiOn}
-                onAcceptSuggestion={handleConfirmAiSuggestion}
-                onAskAiAction={onAskAiAction}
-                onDismissSuggestion={(id) => setDismissedAiSuggestionIds((current) => new Set(current).add(id))}
-                setOn={setAiOn}
-                tone={aiTone}
-                setTone={setAiTone}
-                strict={aiStrict}
-                setStrict={setAiStrict}
-              />
-            )}
             {rightTab === 'tools'  && <GtToolsPanel />}
           </div>
         </aside>
@@ -1586,7 +1508,7 @@ function GtMessageConfirmActions({
         const busy = busyConfirmActionId === suggestionId;
         return (
           <div key={suggestionId} style={{ padding: 12, background: 'linear-gradient(180deg, rgba(124,58,237,0.10), rgba(124,58,237,0.02))', border: '1px solid rgba(124,58,237,0.35)', borderRadius: 8 }}>
-            <div className="fw-eyebrow" style={{ marginBottom: 6 }}>AI Warden Suggests</div>
+            <div className="fw-eyebrow" style={{ marginBottom: 6 }}>Suggested State Change</div>
             <div style={{ fontSize: 12.5, color: 'var(--text)', lineHeight: 1.4 }}>{action.label}</div>
             {action.note && (
               <div className="fw-serif" style={{ marginTop: 4, fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic' }}>{action.note}</div>
@@ -1925,169 +1847,7 @@ function GtCombatPanel({ encounter }: CombatPanelProps) {
   );
 }
 
-// ─── Right: AI DM Panel ───────────────────────────────────────────────────────
-
-interface AIDMPanelProps {
-  latestSuggestion: AiSuggestion | null;
-  on: boolean; setOn: (v: boolean) => void;
-  tone: string; setTone: (v: string) => void;
-  strict: string; setStrict: (v: string) => void;
-  onAcceptSuggestion: (action: AiConfirmAction, message: StoryMessage) => Promise<void> | void;
-  onAskAiAction?: (text: string, mode: ActionMode, requestMode?: AiDmRequestMode) => Promise<void>;
-  onDismissSuggestion: (id: string) => void;
-}
-
-function GtAIDMPanel({
-  latestSuggestion,
-  on,
-  setOn,
-  tone,
-  setTone,
-  strict,
-  setStrict,
-  onAcceptSuggestion,
-  onAskAiAction,
-  onDismissSuggestion,
-}: AIDMPanelProps) {
-  const [busyAction, setBusyAction] = useState<string | null>(null);
-  const runAiAction = async (label: string, prompt: string) => {
-    if (!on || !onAskAiAction) return;
-    setBusyAction(label);
-    try {
-      await onAskAiAction(prompt, 'act');
-    } finally {
-      setBusyAction(null);
-    }
-  };
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, background: 'linear-gradient(180deg, rgba(124,58,237,0.10), rgba(124,58,237,0.02))', border: '1px solid rgba(124,58,237,0.4)', borderRadius: 8 }}>
-        <div style={{ width: 32, height: 32, borderRadius: 50, background: 'rgba(124,58,237,0.18)', border: '1px solid var(--arcane)', display: 'grid', placeItems: 'center', color: 'var(--arcane-bright)' }}>
-          {Icon('wand', { size: 14 })}
-        </div>
-        <div style={{ flex: 1 }}>
-          <div className="fw-display" style={{ fontSize: 12.5, color: 'var(--text)' }}>AI Warden</div>
-          <div style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic', fontFamily: 'var(--f-serif)' }}>
-            {on ? 'Assistant · awaits the DM.' : 'Off.'}
-          </div>
-        </div>
-        <Toggle on={on} onChange={setOn} />
-      </div>
-
-      <Field label="Tone">
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 4 }}>
-          {['Balanced', 'Grim', 'Heroic', 'Mystery'].map(t => (
-            <button key={t} onClick={() => setTone(t)}
-              className={'fw-btn ' + (tone === t ? '' : 'fw-btn-ghost') + ' fw-btn-sm'}
-              style={{ justifyContent: 'center', borderColor: tone === t ? 'var(--gold-deep)' : undefined, color: tone === t ? 'var(--gold-bright)' : undefined, background: tone === t ? 'rgba(214,168,79,0.08)' : undefined }}>
-              {t}
-            </button>
-          ))}
-        </div>
-      </Field>
-
-      <Field label="Rule Strictness">
-        <Seg value={strict} onChange={setStrict} options={['Casual', 'Standard', 'Hardcore']} />
-      </Field>
-
-      <div>
-        <div className="fw-eyebrow" style={{ marginBottom: 6 }}>Warden Actions</div>
-        {[
-          { icon: 'sparkles', name: 'Generate Scene',       desc: 'From recent log + chosen tone.', prompt: `Generate the next scene using a ${tone.toLowerCase()} tone and ${strict.toLowerCase()} rules strictness.` },
-          { icon: 'alert',    name: 'Suggest Consequence',  desc: 'Outcome of last action.', prompt: `Suggest a fair consequence for the latest player action using ${strict.toLowerCase()} rules strictness.` },
-          { icon: 'book',     name: 'Ask Rules',            desc: 'RAW citation. No state change.', prompt: 'Answer the most relevant rules question for the current situation without changing game state.' },
-          { icon: 'users',    name: 'Voice NPC',            desc: 'Speak as the scene NPC.', prompt: `Continue as the most relevant NPC in the current scene with a ${tone.toLowerCase()} tone.` },
-          { icon: 'map',      name: 'Random Encounter',     desc: 'By current region.', prompt: 'Suggest a random encounter appropriate to the current scene. Include confirmable events only if needed.' },
-        ].map(a => (
-          <button key={a.name} className="fw-btn fw-btn-ghost" disabled={!on || !onAskAiAction || busyAction !== null} onClick={() => void runAiAction(a.name, a.prompt)} title={!on ? 'AI Warden is off.' : !onAskAiAction ? 'AI action handler is not available.' : undefined} type="button"
-            style={{ width: '100%', padding: '8px 10px', justifyContent: 'flex-start', textAlign: 'left', borderColor: 'rgba(124,58,237,0.25)', marginBottom: 4 }}>
-            <span style={{ color: 'var(--arcane-bright)' }}>{Icon(a.icon, { size: 12 })}</span>
-            <div style={{ flex: 1, lineHeight: 1.2 }}>
-              <div style={{ fontSize: 12, color: 'var(--text)' }}>{a.name}</div>
-              <div style={{ fontSize: 10.5, color: 'var(--text-3)' }}>{a.desc}</div>
-            </div>
-          </button>
-        ))}
-      </div>
-
-      {latestSuggestion && (
-        <GtAiSuggestionCard
-          busy={busyAction !== null}
-          suggestion={latestSuggestion}
-          onAccept={onAcceptSuggestion}
-          onDismiss={onDismissSuggestion}
-          onResuggest={async (text) => {
-            if (!onAskAiAction) return;
-            setBusyAction('Re-suggest');
-            try {
-              await onAskAiAction(text, 'act');
-            } finally {
-              setBusyAction(null);
-            }
-          }}
-        />
-      )}
-
-      <div style={{ fontSize: 11, color: 'var(--text-4)', fontStyle: 'italic', fontFamily: 'var(--f-serif)', lineHeight: 1.5, paddingInline: 4 }}>
-        The Warden suggests. It never commits damage, conditions, death, or inventory loss without your approval.
-      </div>
-    </div>
-  );
-}
-
-function GtAiSuggestionCard({
-  busy,
-  suggestion,
-  onAccept,
-  onDismiss,
-  onResuggest,
-}: {
-  busy: boolean;
-  suggestion: AiSuggestion;
-  onAccept: (action: AiConfirmAction, message: StoryMessage) => Promise<void> | void;
-  onDismiss: (id: string) => void;
-  onResuggest: (text: string) => Promise<void> | void;
-}) {
-  const { action, message } = suggestion;
-  const suggestionId = `${message.id}:${action.id}`;
-  const isConfirmed = (
-    Array.isArray(message.metadata?.confirmedActions)
-      ? (message.metadata.confirmedActions as unknown[]).filter((v): v is string => typeof v === 'string')
-      : []
-  ).includes(action.id);
-
-  return (
-    <div style={{ padding: 12, background: 'linear-gradient(180deg, rgba(124,58,237,0.10), rgba(124,58,237,0.02))', border: '1px solid rgba(124,58,237,0.35)', borderRadius: 8 }}>
-      <div className="fw-eyebrow" style={{ marginBottom: 6 }}>AI Warden Suggests</div>
-      <div style={{ fontSize: 12.5, color: 'var(--text)', lineHeight: 1.4 }}>{action.label}</div>
-      {action.note && (
-        <div className="fw-serif" style={{ marginTop: 4, fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic' }}>{action.note}</div>
-      )}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 10 }}>
-        <button
-          className="fw-btn fw-btn-gold fw-btn-sm"
-          disabled={busy || isConfirmed}
-          onClick={() => { if (!isConfirmed) void onAccept(action, message); }}
-          type="button"
-          style={{ justifyContent: 'center', opacity: isConfirmed ? 0.6 : undefined }}
-          title={isConfirmed ? 'Already applied.' : undefined}
-        >
-          {Icon('check', { size: 11 })} {isConfirmed ? 'Applied' : 'Accept as canon'}
-        </button>
-        <button className="fw-btn fw-btn-ghost fw-btn-sm" disabled={busy} onClick={() => void onResuggest(`Re-suggest this event with a safer alternative: ${action.label}`)} type="button" style={{ justifyContent: 'center' }}>
-          {Icon('sparkles', { size: 11 })} Re-suggest
-        </button>
-      </div>
-      <button className="fw-btn fw-btn-ghost fw-btn-sm" disabled={busy} onClick={() => onDismiss(suggestionId)} type="button" style={{ justifyContent: 'center', width: '100%', marginTop: 6 }}>
-        Dismiss
-      </button>
-    </div>
-  );
-}
-
-// ─── Right: Tools Panel ───────────────────────────────────────────────────────
+// Right: Tools Panel
 
 function GtToolsPanel() {
   return (
@@ -2133,19 +1893,7 @@ function GtToolsPanel() {
 
 // ─── Center: Onboarding Card (empty feed) ────────────────────────────────────
 
-interface OnboardingCardProps {
-  onAskAi: () => Promise<void>;
-  onSetScene: () => void;
-}
-
-function GtOnboardingCard({ onAskAi, onSetScene }: OnboardingCardProps) {
-  const [busy, setBusy] = React.useState(false);
-
-  async function handleAskAi() {
-    setBusy(true);
-    try { await onAskAi(); } finally { setBusy(false); }
-  }
-
+function GtOnboardingCard({ onSetScene }: { onSetScene: () => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, height: '100%', padding: '40px 0' }}>
       <div style={{ maxWidth: 400, width: '100%', background: 'linear-gradient(180deg, rgba(214,168,79,0.06), rgba(214,168,79,0.01))', border: '1px solid rgba(214,168,79,0.25)', borderRadius: 12, padding: '32px 28px', textAlign: 'center' }}>
@@ -2157,15 +1905,6 @@ function GtOnboardingCard({ onAskAi, onSetScene }: OnboardingCardProps) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <button
             className="fw-btn fw-btn-gold fw-btn-lg"
-            disabled={busy}
-            onClick={() => void handleAskAi()}
-            style={{ justifyContent: 'center' }}
-            type="button"
-          >
-            {Icon('sparkles', { size: 13 })} Ask AI to open the scene
-          </button>
-          <button
-            className="fw-btn fw-btn-ghost"
             onClick={onSetScene}
             style={{ justifyContent: 'center' }}
             type="button"
@@ -2284,7 +2023,7 @@ function GtConfirmModal({ change, onClose }: { change: PendingChange; onClose: (
           </p>
           {change.aiProposed && (
             <div style={{ marginTop: 10, fontSize: 11.5, color: 'var(--arcane-bright)', fontFamily: 'var(--f-serif)', fontStyle: 'italic', display: 'flex', gap: 6, alignItems: 'center' }}>
-              {Icon('wand', { size: 12 })} Proposed by the AI Warden — your approval finalizes it.
+              {Icon('wand', { size: 12 })} Proposed change - your approval finalizes it.
             </div>
           )}
         </div>

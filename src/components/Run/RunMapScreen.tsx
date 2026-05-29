@@ -27,6 +27,8 @@ import { useGameStore } from '../../store/useGameStore';
 import type { RunCombatant, RunFloor, RunNode, RunState } from '../../engine/run/runTypes';
 
 interface RunMapScreenProps {
+  createNodeVote?: (nodes: RunNode[]) => unknown;
+  isCoOp?: boolean;
   onNodeSelect: (nodeId: string) => void;
 }
 
@@ -79,7 +81,26 @@ const FALLBACK_NODE_LABELS: Record<string, string> = {
   gamble: 'Gamble',
 };
 
+const NODE_ICONS: Record<RunNode['type'], string> = {
+  combat: '⚔️',
+  elite: '💀',
+  boss: '👁',
+  rest: '🏕',
+  shop: '🛒',
+  treasure: '💎',
+  mystery: '🌀',
+  forge: '🔨',
+  gamble: '🎲',
+};
+
 function WIcon(name: string | undefined, options: { size?: number; stroke?: number } = {}): ReactNode {
+  if (name && Object.values(NODE_ICONS).includes(name)) {
+    return (
+      <span style={{ fontSize: options.size ?? 16, lineHeight: 1 }} aria-hidden="true">
+        {name}
+      </span>
+    );
+  }
   const Icon = ICONS[name ?? ''] ?? Sparkles;
   return <Icon size={options.size ?? 16} strokeWidth={options.stroke ?? 1.7} aria-hidden="true" />;
 }
@@ -141,11 +162,14 @@ function getActiveFloor(runState: RunState): RunFloor | null {
 
 function getNodeInfo(runState: RunState, node: RunNode) {
   const displayType = node.displayType ?? node.type;
-  return runState.nodeInfo?.[displayType] ?? {
-    icon: node.icon ?? 'question',
+  const nodeInfo = runState.nodeInfo?.[displayType] ?? {
     label: node.label ?? FALLBACK_NODE_LABELS[node.type] ?? node.type,
     color: '',
     blurb: node.blurb ?? 'Advance deeper into the run.',
+  };
+  return {
+    ...nodeInfo,
+    icon: NODE_ICONS[node.type] ?? node.icon ?? 'question',
   };
 }
 
@@ -405,7 +429,7 @@ function DepthRail({ floor, depth }: { floor: number; depth: number }) {
   );
 }
 
-export function RunMapScreen({ onNodeSelect }: RunMapScreenProps) {
+export function RunMapScreen({ createNodeVote, isCoOp = false, onNodeSelect }: RunMapScreenProps) {
   const runState = useGameStore((state) => state.runState);
   const activeCharacter = useGameStore((state) => state.activeCharacter);
   const selectNode = useGameStore((state) => state.selectNode);
@@ -438,6 +462,19 @@ export function RunMapScreen({ onNodeSelect }: RunMapScreenProps) {
   const totalH = numLayers * rowH + 120;
   const positionOf = floor ? buildPositionOf(floor, totalH, rowH) : null;
   const currentNode = nodes.find((node) => node.status === 'current') ?? nodes.find((node) => node.id === runState?.currentNodeId) ?? null;
+
+  const handleNodeClick = (node: RunNode) => {
+    if (!floor || node.status !== 'available') return;
+
+    if (isCoOp) {
+      const availableNodes = floor.nodes.filter((item) => item.status === 'available');
+      void createNodeVote?.(availableNodes);
+      return;
+    }
+
+    const result = selectNode(node.id);
+    if (!result.error) onNodeSelect(node.id);
+  };
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -564,11 +601,7 @@ export function RunMapScreen({ onNodeSelect }: RunMapScreenProps) {
                       disabled={!isAvailable}
                       onMouseEnter={() => setHovered(node.id)}
                       onMouseLeave={() => setHovered(null)}
-                      onClick={() => {
-                        if (!isAvailable) return;
-                        const result = selectNode(node.id);
-                        if (!result.error) onNodeSelect(node.id);
-                      }}
+                      onClick={() => handleNodeClick(node)}
                       aria-label={info.label}
                       type="button"
                     >

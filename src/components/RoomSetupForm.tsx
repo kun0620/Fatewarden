@@ -8,13 +8,13 @@ import {
   Flame,
   Globe,
   Hexagon,
-  Info,
   Minus,
   Plus,
   ScrollText,
   Shield,
   Skull,
   Sparkles,
+  Swords,
   Users,
   WandSparkles,
 } from 'lucide-react';
@@ -39,6 +39,7 @@ const playModeIcons: Record<SessionPlayMode, ReactNode> = {
   dnd: <Dice5 size={16} aria-hidden="true" />,
   story: <ScrollText size={16} aria-hidden="true" />,
   ai_dm: <WandSparkles size={16} aria-hidden="true" />,
+  warden_run: <Swords size={16} aria-hidden="true" />,
   hexplore: <Hexagon size={16} aria-hidden="true" />,
 };
 
@@ -56,6 +57,7 @@ const strictDescriptions: Record<RuleStrictness, string> = {
 };
 
 const visibilityDescriptions: Record<RoomVisibility, string> = {
+  public: 'Visible to players browsing open tables.',
   invite_code: 'Anyone with the code can join the lobby.',
   private: 'Only invited players can view this room.',
 };
@@ -86,6 +88,7 @@ function TileButton({
   busy,
   desc,
   icon,
+  badge,
   onClick,
   title,
 }: {
@@ -93,12 +96,14 @@ function TileButton({
   busy: boolean;
   desc: string;
   icon?: ReactNode;
+  badge?: string;
   onClick: () => void;
   title: string;
 }) {
   return (
     <button className={`fw-tile ${active ? 'active' : ''}`} disabled={busy} onClick={onClick} type="button">
       {icon ? <span style={{ color: active ? 'var(--gold-bright)' : 'var(--arcane-bright)' }}>{icon}</span> : null}
+      {badge ? <span className="fw-badge">{badge}</span> : null}
       <span className="fw-tile-title">{title}</span>
       <span className="fw-tile-desc">{desc}</span>
     </button>
@@ -183,6 +188,7 @@ export function RoomSetupForm({ draft, busy, errors, onChange, onSubmit, onCance
                     busy={busy}
                     desc={item.description}
                     icon={playModeIcons[item.id]}
+                    badge={item.badge}
                     key={item.id}
                     onClick={() => onChange({ ...draft, playMode: item.id })}
                     title={item.label}
@@ -325,40 +331,6 @@ export function RoomSetupForm({ draft, busy, errors, onChange, onSubmit, onCance
                 </section>
               </div>
             </div>
-
-            <section className="fw-card" style={{ borderColor: 'rgba(124,58,237,0.3)' }}>
-              <CardHead
-                icon={<WandSparkles size={14} />}
-                title="AI Dungeon Master"
-                right={
-                  <button
-                    aria-pressed={draft.allowAiDm}
-                    className={`fw-toggle ${draft.allowAiDm ? 'on' : ''}`}
-                    disabled={busy}
-                    onClick={() => onChange({ ...draft, allowAiDm: !draft.allowAiDm })}
-                    title="Toggle AI Dungeon Master"
-                    type="button"
-                  />
-                }
-              />
-              <div className="fw-card-body" style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr 1fr' }}>
-                {[
-                  ['Tone', draft.allowAiDm ? 'Balanced' : 'Off'],
-                  ['Rule Strictness', strict.label],
-                  ['Authority', draft.allowAiDm ? 'Assistant' : 'Manual'],
-                ].map(([label, value]) => (
-                  <div className="fw-seg" key={label} style={{ justifyContent: 'space-between', width: '100%' }}>
-                    <span className="fw-seg-btn active" style={{ pointerEvents: 'none' }}>{value}</span>
-                  </div>
-                ))}
-                <div style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-soft)', borderRadius: 8, display: 'flex', gap: 12, gridColumn: '1 / -1', padding: 12 }}>
-                  <Info size={14} style={{ color: 'var(--arcane-bright)', marginTop: 2 }} />
-                  <div className="fw-serif" style={{ color: 'var(--text-2)', fontSize: 12, fontStyle: 'italic', lineHeight: 1.5 }}>
-                    The Warden never alters state without confirmation. Damage, conditions, death, and inventory loss always wait for your approval.
-                  </div>
-                </div>
-              </div>
-            </section>
 
             {serverError ? <p style={{ color: 'var(--danger)', margin: 0 }}>{serverError}</p> : null}
           </div>

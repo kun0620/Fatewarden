@@ -24,6 +24,7 @@ import { wardenRunFoes, type RunEnemy } from '../data/enemies';
 import { WARDEN_RUN_RELICS } from '../data/relics';
 import { classes as CLASSES } from '../data/classes';
 import { SPELLS } from '../data/spells';
+import { supabase } from '../lib/supabase';
 import type { NodeType, PermanentProgress, RunCombatant, RunInitEntry, RunRelic, RunSkill, RunState } from '../engine/run/runTypes';
 import {
   processPartyChoiceCreated,
@@ -70,7 +71,7 @@ import type {
   ConcentrationStartEvent,
   GameEvent,
 } from '../engine/events/types';
-import type { Character, Combatant, EncounterState, GamePhase, Inventory, VaultCharacter } from '../types';
+import type { Character, Combatant, EncounterState, GamePhase, GameSession, Inventory, SessionMember, VaultCharacter } from '../types';
 
 type DispatchResult = {
   character: Character | null;
@@ -89,6 +90,56 @@ type StartRunInput = {
 
 type GameMode = 'lobby' | 'warden_run';
 
+function debounce<Args extends unknown[]>(
+  fn: (...args: Args) => void | Promise<void>,
+  waitMs: number,
+) {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  return (...args: Args) => {
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(() => {
+      void fn(...args);
+    }, waitMs);
+  };
+}
+
+const saveRunState = debounce(async (sessionId: string, runState: RunState | null) => {
+  if (!sessionId || sessionId === 'local-run' || !supabase) return;
+  const { error } = await supabase
+    .from('sessions')
+    .update({ run_state: runState })
+    .eq('id', sessionId);
+
+  if (error) {
+    console.warn('Could not save Warden run state', error);
+  }
+}, 1000);
+
+async function saveRunStateImmediate(sessionId: string, runState: RunState | null) {
+  console.log('[SAVE IMMEDIATE]', {
+    sessionId,
+    hasRunState: Boolean(runState),
+    hasSupabase: Boolean(supabase),
+  });
+
+  if (!sessionId || sessionId === 'local-run' || !supabase) return;
+  const { error } = await supabase
+    .from('sessions')
+    .update({ run_state: runState })
+    .eq('id', sessionId);
+
+  console.log('[SAVE RESULT]', { error });
+
+  if (error) {
+    console.warn('Could not save Warden run state', error);
+  }
+}
+
+function persistRunState(gameMode: GameMode, runState: RunState | null) {
+  if (gameMode !== 'warden_run' || !runState) return;
+  void saveRunState(runState.sessionId, runState);
+}
+
 type GameStoreState = {
   combatState: EncounterState | null;
   sceneState: SceneState | null;
@@ -98,6 +149,9 @@ type GameStoreState = {
   relationshipState: RelationshipState;
   runState: RunState | null;
   gameMode: GameMode;
+  activeSession: GameSession | null;
+  sessionMembers: SessionMember[];
+  currentUserId: string | null;
   vaultCharacters: VaultCharacter[];
   permanentProgress: PermanentProgress;
   activeCharacter: Character | null;
@@ -117,6 +171,9 @@ type GameStoreState = {
   setPartyChoiceAiResponder: (responder: ((input: string) => void | Promise<void>) | null) => void;
   setActiveCharacter: (character: Character | null) => void;
   setGameMode: (mode: GameMode) => void;
+  setRuntimeSession: (session: GameSession | null) => void;
+  setRuntimeSessionMembers: (members: SessionMember[]) => void;
+  setCurrentUserId: (userId: string | null) => void;
   setVaultCharacters: (characters: VaultCharacter[]) => void;
   setPermanentProgress: (progress: PermanentProgress) => void;
   getSceneContext: () => ReturnType<typeof buildSceneContext> | null;
@@ -134,6 +191,9 @@ type GameStoreState = {
   spendRunGold: (amount: number) => { error?: string };
   addRunRelic: (relic: RunRelic) => void;
   endRun: (victory: boolean) => void;
+  advanceRunTurn: () => void;
+  applyRunPartyHp: (characterId: string, delta: number) => void;
+  applyRunAllPartyHp: (delta: number) => void;
   eventMeta: (characterId: string) => {
     id: string;
     sessionId: string;
@@ -497,6 +557,9 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   relationshipState: { records: [] },
   runState: null,
   gameMode: 'lobby',
+  activeSession: null,
+  sessionMembers: [],
+  currentUserId: null,
   vaultCharacters: [],
   permanentProgress: defaultPermanentProgress,
   activeCharacter: null,
@@ -554,12 +617,19 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       relationshipState: adjustAffinityEngine(state.relationshipState, characterId, npcId, npcName, delta, reason),
     })),
   setGameMode: (mode) => set({ gameMode: mode }),
+  setRuntimeSession: (session) => set({ activeSession: session }),
+  setRuntimeSessionMembers: (members) => set({ sessionMembers: members }),
+  setCurrentUserId: (userId) => set({ currentUserId: userId }),
   setVaultCharacters: (characters) => set({ vaultCharacters: characters }),
   setPermanentProgress: (progress) => set({ permanentProgress: progress }),
-  startRun: (inputOrPartyIds, positions, sessionId) =>
+  startRun: (inputOrPartyIds, positions, sessionId) => {
+    const gameMode = get().gameMode;
+    const activeSession = get().activeSession;
+    let nextRunState: RunState | null = null;
     set((state) => {
       const input = normalizeStartRunInput(inputOrPartyIds, positions, sessionId);
-      const run = generateRun(input.sessionId ?? 'local-run', 3);
+      const runSessionId = activeSession?.id ?? input.sessionId ?? crypto.randomUUID();
+      const run = generateRun(runSessionId, 3, activeSession?.difficulty);
       const passiveBonuses = state.permanentProgress.passiveBonuses;
       const selectedCharacters = input.partyIds
         .map((id) => state.vaultCharacters.find((character) => character.id === id) ?? null)
@@ -576,18 +646,25 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       const startingRelic = input.startingRelic
         ? WARDEN_RUN_RELICS.find((relic) => relic.id === input.startingRelic)
         : undefined;
+      nextRunState = {
+        ...run,
+        partyCharacterIds: [...input.partyIds],
+        partyPositions: { ...input.positions },
+        gold: run.gold + passiveBonuses.startingGold,
+        relics: startingRelic ? [startingRelic, ...run.relics] : run.relics,
+        party,
+      };
 
       return {
-        runState: {
-          ...run,
-          partyCharacterIds: [...input.partyIds],
-          partyPositions: { ...input.positions },
-          gold: run.gold + passiveBonuses.startingGold,
-          relics: startingRelic ? [startingRelic, ...run.relics] : run.relics,
-          party,
-        },
+        runState: nextRunState,
       };
-    }),
+    });
+    if (activeSession?.id && nextRunState) {
+      void saveRunStateImmediate(activeSession.id, nextRunState);
+      return;
+    }
+    persistRunState(gameMode, nextRunState);
+  },
   selectNode: (nodeId) => {
     const current = get().runState;
     if (!current) return { error: 'No active run.' };
@@ -599,55 +676,125 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     if (currentNode && ['combat', 'elite', 'boss'].includes(currentNode.type)) {
       const foes = buildRunFoes(currentNode.type, next.currentFloor);
       const party = next.party ?? [];
-      set({
-        runState: {
-          ...next,
-          foes,
-          initiativeOrder: rollRunInitiative(party, foes),
-        },
-      });
+      const nextRunState = {
+        ...next,
+        foes,
+        initiativeOrder: rollRunInitiative(party, foes),
+      };
+      set({ runState: nextRunState });
+      persistRunState(get().gameMode, nextRunState);
       return {};
     }
 
-    set({
-      runState: {
-        ...next,
-        foes: [],
-        initiativeOrder: [],
-      },
-    });
+    const nextRunState = {
+      ...next,
+      foes: [],
+      initiativeOrder: [],
+    };
+    set({ runState: nextRunState });
+    persistRunState(get().gameMode, nextRunState);
     return {};
   },
-  completeNode: (nodeId, result) =>
-    set((state) => ({
-      runState: state.runState ? completeRunNode(state.runState, nodeId, result) : state.runState,
-    })),
-  addRunGold: (amount) =>
-    set((state) => ({
-      runState: state.runState ? addRunGold(state.runState, amount) : state.runState,
-    })),
+  completeNode: (nodeId, result) => {
+    const current = get().runState;
+    if (!current) return;
+    const nextRunState = completeRunNode(current, nodeId, result);
+    set({ runState: nextRunState });
+    persistRunState(get().gameMode, nextRunState);
+  },
+  addRunGold: (amount) => {
+    const current = get().runState;
+    if (!current) return;
+    const nextRunState = addRunGold(current, amount);
+    set({ runState: nextRunState });
+    persistRunState(get().gameMode, nextRunState);
+  },
   spendRunGold: (amount) => {
     const current = get().runState;
     if (!current) return { error: 'No active run.' };
     const next = spendRunGold(current, amount);
     if ('error' in next) return next;
     set({ runState: next });
+    persistRunState(get().gameMode, next);
     return {};
   },
-  addRunRelic: (relic) =>
-    set((state) => ({
-      runState: state.runState ? addRunRelic(state.runState, relic) : state.runState,
-    })),
-  endRun: (victory) =>
-    set((state) => ({
-      runState: state.runState
-        ? {
-            ...state.runState,
-            status: victory ? 'victory' : 'defeat',
-            endedAt: new Date().toISOString(),
-          }
-        : state.runState,
-    })),
+  addRunRelic: (relic) => {
+    const current = get().runState;
+    if (!current) return;
+    const nextRunState = addRunRelic(current, relic);
+    set({ runState: nextRunState });
+    persistRunState(get().gameMode, nextRunState);
+  },
+  endRun: (victory) => {
+    const current = get().runState;
+    if (!current) return;
+    const nextRunState: RunState = {
+      ...current,
+      status: victory ? 'victory' : 'defeat',
+      endedAt: new Date().toISOString(),
+    };
+    set({ runState: nextRunState });
+    persistRunState(get().gameMode, nextRunState);
+  },
+  applyRunPartyHp: (characterId, delta) => {
+    const { runState } = get();
+    if (!runState?.party) return;
+    const nextParty = runState.party.map((p) => {
+      if (p.id !== characterId) return p;
+      const newHp = Math.max(0, Math.min(p.hpMax, p.hp + delta));
+      return { ...p, hp: newHp, down: newHp <= 0 };
+    });
+    const nextRunState = { ...runState, party: nextParty };
+    set({ runState: nextRunState });
+    persistRunState(get().gameMode, nextRunState);
+  },
+  applyRunAllPartyHp: (delta) => {
+    const { runState } = get();
+    if (!runState?.party) return;
+    const nextParty = runState.party.map((p) => {
+      if (p.down) return p;
+      const newHp = Math.max(0, Math.min(p.hpMax, p.hp + delta));
+      return { ...p, hp: newHp, down: newHp <= 0 };
+    });
+    const nextRunState = { ...runState, party: nextParty };
+    set({ runState: nextRunState });
+    persistRunState(get().gameMode, nextRunState);
+  },
+  advanceRunTurn: () => {
+    set((state) => {
+      const { runState } = state;
+      if (!runState) return {};
+      const order = runState.initiativeOrder;
+      if (!order?.length) return {};
+
+      const currentIdx = order.findIndex((e) => e.now);
+      const nextOrder = order.map((e) => ({ ...e, now: false }));
+
+      let nextIdx = (currentIdx + 1) % order.length;
+      let attempts = 0;
+      while (attempts < order.length) {
+        const nextEntry = order[nextIdx];
+        const partyActor = runState.party?.find((p) => p.id === nextEntry.id);
+        const foeActor = runState.foes?.find((f) => f.id === nextEntry.id);
+        const isDead =
+          (partyActor && (partyActor.hp <= 0 || partyActor.down)) ||
+          (foeActor && (foeActor.hp <= 0 || foeActor.down)) ||
+          runState.deadCharacterIds?.includes(nextEntry.id);
+        if (!isDead) break;
+        nextIdx = (nextIdx + 1) % order.length;
+        attempts++;
+      }
+
+      nextOrder[nextIdx] = { ...nextOrder[nextIdx], now: true };
+
+      return {
+        runState: {
+          ...runState,
+          initiativeOrder: nextOrder,
+        },
+      };
+    });
+  },
   setActiveCharacter: (character) =>
     set({
       activeCharacter: character,

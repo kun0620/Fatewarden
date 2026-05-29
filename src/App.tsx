@@ -4,7 +4,6 @@ import type { User } from '@supabase/supabase-js';
 import { AuthPanel } from './components/AuthPanel';
 import { MainMenu } from './components/MainMenu';
 import { SettingsPage } from './components/SettingsPage';
-import { RoomSetupPage } from './components/RoomSetupPage';
 import { LobbyScreen } from './components/LobbyScreen';
 import { CharacterSheetPage } from './components/CharacterSheetPage';
 import { DMDashboard } from './components/DMDashboard';
@@ -15,7 +14,15 @@ import { AppRail } from './components/AppRail';
 import { Topbar } from './components/Topbar';
 import { CombatMode } from './components/CombatMode';
 import { GameTable } from './components/GameTable';
+import { LandingScreen } from './components/Run/LandingScreen';
+import { CreateRoomScreen } from './components/Run/CreateRoomScreen';
+import { BindCharacterScreen } from './components/Run/BindCharacterScreen';
+import { RunLobbyScreen } from './components/Run/RunLobbyScreen';
+import { RunShell } from './components/Run/RunShell';
+import { AssemblyScreen } from './components/Run/AssemblyScreen';
+import { MetaProgressionScreen } from './components/Run/MetaProgressionScreen';
 import { Icon } from './components/ui/Icons';
+import { LoadingState } from './components/ui/States';
 import { PartyChoicePanel } from './components/PartyChoicePanel';
 import { NarrativePanel } from './components/NarrativePanel';
 import { useAuthFlow } from './hooks/useAuthFlow';
@@ -64,10 +71,11 @@ import type {
   SessionMember,
   StoryMessage,
 } from './types';
+import type { PermanentProgress } from './engine/run/runTypes';
 
 type MobilePanel = 'quest' | 'party' | 'inventory' | 'map';
 type LeftSidebarTab = 'party' | 'character' | 'inventory' | 'quests' | 'narrative';
-type RightSidebarTab = 'dice' | 'combat' | 'ai' | 'rules' | 'tools';
+type RightSidebarTab = 'dice' | 'combat' | 'rules' | 'tools';
 
 const prototypeParty = [
   { initials: 'AE', name: 'Aedric Vael', role: 'Warlock - Lv 7', hp: '38/52', hpPct: 73, ac: 14, slots: '1/2', you: true, tone: 'violet' },
@@ -275,25 +283,6 @@ function PrototypeStoryFeed({
         status="Critical insight"
         title={`${characterName} rolled`}
       />
-
-      <section className="fw-ai-suggestion">
-        <div className="fw-ai-suggestion__icon">{Icon('wand', { size: 16 })}</div>
-        <div>
-          <div className="fw-story-kicker">
-            <span>AI Warden</span>
-            <b>Suggestion</b>
-          </div>
-          <p className="fw-story-text">
-            The residue traces a binding - not an ordinary banishment. Whoever stood here is held, not gone.
-            The shadow is the warding, and it is failing.
-          </p>
-          <div className="fw-story-actions">
-            <button className="fw-btn fw-btn-purple fw-btn-sm" type="button">Accept as canon</button>
-            <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">Re-suggest</button>
-            <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">Dismiss</button>
-          </div>
-        </div>
-      </section>
 
       <section className="fw-roll-request">
         <div>
@@ -653,72 +642,6 @@ function PrototypeRightPanel({ onOpenCombat, tab }: { onOpenCombat: () => void; 
     );
   }
 
-  if (tab === 'ai') {
-    const actions = [
-      ['Generate Scene', 'From recent log + chosen tone.', 'sparkles'],
-      ['Suggest Consequence', 'Outcome of last action.', 'alert'],
-      ['Ask Rules', 'RAW citation. No state change.', 'book'],
-      ['Voice NPC', 'Speak as the Cinder-Reeve.', 'users'],
-      ['Roll Random Encounter', 'By region - Ysavir under.', 'map'],
-    ];
-
-    return (
-      <div className="fw-proto-right-panel fw-proto-right-ai">
-        <div className="fw-ai-panel-head">
-          <span>{Icon('wand', { size: 14 })}</span>
-          <div>
-            <strong>AI Warden</strong>
-            <small>Assistant - awaits the DM.</small>
-          </div>
-          <button className="fw-toggle on" type="button" aria-label="AI Warden enabled" />
-        </div>
-
-        <div>
-          <div className="fw-proto-section-title">Tone</div>
-          <div className="fw-ai-tone-grid">
-            {['Manual', 'Run', 'Rules'].map((mode) => (
-              <button className={mode === 'Manual' ? 'active' : ''} disabled key={mode} type="button">
-                {mode}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <div className="fw-proto-section-title">Rule Strictness</div>
-          <div className="fw-dice-mode fw-ai-strictness">
-            {['Casual', 'Standard', 'Hardcore'].map((mode, index) => (
-              <button className={index === 1 ? 'active' : ''} key={mode} type="button">{mode}</button>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <div className="fw-proto-section-title">Warden Actions</div>
-          <div className="fw-ai-action-list">
-            {actions.map(([title, body, icon]) => (
-              <button className="fw-ai-action" key={title} type="button">
-                <span>{Icon(icon, { size: 12 })}</span>
-                <div><strong>{title}</strong><small>{body}</small></div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="fw-ai-pending-card">
-          <div><span>{Icon('alert', { size: 12 })}</span><b>Pending Confirmation</b></div>
-          <p>The Warden proposes: <strong>Aedric takes 7 fire damage</strong> from the brazen censer's burst.</p>
-          <div>
-            <button className="fw-btn fw-btn-gold fw-btn-sm" type="button">{Icon('check', { size: 11 })} Confirm</button>
-            <button className="fw-btn fw-btn-ghost fw-btn-sm" type="button">{Icon('x', { size: 11 })} Reject</button>
-          </div>
-        </div>
-
-        <p className="fw-ai-note">The Warden suggests. It never commits damage, conditions, death, or inventory loss without your approval.</p>
-      </div>
-    );
-  }
-
   if (tab === 'tools' || tab === 'rules') {
     const tools = [
       ['Pause', 'pause'],
@@ -966,6 +889,7 @@ export function App() {
   const [pendingCharWizard, setPendingCharWizard] = useState(false);
   const [pendingDmDash, setPendingDmDash] = useState(false);
   const [pendingBestiary, setPendingBestiary] = useState(false);
+  const [pendingWardenVault, setPendingWardenVault] = useState(false);
   const [combatActive, setCombatActive] = useState(false);
   const [pendingConfirmAction, setPendingConfirmAction] = useState<AiConfirmAction | null>(null);
   const [pendingConfirmSourceMessage, setPendingConfirmSourceMessage] = useState<StoryMessage | null>(null);
@@ -1109,6 +1033,62 @@ export function App() {
   const adjustAffinity = useGameStore((state) => state.adjustAffinity);
   const requestedGamePhase = useGameStore((state) => state.requestedGamePhase);
   const clearRequestedGamePhase = useGameStore((state) => state.clearRequestedGamePhase);
+  const gameMode = useGameStore((state) => state.gameMode);
+  const setGameMode = useGameStore((state) => state.setGameMode);
+  const runState = useGameStore((state) => state.runState);
+  const setRuntimeSession = useGameStore((state) => state.setRuntimeSession);
+  const setRuntimeSessionMembers = useGameStore((state) => state.setRuntimeSessionMembers);
+  const setCurrentUserId = useGameStore((state) => state.setCurrentUserId);
+  const setPermanentProgress = useGameStore((state) => state.setPermanentProgress);
+
+  useEffect(() => {
+    setRuntimeSession(activeSession ?? pendingSession);
+    setRuntimeSessionMembers(sessionMembers);
+    setCurrentUserId(user?.id ?? null);
+  }, [activeSession, pendingSession, sessionMembers, setCurrentUserId, setRuntimeSession, setRuntimeSessionMembers, user?.id]);
+
+  useEffect(() => {
+    if (!user || !hasSupabaseConfig || !supabase) return;
+    let cancelled = false;
+
+    void supabase
+      .from('profiles')
+      .select('warden_progress')
+      .eq('id', user.id)
+      .single()
+      .then(({ data, error }) => {
+        if (cancelled || error || !data?.warden_progress) return;
+        const progress = data.warden_progress as Partial<PermanentProgress>;
+        setPermanentProgress({
+          userId: user.id,
+          wardenPoints: progress.wardenPoints ?? 0,
+          totalPoints: progress.totalPoints ?? 0,
+          unlockedClasses: progress.unlockedClasses ?? [],
+          unlockedRaces: progress.unlockedRaces ?? [],
+          unlockedRelics: progress.unlockedRelics ?? [],
+          unlockedItems: progress.unlockedItems ?? [],
+          passiveBonuses: {
+            startingGold: progress.passiveBonuses?.startingGold ?? 10,
+            startingHpBonus: progress.passiveBonuses?.startingHpBonus ?? 5,
+            startingItems: progress.passiveBonuses?.startingItems ?? 0,
+            shopDiscount: progress.passiveBonuses?.shopDiscount ?? 0,
+          },
+          runsCompleted: progress.runsCompleted ?? 0,
+          runsAttempted: progress.runsAttempted ?? 0,
+          bestFloor: progress.bestFloor ?? 0,
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [setPermanentProgress, user]);
+
+  useEffect(() => {
+    const openCharacterVault = () => setPendingCharVault(true);
+    window.addEventListener('fatewarden:open-character-vault', openCharacterVault);
+    return () => window.removeEventListener('fatewarden:open-character-vault', openCharacterVault);
+  }, []);
 
   // Sync GAME_PHASE_CHANGE events dispatched through the store back to Supabase/local phase state.
   useEffect(() => {
@@ -1116,6 +1096,24 @@ export function App() {
     clearRequestedGamePhase();
     void changeGamePhase(requestedGamePhase);
   }, [requestedGamePhase, currentPhase, changeGamePhase, clearRequestedGamePhase]);
+
+  useEffect(() => {
+    if (activeSession?.mode === 'warden_run') {
+      console.log('[SESSION LOAD]', {
+        sessionId: activeSession?.id,
+        hasRunState: Boolean(activeSession?.runState),
+        runStateKeys: activeSession?.runState
+          ? Object.keys(activeSession.runState)
+          : null,
+      });
+      console.log('[restore] activeSession.runState:', activeSession?.runState);
+      console.log('[restore] store runState:', useGameStore.getState().runState);
+      setGameMode('warden_run');
+      if (activeSession.runState && (!runState || runState.sessionId !== activeSession.id)) {
+        useGameStore.setState({ runState: activeSession.runState });
+      }
+    }
+  }, [activeSession?.mode, activeSession?.runState, runState, setGameMode]);
 
   // Initialize default sceneState when entering a session (GameSession has no sceneState field)
   useEffect(() => {
@@ -1195,6 +1193,7 @@ export function App() {
     setPendingCharWizard(false);
     setPendingDmDash(false);
     setPendingBestiary(false);
+    setPendingWardenVault(false);
     setPendingSession(null);
     setRoomModal(null);
   }, [setPendingSession, setRoomModal]);
@@ -1205,6 +1204,7 @@ export function App() {
       setCharacterStatus('Character attached to this table');
       setEncounter(session.combatState);
       setPendingSession(session);
+      setPendingCharVault(false);
       setPendingCharWizard(false);
       setPendingLobby(true);
       if (user && supabase) {
@@ -1227,6 +1227,7 @@ export function App() {
       setPendingCharWizard(false);
       setPendingDmDash(false);
       setPendingBestiary(false);
+      setPendingWardenVault(false);
       setPendingSession(null);
       setRoomModal(null);
       switch (target) {
@@ -1269,6 +1270,7 @@ export function App() {
     setPendingCharWizard(false);
     setPendingDmDash(false);
     setPendingBestiary(false);
+    setPendingWardenVault(false);
     setPendingCharSheet(true);
     setRoomModal(null);
   }, [setRoomModal]);
@@ -1293,8 +1295,9 @@ export function App() {
       if (pendingCharWizard) setPendingCharWizard(false);
       if (pendingDmDash) setPendingDmDash(false);
       if (pendingBestiary) setPendingBestiary(false);
+      if (pendingWardenVault) setPendingWardenVault(false);
     }
-  }, [user, pendingSession, pendingRoomSetup, pendingLibrary, pendingSettings, pendingLobby, pendingCharSheet, pendingCharVault, pendingCharWizard, pendingDmDash, pendingBestiary]);
+  }, [user, pendingSession, pendingRoomSetup, pendingLibrary, pendingSettings, pendingLobby, pendingCharSheet, pendingCharVault, pendingCharWizard, pendingDmDash, pendingBestiary, pendingWardenVault]);
 
   const aiBusy = false;
   const openingSceneBusy = false;
@@ -2012,8 +2015,20 @@ export function App() {
   async function signOut() {
     await authSignOut();
     handleSwitchTable();
+    setGameMode('lobby');
     setPendingRoomSetup(false);
     setPendingSettings(false);
+    setPendingWardenVault(false);
+  }
+
+  if (gameMode === 'warden_run' && !user) {
+    return (
+      <LandingScreen
+        activeRunLabel={runState ? `Run #${runState.runNumber ?? 1}` : undefined}
+        hasActiveRun={Boolean(runState)}
+        onEnterTable={() => setGameMode('lobby')}
+      />
+    );
   }
 
   if (appStage === 'login' || !user) {
@@ -2024,8 +2039,84 @@ export function App() {
     );
   }
 
+  const wardenLobbySession = pendingSession?.mode === 'warden_run'
+    ? pendingSession
+    : activeSession?.mode === 'warden_run'
+      ? activeSession
+      : null;
+
+  if (pendingCharVault && wardenLobbySession) {
+    return (
+      <BindCharacterScreen
+        user={user}
+        session={wardenLobbySession}
+        onBack={() => {
+          setPendingCharVault(false);
+          setPendingLobby(true);
+        }}
+        onOpenWizard={() => {
+          setPendingCharVault(false);
+          setPendingCharWizard(true);
+        }}
+        onBound={(session, sessionCharacter) => {
+          completeCharacterEntryToLobby(session, sessionCharacter);
+        }}
+      />
+    );
+  }
+
+  if (pendingLobby && wardenLobbySession) {
+    return (
+      <RunLobbyScreen
+        onBack={() => {
+          handleSwitchTable();
+          returnToMainMenu();
+          setGameMode('lobby');
+        }}
+      />
+    );
+  }
+
+  if (gameMode === 'warden_run') {
+    if (pendingRoomSetup) {
+      return (
+        <CreateRoomScreen
+          user={user}
+          onCreated={(session) => {
+            setPendingRoomSetup(false);
+            requestEnterSession(session, user);
+          }}
+          onCancel={returnToMainMenu}
+        />
+      );
+    }
+
+    const restoringRunState = Boolean(
+      activeSession?.mode === 'warden_run'
+      && activeSession.runState
+      && (!runState || runState.sessionId !== activeSession.id),
+    );
+
+    if (restoringRunState) {
+      return (
+        <main className="fw-login-wrap">
+          <LoadingState label="Restoring Warden run..." size="lg" />
+        </main>
+      );
+    }
+
+    if (!runState) {
+      return <AssemblyScreen />;
+    }
+    return <RunShell />;
+  }
+
   if (isGateStage(appStage)) {
     const screen = (() => {
+      if (pendingWardenVault) {
+        return <MetaProgressionScreen onBack={returnToMainMenu} />;
+      }
+
       if (appStage === 'menu') {
         return (
           <MainMenu
@@ -2050,6 +2141,7 @@ export function App() {
               setPendingSettings(false);
               setPendingSession(null);
               setRoomModal(null);
+              setGameMode('warden_run');
               setPendingRoomSetup(true);
             }}
             onRequestLobby={() => {
@@ -2067,6 +2159,14 @@ export function App() {
             onRequestBestiary={() => {
               returnToMainMenu();
               setPendingBestiary(true);
+            }}
+            onRequestWardenRun={() => {
+              returnToMainMenu();
+              setGameMode('warden_run');
+            }}
+            onRequestWardenVault={() => {
+              returnToMainMenu();
+              setPendingWardenVault(true);
             }}
             onSignOut={signOut}
           />
@@ -2094,7 +2194,7 @@ export function App() {
 
       if (appStage === 'room-setup') {
         return (
-          <RoomSetupPage
+          <CreateRoomScreen
             user={user}
             onCreated={(session) => {
               setPendingRoomSetup(false);
@@ -2108,6 +2208,18 @@ export function App() {
       if (appStage === 'lobby') {
         const lobbySession = pendingSession ?? activeSession ?? undefined;
         const lobbyIsHost = Boolean(lobbySession && user && (lobbySession.hostId === user.id || lobbySession.createdBy === user.id));
+
+        if (lobbySession?.mode === 'warden_run') {
+          return (
+            <RunLobbyScreen
+              onBack={() => {
+                handleSwitchTable();
+                returnToMainMenu();
+                setGameMode('lobby');
+              }}
+            />
+          );
+        }
 
         return (
           <LobbyScreen
@@ -2187,6 +2299,20 @@ export function App() {
       }
 
       if (appStage === 'character-setup' && pendingSession) {
+        if (pendingSession.mode === 'warden_run') {
+          return (
+            <BindCharacterScreen
+              user={user}
+              session={pendingSession}
+              onBack={returnToMainMenu}
+              onOpenWizard={() => setPendingCharWizard(true)}
+              onBound={(session, sessionCharacter) => {
+                completeCharacterEntryToLobby(session, sessionCharacter);
+              }}
+            />
+          );
+        }
+
         return (
           <CharacterVaultScreen
             user={user}

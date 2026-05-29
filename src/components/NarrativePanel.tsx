@@ -97,7 +97,7 @@ function SceneModeBadges() {
             {Icon(cur.icon, { size: 12 })} {cur.label}
           </span>
           <span style={{ flex: 1, fontSize: 12.5, color: 'var(--text-2)', fontStyle: 'italic', fontFamily: 'var(--f-serif)' }}>
-            AI Warden tone shifts to · <b style={{ color: cur.color, fontStyle: 'normal', fontFamily: 'var(--f-display)', letterSpacing: '0.04em' }}>{cur.tone}</b>
+            Narrator tone shifts to · <b style={{ color: cur.color, fontStyle: 'normal', fontFamily: 'var(--f-display)', letterSpacing: '0.04em' }}>{cur.tone}</b>
           </span>
         </div>
       </div>
@@ -858,7 +858,7 @@ export function NarrativePanel({
                         {Icon(modeInfo.icon, { size: 12 })} {modeInfo.label}
                       </span>
                       <span style={{ flex: 1, fontSize: 12.5, color: 'var(--text-2)', fontStyle: 'italic', fontFamily: 'var(--f-serif)' }}>
-                        AI Warden tone · <b style={{ color: modeInfo.color, fontStyle: 'normal', fontFamily: 'var(--f-display)' }}>{modeInfo.tone}</b>
+                        Narrator tone · <b style={{ color: modeInfo.color, fontStyle: 'normal', fontFamily: 'var(--f-display)' }}>{modeInfo.tone}</b>
                       </span>
                     </div>
                   </div>

@@ -1,4 +1,4 @@
-import type { SessionPlayMode, SessionThemeKey, RuleStrictness, RoomVisibility } from '../types';
+import type { RunDifficulty, SessionPlayMode, SessionThemeKey, RuleStrictness, RoomVisibility } from '../types';
 
 export type RoomSetupDraft = {
   title: string;
@@ -7,8 +7,8 @@ export type RoomSetupDraft = {
   themeNotes: string;
   ruleStrictness: RuleStrictness;
   partySize: number;
-  allowAiDm: boolean;
   visibility: RoomVisibility;
+  difficulty?: RunDifficulty;
   houseRules: string;
 };
 
@@ -34,13 +34,13 @@ export const PARTY_SIZE_MAX = 5;
 export function getDefaultRoomSetup(): RoomSetupDraft {
   return {
     title: '',
-    playMode: 'dnd',
+    playMode: 'warden_run',
     themeKey: 'dark_fantasy',
     themeNotes: '',
     ruleStrictness: 'standard',
     partySize: 4,
-    allowAiDm: true,
     visibility: 'invite_code',
+    difficulty: 'warden',
     houseRules: '',
   };
 }

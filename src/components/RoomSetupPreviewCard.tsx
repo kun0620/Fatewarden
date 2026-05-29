@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ArrowRight, Flame, Globe, Plus, Shield, Sparkles, Swords, Users } from 'lucide-react';
+import { ArrowRight, Flame, Globe, Plus, Shield, Swords, Users } from 'lucide-react';
 import type { RoomSetupDraft } from '../lib/roomSetup';
 
 type RoomSetupPreviewCardProps = {
@@ -115,7 +115,6 @@ export function RoomSetupPreviewCard({
         <SummaryRow icon={<Flame size={12} />} label="Theme" value={themeLabel} />
         <SummaryRow icon={<Shield size={12} />} label="Rule Strictness" value={ruleLabel} />
         <SummaryRow icon={<Users size={12} />} label="Party Size" value={`${draft.partySize} adventurers`} />
-        <SummaryRow icon={<Sparkles size={12} />} label="AI Warden" value={draft.allowAiDm ? 'Assistant on' : 'Off'} arcane={draft.allowAiDm} />
         <SummaryRow icon={<Globe size={12} />} label="Visibility" value={draft.visibility === 'private' ? 'Private' : 'Invite Code'} />
 
         <div className="fw-divider" style={{ marginTop: 18, marginBottom: 12 }}>

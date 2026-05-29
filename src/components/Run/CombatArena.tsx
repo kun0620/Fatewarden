@@ -13,14 +13,16 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { GameEvent } from '../../engine/events/types';
+import { markCharacterDead } from '../../engine/run/runEngine';
 import type { RunCombatant, RunSkill, RunState } from '../../engine/run/runTypes';
 import { useGameStore } from '../../store/useGameStore';
 import type { CombatAttackType } from '../../types';
 
 interface CombatArenaProps {
   onCombatEnd: (won: boolean) => void;
+  onCharacterDeath?: (combatant: RunCombatant) => void;
 }
 
 interface TargetRef {
@@ -57,6 +59,8 @@ const ICONS: Record<string, LucideIcon> = {
   sword: Sword,
   zap: Zap,
 };
+
+const TURN_TIMEOUT = 30;
 
 function WIcon(name: string, options: { size?: number; stroke?: number } = {}): ReactNode {
   const Icon = ICONS[name] ?? Sparkles;
@@ -133,10 +137,44 @@ function getFallbackSkill(): RunSkill {
     name: 'Attack',
     kind: 'attack',
     cost: 0,
-    dmg: '6-10',
+    dmg: '1d8',
     targets: [1, 2],
     melee: true,
   };
+}
+
+type RunCombatantExt = RunCombatant & { attackBonus?: number; ac?: number; gold?: number };
+
+function rollDice(diceStr: string): number {
+  const match = diceStr.match(/^(\d+)d(\d+)([+-]\d+)?$/);
+  if (!match) return parseInt(diceStr) || 4;
+  const count = parseInt(match[1]);
+  const sides = parseInt(match[2]);
+  const mod = parseInt(match[3] ?? '0');
+  let total = mod;
+  for (let i = 0; i < count; i++) {
+    total += Math.floor(Math.random() * sides) + 1;
+  }
+  return total;
+}
+
+function resolveAttack(
+  attacker: RunCombatantExt,
+  target: RunCombatantExt,
+  skill: RunSkill,
+): { hit: boolean; damage: number; crit: boolean; roll: number } {
+  const roll = Math.floor(Math.random() * 20) + 1;
+  const crit = roll === 20;
+  const attackBonus = attacker.attackBonus ?? 3;
+  const hit = crit || roll + attackBonus >= (target.ac ?? 12);
+
+  if (!hit) return { hit: false, damage: 0, crit: false, roll };
+
+  const dmgStr = skill.dmg ?? '1d6';
+  let damage = rollDice(dmgStr);
+  if (crit) damage += rollDice(dmgStr);
+
+  return { hit, damage, crit, roll };
 }
 
 function getActiveActor(runState: RunState, party: RunCombatant[], foes: RunCombatant[]): RunCombatant | null {
@@ -339,14 +377,18 @@ function SkillButton({ skill, selected, onClick }: { skill: RunSkill; selected: 
 function ActionBar({
   active,
   isYourTurn,
+  isCoOp,
   selectedSkill,
   setSelectedSkill,
+  turnTimeLeft,
   onEndTurn,
 }: {
   active: RunCombatant | null;
   isYourTurn: boolean;
+  isCoOp: boolean;
   selectedSkill: RunSkill | null;
   setSelectedSkill: (skill: RunSkill | null) => void;
+  turnTimeLeft: number;
   onEndTurn: () => void;
 }) {
   if (!active || active.down || active.hp <= 0) {
@@ -383,7 +425,17 @@ function ActionBar({
   const defaultAttack = skills.find((skill) => skill.kind === 'attack') ?? getFallbackSkill();
 
   return (
-    <div className="wr-action-bar">
+    <>
+      {isYourTurn && isCoOp && (
+        <div className="wr-turn-timer">
+          <div
+            className={`wr-turn-timer-fill${turnTimeLeft < 10 ? ' wr-turn-timer-fill--urgent' : ''}`}
+            style={{ width: `${(turnTimeLeft / TURN_TIMEOUT) * 100}%` }}
+          />
+          <span className="fw-caption fw-mono">{turnTimeLeft}s</span>
+        </div>
+      )}
+      <div className="wr-action-bar">
       <div className="wr-action-who">
         <div className="wr-action-who-name">{active.name}</div>
         <div className="wr-action-who-sub">
@@ -432,22 +484,26 @@ function ActionBar({
       </div>
 
       <div className="wr-action-side">
-        <button className="wr-btn wr-btn-ghost" type="button">{WIcon('bag', { size: 12 })} Items</button>
+        <button className="wr-btn wr-btn-ghost" type="button" disabled title="Coming soon">{WIcon('bag', { size: 12 })} Items</button>
         <button className="wr-btn wr-btn-ghost" type="button" onClick={onEndTurn}>{WIcon('arrowR', { size: 12 })} Pass</button>
         <button className="wr-btn wr-btn-violet" type="button" onClick={onEndTurn}>
           End Turn {WIcon('chevR', { size: 12 })}
         </button>
       </div>
     </div>
+    </>
   );
 }
 
-export function CombatArena({ onCombatEnd }: CombatArenaProps) {
-  const { runState, activeCharacter, dispatch } = useGameStore();
+export function CombatArena({ onCharacterDeath, onCombatEnd }: CombatArenaProps) {
+  const { runState, activeCharacter, currentUserId, dispatch, sessionMembers, advanceRunTurn, addRunGold } = useGameStore();
   const [selectedSkill, setSelectedSkill] = useState<RunSkill | null>(null);
   const [hoverTarget, setHoverTarget] = useState<string | null>(null);
   const [floaters, setFloaters] = useState<Floater[]>([]);
   const [log, setLog] = useState<CombatLogEntry[]>([]);
+  const [turnTimeLeft, setTurnTimeLeft] = useState(TURN_TIMEOUT);
+  const [combatRound, setCombatRound] = useState(1);
+  const prevActiveIdRef = useRef<string | null>(null);
 
   const party = useMemo(() => {
     if (runState?.party?.length) return runState.party;
@@ -457,24 +513,142 @@ export function CombatArena({ onCombatEnd }: CombatArenaProps) {
 
   const foes = useMemo(() => runState?.foes ?? [], [runState?.foes]);
   const active = runState ? getActiveActor(runState, party, foes) : null;
-  const isYourTurn = Boolean(active?.you);
+  const activeActorUserId = useMemo(() => {
+    if (!active) return null;
+    return sessionMembers.find((member) => member.characterId === active.id)?.playerId ?? (active.you ? currentUserId : null);
+  }, [active, currentUserId, sessionMembers]);
+  const isCoOp = (sessionMembers?.length ?? 1) > 1;
+  const isPartyMember = Boolean(active && party.some((p) => p.id === active.id));
+  const isYourTurn = Boolean(
+    active &&
+    (activeActorUserId
+      ? activeActorUserId === currentUserId
+      : active.you || (!isCoOp && isPartyMember)),
+  );
   const targetable = useMemo(() => validTargets(selectedSkill, active, party, foes), [active, foes, party, selectedSkill]);
-  const currentRound = Math.max(1, (runState?.floorsCleared ?? 0) + 1);
+  const currentRound = combatRound;
 
   function dispatchCombat(event: GameEvent) {
     const result = dispatch(event);
     return result.failed.length === 0;
   }
 
-  function handleEndTurn() {
-    if (!runState || !activeCharacter) return;
-    setSelectedSkill(null);
-    dispatchCombat({
-      ...eventMeta(runState, activeCharacter.id, activeCharacter.id),
-      type: 'COMBAT_ADVANCE_TURN',
-      direction: 1,
-    });
+  function addCombatLog(text: string, crit?: boolean) {
+    setLog((current) => [{ id: Date.now(), text, crit }, ...current].slice(0, 20));
   }
+
+  function checkCombatEnd() {
+    const currentRunState = useGameStore.getState().runState;
+    if (!currentRunState) return;
+    const allFoesDead = currentRunState.foes?.every((f) => f.hp <= 0 || f.down);
+    if (allFoesDead) {
+      const goldEarned = currentRunState.foes?.reduce((sum, f) => sum + ((f as RunCombatantExt).gold ?? 15), 0) ?? 0;
+      addRunGold(goldEarned);
+      onCombatEnd(true);
+      return;
+    }
+    const allPartyDead = currentRunState.party?.every((p) => p.hp <= 0 || p.down);
+    if (allPartyDead) {
+      onCombatEnd(false);
+    }
+  }
+
+  function handleEndTurn() {
+    if (!runState) return;
+    setSelectedSkill(null);
+    advanceRunTurn();
+  }
+
+  useEffect(() => {
+    if (!isYourTurn || !isCoOp) return;
+
+    setTurnTimeLeft(TURN_TIMEOUT);
+    const interval = window.setInterval(() => {
+      setTurnTimeLeft((prev) => {
+        if (prev <= 1) {
+          advanceRunTurn();
+          window.clearInterval(interval);
+          return TURN_TIMEOUT;
+        }
+
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [active?.id, activeCharacter?.id, isCoOp, isYourTurn, runState]);
+
+  useEffect(() => {
+    const activeEntry = runState?.initiativeOrder?.find((e) => e.now);
+    if (!activeEntry) return;
+    const order = runState?.initiativeOrder ?? [];
+    const isFirst = order.length > 0 && order[0]?.id === activeEntry.id;
+    if (prevActiveIdRef.current && prevActiveIdRef.current !== activeEntry.id && isFirst) {
+      setCombatRound((r) => r + 1);
+    }
+    prevActiveIdRef.current = activeEntry.id;
+  }, [runState?.initiativeOrder]);
+
+  useEffect(() => {
+    const activeEntry = runState?.initiativeOrder?.find((e) => e.now);
+    if (!activeEntry || activeEntry.side === 'ally') return;
+
+    if (activeEntry.down) {
+      advanceRunTurn();
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      const current = useGameStore.getState().runState;
+      if (!current) return;
+
+      const activeFoe = current.foes?.find((f) => f.id === activeEntry.id);
+      if (!activeFoe || activeFoe.hp <= 0 || activeFoe.down) {
+        advanceRunTurn();
+        return;
+      }
+
+      const targets = (current.party ?? []).filter((p) => !p.down && p.hp > 0);
+      if (!targets.length) {
+        onCombatEnd(false);
+        return;
+      }
+
+      const target = targets.reduce((min, p) => (p.hp < min.hp ? p : min));
+      const skill = activeFoe.skills?.[0] ?? {
+        id: 'attack',
+        name: 'Attack',
+        kind: 'attack' as const,
+        cost: 0,
+        dmg: '1d6',
+        targets: [1, 2, 3, 4] as Array<1 | 2 | 3 | 4>,
+        melee: true,
+      };
+
+      const result = resolveAttack(activeFoe as RunCombatantExt, target as RunCombatantExt, skill);
+      console.log('[ENEMY AI]', activeFoe.name, '→', target.name, result);
+
+      if (result.hit) {
+        const fallen = applyRunCombatantHp(target.id, 'ally', result.damage, false);
+        if (fallen) onCharacterDeath?.(fallen);
+        const floaterId = Date.now();
+        setFloaters((cur) => [...cur, { id: floaterId, target: target.id, side: 'ally', value: `−${result.damage}${result.crit ? '!' : ''}`, type: 'damage', crit: result.crit }]);
+        window.setTimeout(() => setFloaters((cur) => cur.filter((f) => f.id !== floaterId)), 1500);
+        addCombatLog(
+          `${activeFoe.name} attacks ${target.name} for ${result.damage}${result.crit ? ' — CRITICAL!' : ''}!`,
+          result.crit,
+        );
+      } else {
+        addCombatLog(`${activeFoe.name} misses ${target.name}! (rolled ${result.roll})`);
+      }
+
+      checkCombatEnd();
+      advanceRunTurn();
+    }, 1000);
+
+    return () => window.clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runState?.initiativeOrder]);
 
   function handleFlee() {
     if (!runState || !activeCharacter) return;
@@ -486,31 +660,101 @@ export function CombatArena({ onCombatEnd }: CombatArenaProps) {
     onCombatEnd(false);
   }
 
+  function applyRunCombatantHp(targetId: string, targetSide: 'ally' | 'foe', amount: number, isHeal: boolean) {
+    let fallen: RunCombatant | null = null;
+
+    useGameStore.setState((state) => {
+      const current = state.runState;
+      if (!current) return {};
+
+      const key = targetSide === 'ally' ? 'party' : 'foes';
+      const actors = current[key] ?? [];
+      let changed = false;
+      const nextActors = actors.map((actor) => {
+        if (actor.id !== targetId) return actor;
+        const previousHp = actor.hp;
+        const nextHp = isHeal
+          ? Math.min(actor.hpMax, actor.hp + amount)
+          : Math.max(0, actor.hp - amount);
+        const nextActor: RunCombatant = {
+          ...actor,
+          hp: nextHp,
+          down: nextHp <= 0,
+        };
+        changed = true;
+
+        if (targetSide === 'ally' && previousHp > 0 && nextHp <= 0) {
+          fallen = nextActor;
+        }
+
+        return nextActor;
+      });
+
+      if (!changed) return {};
+
+      const nextRunState = {
+        ...current,
+        [key]: nextActors,
+      };
+
+      return {
+        runState: fallen ? markCharacterDead(nextRunState, fallen.id) : nextRunState,
+      };
+    });
+
+    return fallen;
+  }
+
   function commitAction(targetId: string, targetSide: 'ally' | 'foe') {
     if (!runState || !active || !selectedSkill) return;
-    const actorId = activeCharacter?.id ?? active.id;
-    const isHeal = selectedSkill.kind === 'heal';
-    const amount = getDamagePreview(selectedSkill);
-    const crit = !isHeal && Math.random() < 0.2;
-    const value = isHeal ? `+${amount} HP` : `−${amount}${crit ? '!' : ''}`;
+    const allActors = [...party, ...foes];
+    const target = allActors.find((a) => a.id === targetId);
+    if (!target) return;
 
-    if (!isHeal) {
-      dispatchCombat({
-        ...eventMeta(runState, actorId, targetId),
-        type: 'COMBAT_ATTACK',
-        actorCombatantId: active.id,
-        targetCombatantId: targetId,
-        attackType: getAttackType(selectedSkill),
-        damageAmount: amount,
-        damageType: 'slashing',
-      });
+    setSelectedSkill(null);
+
+    const skill = selectedSkill;
+
+    if (skill.kind === 'heal') {
+      const healAmt = rollDice(skill.dmg ?? '1d6+2');
+      applyRunCombatantHp(targetId, targetSide, healAmt, true);
+      const value = `+${healAmt} HP`;
+      const floaterId = Date.now();
+      setFloaters((cur) => [...cur, { id: floaterId, target: targetId, side: targetSide, value, type: 'heal' }]);
+      window.setTimeout(() => setFloaters((cur) => cur.filter((f) => f.id !== floaterId)), 1500);
+      addCombatLog(`${active.name} heals ${target.name} for ${healAmt}`);
+      advanceRunTurn();
+      return;
     }
 
+    if (skill.kind === 'buff' || skill.kind === 'util') {
+      addCombatLog(`${active.name} uses ${skill.name}`);
+      advanceRunTurn();
+      return;
+    }
+
+    // attack / spell
+    const result = resolveAttack(active as RunCombatantExt, target as RunCombatantExt, skill);
+    if (!result.hit) {
+      addCombatLog(`${active.name} misses ${target.name}! (rolled ${result.roll})`);
+      advanceRunTurn();
+      return;
+    }
+
+    const fallen = applyRunCombatantHp(targetId, targetSide, result.damage, false);
+    if (fallen) onCharacterDeath?.(fallen);
+
+    const value = `−${result.damage}${result.crit ? '!' : ''}`;
     const floaterId = Date.now();
-    setFloaters((current) => [...current, { id: floaterId, target: targetId, side: targetSide, value, type: isHeal ? 'heal' : 'damage', crit }]);
-    window.setTimeout(() => setFloaters((current) => current.filter((floater) => floater.id !== floaterId)), 1500);
-    setLog((current) => [{ id: floaterId, text: `${active.name} uses ${selectedSkill.name}: ${value}.`, crit }, ...current].slice(0, 6));
-    setSelectedSkill(null);
+    setFloaters((cur) => [...cur, { id: floaterId, target: targetId, side: targetSide, value, type: 'damage', crit: result.crit }]);
+    window.setTimeout(() => setFloaters((cur) => cur.filter((f) => f.id !== floaterId)), 1500);
+    addCombatLog(
+      `${active.name} hits ${target.name} for ${result.damage}${result.crit ? ' — CRITICAL!' : ''}`,
+      result.crit,
+    );
+
+    checkCombatEnd();
+    advanceRunTurn();
   }
 
   if (!runState) {
@@ -601,8 +845,8 @@ export function CombatArena({ onCombatEnd }: CombatArenaProps) {
         </div>
 
         <div className="wr-combat-log">
-          {log.slice(0, 5).map((entry) => (
-            <div key={entry.id} className="wr-combat-log-entry">
+          {log.slice(0, 10).map((entry) => (
+            <div key={entry.id} className={`wr-combat-log-entry${entry.crit ? ' crit' : ''}`}>
               {entry.crit && <span className="crit">CRIT — </span>}
               {entry.text}
             </div>
@@ -610,7 +854,15 @@ export function CombatArena({ onCombatEnd }: CombatArenaProps) {
         </div>
       </div>
 
-      <ActionBar active={active} isYourTurn={isYourTurn} selectedSkill={selectedSkill} setSelectedSkill={setSelectedSkill} onEndTurn={handleEndTurn} />
+      <ActionBar
+        active={active}
+        isYourTurn={isYourTurn}
+        isCoOp={isCoOp}
+        selectedSkill={selectedSkill}
+        setSelectedSkill={setSelectedSkill}
+        turnTimeLeft={turnTimeLeft}
+        onEndTurn={handleEndTurn}
+      />
     </div>
   );
 }

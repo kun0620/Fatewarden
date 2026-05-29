@@ -93,7 +93,7 @@ function Header({ dmName, onBack }: { dmName: string; onBack: () => void }) {
           <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
             <button className="fw-btn fw-btn-gold fw-btn-lg" type="button">{Icon('play', { size: 14 })} Start Session 16</button>
             <button className="fw-btn fw-btn-ghost" type="button">{Icon('scroll', { size: 12 })} Session 15 recap</button>
-            <button className="fw-btn fw-btn-ghost" type="button">{Icon('sparkles', { size: 12 })} AI Warden brief</button>
+            <button className="fw-btn fw-btn-ghost" type="button">{Icon('sparkles', { size: 12 })} Session brief</button>
             <button className="fw-btn fw-btn-ghost" type="button" onClick={onBack}>{Icon('chevL', { size: 12 })} Back</button>
           </div>
         </div>

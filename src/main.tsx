@@ -1,6 +1,8 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles/design-system.css';
+import './styles/warden-run.css';
+import './styles/warden-lobby.css';
 import './styles/tokens.css';
 import './styles/components.css';
 import { App } from './App';

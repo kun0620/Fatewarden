@@ -35,7 +35,7 @@ export const MOCK = {
     { id: 5, kind: "action", from: "Mirenna",
       text: "I cast *Detect Magic* and look for residue around the altar." },
     { id: 6, kind: "roll", from: "Mirenna", roll: "Arcana", die: "1d20+5", result: 24, outcome: "Critical insight" },
-    { id: 7, kind: "ai", from: "AI Warden",
+    { id: 7, kind: "scene", from: "Dungeon Master",
       text: "The residue traces a binding — not an ordinary banishment. Whoever stood here is *held*, not gone. The shadow is the warding, and it is failing." },
   ],
   suggestions: [

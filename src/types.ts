@@ -1,4 +1,5 @@
 import type { ClassRuntime } from './engine/classes/classTypes';
+import type { RunState } from './engine/run/runTypes';
 
 export type AbilityKey = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
 export type ExhaustionLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6;
@@ -9,13 +10,43 @@ export type RulesModule = 'core' | 'combat' | 'conditions';
 
 export type GamePhase = 'setup' | 'exploration' | 'combat' | 'rest';
 
-export type SessionPlayMode = 'dnd' | 'story' | 'ai_dm' | 'hexplore';
+export type SessionPlayMode = 'dnd' | 'story' | 'ai_dm' | 'warden_run' | 'hexplore';
 
 export type SessionThemeKey = 'dark_fantasy' | 'high_fantasy' | 'horror' | 'mystery';
 
 export type RuleStrictness = 'casual' | 'standard' | 'hardcore';
 
-export type RoomVisibility = 'private' | 'invite_code';
+export type RoomVisibility = 'public' | 'private' | 'invite_code';
+
+export type RunDifficulty = 'apprentice' | 'warden' | 'nightmare';
+
+export interface DifficultySettings {
+  foeHpMultiplier: number;
+  reviveTokens: number;
+  showNodeIntents: boolean;
+  randomCurses: boolean;
+}
+
+export const DIFFICULTY_SETTINGS: Record<RunDifficulty, DifficultySettings> = {
+  apprentice: {
+    foeHpMultiplier: 0.75,
+    reviveTokens: 1,
+    showNodeIntents: true,
+    randomCurses: false,
+  },
+  warden: {
+    foeHpMultiplier: 1.0,
+    reviveTokens: 1,
+    showNodeIntents: true,
+    randomCurses: false,
+  },
+  nightmare: {
+    foeHpMultiplier: 1.3,
+    reviveTokens: 0,
+    showNodeIntents: false,
+    randomCurses: true,
+  },
+};
 
 export type SessionThemeTone = 'grim' | 'mysterious' | 'cinematic' | 'dangerous' | 'light_adventure';
 
@@ -433,7 +464,7 @@ export type GameSession = {
   createdBy?: string;
   hostId?: string;
   status?: 'draft' | 'active' | 'ended';
-  mode?: 'ai_dm' | 'campaign';
+  mode?: 'ai_dm' | 'campaign' | 'warden_run';
   preset?: string;
   campaignId?: string;
   choiceMode?: CoopChoiceMode;
@@ -443,6 +474,8 @@ export type GameSession = {
   theme: SessionTheme;
   rules: SessionRules;
   combatState: EncounterState | null;
+  runState?: RunState;
+  difficulty?: RunDifficulty;
   partySize: number;
   maxPlayers?: number;
   allowAiDm: boolean;
@@ -559,3 +592,24 @@ export type EncounterState = {
   lootSummary?: string;
   updatedAt?: string;
 };
+
+export interface RunVoteOption {
+  id: string;
+  label: string;
+  icon?: string;
+  nodeId?: string;
+  choiceId?: string;
+}
+
+export interface RunVote {
+  id: string;
+  sessionId: string;
+  type: 'node' | 'event' | 'rest' | 'treasure' | 'shop';
+  options: RunVoteOption[];
+  votes: Record<string, string>; // userId → optionId
+  timeoutAt: string;             // ISO datetime
+  status: 'open' | 'resolved';
+  result?: string;               // winning optionId
+  resolvedBy?: 'majority' | 'host' | 'timeout' | 'random';
+  createdAt: string;
+}

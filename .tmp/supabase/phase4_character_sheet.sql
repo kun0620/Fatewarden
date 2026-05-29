@@ -1,0 +1,15 @@
+alter table public.characters
+  add column if not exists background text not null default '',
+  add column if not exists age text not null default '',
+  add column if not exists alignment text not null default '',
+  add column if not exists languages text[] not null default '{}',
+  add column if not exists proficiencies text[] not null default '{}',
+  add column if not exists speed integer not null default 30,
+  add column if not exists darkvision integer not null default 0,
+  add column if not exists inspiration boolean not null default false,
+  add column if not exists equipment text[] not null default '{}',
+  add column if not exists features text[] not null default '{}',
+  add column if not exists spells text[] not null default '{}',
+  add column if not exists backstory text not null default '',
+  add column if not exists personality_traits text[] not null default '{}',
+  add column if not exists portrait_url text not null default '';

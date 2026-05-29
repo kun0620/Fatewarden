@@ -1,3 +1,5 @@
+import type { RunCondition, RunIntent } from '../engine/run/runTypes';
+
 export type EnemyBehavior = 'aggressive' | 'defensive' | 'support' | 'caster' | 'skirmisher' | 'boss';
 
 export interface EnemyAttack {
@@ -12,11 +14,17 @@ export interface RunEnemy {
   id: string;
   name: string;
   hp: number;
+  hpMax?: number;
   ac: number;
   position: 1 | 2 | 3 | 4;
   behavior: EnemyBehavior;
   attacks: EnemyAttack[];
   conditions: string[];
+  portrait?: string;
+  color?: string;
+  boss?: boolean;
+  intent?: RunIntent;
+  conds?: RunCondition[];
 }
 
 export const floor1Enemies: RunEnemy[] = [
@@ -44,4 +52,77 @@ export const bossEnemies: RunEnemy[] = [
   { id: 'cinder_reeve', name: 'Cinder-Reeve', hp: 120, ac: 18, position: 2, behavior: 'boss', attacks: [{ id: 'censer_burst', name: 'Censer Burst', bonus: 9, damage: '4d8 fire', type: 'spell' }, { id: 'brass_claw', name: 'Brass Claw', bonus: 9, damage: '2d10+5 slashing', type: 'melee' }], conditions: [] },
   { id: 'warden_of_bones', name: 'Warden of Bones', hp: 138, ac: 19, position: 1, behavior: 'boss', attacks: [{ id: 'bone_scythe', name: 'Bone Scythe', bonus: 9, damage: '3d10+5 slashing', type: 'melee' }, { id: 'grave_command', name: 'Grave Command', bonus: 8, damage: '3d8 necrotic', type: 'spell' }], conditions: [] },
   { id: 'the_hollow_crown', name: 'The Hollow Crown', hp: 110, ac: 17, position: 4, behavior: 'boss', attacks: [{ id: 'royal_hex', name: 'Royal Hex', bonus: 9, damage: '4d6 psychic', type: 'spell' }, { id: 'edict', name: 'Edict', bonus: 8, damage: '3d8 thunder', type: 'ranged' }], conditions: [] },
+];
+
+export const wardenRunFoes: RunEnemy[] = [
+  {
+    id: 'imp',
+    name: 'Pact-Imp',
+    portrait: 'imp',
+    color: '#C53456',
+    hp: 12,
+    hpMax: 24,
+    ac: 13,
+    position: 1,
+    behavior: 'skirmisher',
+    attacks: [
+      { id: 'barbed_sting', name: 'Barbed Sting', bonus: 5, damage: '1d6+3 piercing', type: 'melee' },
+    ],
+    conditions: ['Hexed'],
+    conds: [{ k: 'Hexed', kind: 'neutral', n: 2 }],
+    intent: { kind: 'attack', val: '8-12', target: 'front' },
+  },
+  {
+    id: 'wraith',
+    name: 'Cinder-Wraith',
+    portrait: 'wraith',
+    color: '#5B2A8C',
+    hp: 38,
+    hpMax: 38,
+    ac: 15,
+    position: 2,
+    behavior: 'caster',
+    attacks: [
+      { id: 'cinder_touch', name: 'Cinder Touch', bonus: 6, damage: '2d8 necrotic', type: 'spell' },
+    ],
+    conditions: [],
+    conds: [],
+    intent: { kind: 'debuff', val: 'Vulnerable', target: 'all' },
+  },
+  {
+    id: 'knight',
+    name: 'Brass Knight',
+    portrait: 'knight',
+    color: '#8B1538',
+    hp: 56,
+    hpMax: 72,
+    ac: 17,
+    position: 3,
+    behavior: 'defensive',
+    attacks: [
+      { id: 'brass_halberd', name: 'Brass Halberd', bonus: 7, damage: '2d8+4 slashing', type: 'melee' },
+    ],
+    conditions: ['Block'],
+    conds: [{ k: 'Block', kind: 'gold', n: 8 }],
+    intent: { kind: 'buff', val: '+8 Block' },
+  },
+  {
+    id: 'reeve',
+    name: 'The Cinder-Reeve',
+    portrait: 'boss',
+    color: '#8B1538',
+    hp: 88,
+    hpMax: 120,
+    ac: 18,
+    position: 4,
+    behavior: 'boss',
+    attacks: [
+      { id: 'inferno_channel', name: 'Inferno Channel', bonus: 9, damage: '4d8 fire', type: 'spell' },
+      { id: 'cinder_cleaver', name: 'Cinder Cleaver', bonus: 9, damage: '2d10+5 slashing', type: 'melee' },
+    ],
+    conditions: ['Brass Aegis'],
+    conds: [{ k: 'Brass Aegis', kind: 'gold', n: 1 }],
+    boss: true,
+    intent: { kind: 'channel', val: 'Inferno - 2 rounds', target: 'all' },
+  },
 ];

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { TREASURE_REWARDS } from '../../data/runEvents';
 import type { RunNode, RunState, RunTreasureReward } from '../../engine/run/runTypes';
 import { useGameStore } from '../../store/useGameStore';
@@ -38,7 +38,12 @@ export function TreasureScreen() {
   const { runState, activeCharacter, completeNode, dispatch } = useGameStore();
   const [chosen, setChosen] = useState<string | null>(null);
   const currentNode = runState ? getCurrentNode(runState) : null;
-  const reward = TREASURE_REWARDS.find((item) => item.id === chosen) ?? null;
+  const rewards = useMemo(
+    () => [...TREASURE_REWARDS].sort(() => Math.random() - 0.5).slice(0, 3),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const reward = rewards.find((item) => item.id === chosen) ?? null;
 
   function claimReward() {
     if (!runState || !activeCharacter || !currentNode || !reward) return;
@@ -76,7 +81,7 @@ export function TreasureScreen() {
         <div className="wr-treasure-divider">— Choose One —</div>
 
         <div className="wr-treasure-cards">
-          {TREASURE_REWARDS.slice(0, 3).map((item) => (
+          {rewards.map((item) => (
             <button key={item.id} className={`wr-treasure-card ${chosen === item.id ? 'chosen' : ''}`} type="button" onClick={() => setChosen(item.id)} disabled={Boolean(chosen && chosen !== item.id)}>
               <div className="wr-treasure-card-frame">
                 {WIcon(item.icon, { size: 56, stroke: 1.2 })}

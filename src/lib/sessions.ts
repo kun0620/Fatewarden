@@ -1,4 +1,5 @@
 import type { User } from '@supabase/supabase-js';
+import type { RunState } from '../engine/run/runTypes';
 import type {
   AiDmPresetId,
   CoopChoiceMode,
@@ -40,6 +41,7 @@ type SessionRow = {
   play_mode?: string | null;
   game_phase?: string | null;
   combat_state?: unknown;
+  run_state?: RunState | null;
   theme_key?: string | null;
   theme_tone?: string | null;
   theme_notes?: string | null;
@@ -59,7 +61,7 @@ type SessionRow = {
 };
 
 const sessionSelect =
-  'id,title,join_code,room_code,created_at,updated_at,status,created_by,host_id,mode,preset,campaign_id,choice_mode,dice_roller_mode,play_mode,game_phase,combat_state,theme_key,theme_tone,theme_notes,rules_version,enabled_modules,house_rules,party_size,max_players,allow_ai_dm,visibility,rule_strictness,dm_preset,session_recap,last_autosaved_at,ended_at,room_code_expires_at';
+  'id,title,join_code,room_code,created_at,updated_at,status,created_by,host_id,mode,preset,campaign_id,choice_mode,dice_roller_mode,play_mode,game_phase,combat_state,run_state,theme_key,theme_tone,theme_notes,rules_version,enabled_modules,house_rules,party_size,max_players,allow_ai_dm,visibility,rule_strictness,dm_preset,session_recap,last_autosaved_at,ended_at,room_code_expires_at';
 const combatSessionSelect =
   'id,title,join_code,created_at,updated_at,status,created_by,play_mode,game_phase,combat_state,rules_version,enabled_modules,house_rules';
 const legacySessionSelect = 'id,title,join_code,created_at,created_by,play_mode,game_phase,rules_version,enabled_modules,house_rules';
@@ -101,7 +103,7 @@ function mapSession(row: SessionRow): GameSession {
     createdBy: row.created_by ?? hostId,
     hostId,
     status: normalizeSessionStatus(row.status, row.game_phase),
-    mode: row.mode === 'campaign' ? 'campaign' : 'ai_dm',
+    mode: row.mode === 'warden_run' ? 'warden_run' : row.mode === 'campaign' ? 'campaign' : 'ai_dm',
     preset: row.preset ?? row.dm_preset ?? undefined,
     campaignId: row.campaign_id ?? undefined,
     choiceMode: normalizeCoopChoiceMode(row.choice_mode),
@@ -110,6 +112,8 @@ function mapSession(row: SessionRow): GameSession {
     phase: normalizeGamePhase(row.game_phase),
     theme: normalizeSessionTheme(row.theme_key, row.theme_tone, row.theme_notes),
     combatState: normalizeEncounterState(row.combat_state),
+    runState: row.run_state ?? undefined,
+    difficulty: row.run_state?.difficulty,
     rules: normalizeRules(row.rules_version, row.enabled_modules, row.house_rules),
     partySize: maxPlayers,
     maxPlayers,
@@ -145,6 +149,7 @@ function isMissingSessionColumn(error: { code?: string; message?: string }) {
     error.message?.includes('game_phase') ||
     error.message?.includes('play_mode') ||
     error.message?.includes('combat_state') ||
+    error.message?.includes('run_state') ||
     error.message?.includes('theme_key') ||
     error.message?.includes('theme_tone') ||
     error.message?.includes('theme_notes') ||
@@ -160,6 +165,8 @@ function isMissingSessionColumn(error: { code?: string; message?: string }) {
     error.message?.includes('status') ||
     error.message?.includes('room_code') ||
     error.message?.includes('host_id') ||
+    error.message?.includes('mode') ||
+    error.message?.includes('preset') ||
     error.message?.includes('max_players') ||
     error.message?.includes('campaign_id') ||
     error.message?.includes('choice_mode') ||
@@ -179,6 +186,7 @@ function normalizeRuleStrictness(value: unknown): RuleStrictness {
 }
 
 function normalizeVisibility(value: unknown): RoomVisibility {
+  if (value === 'public') return 'public';
   return value === 'private' ? 'private' : 'invite_code';
 }
 
@@ -191,6 +199,10 @@ function normalizeCoopDiceRollerMode(value: unknown): CoopDiceRollerMode {
   return typeof value === 'string' && valid.includes(value as CoopDiceRollerMode)
     ? (value as CoopDiceRollerMode)
     : 'highest_stat';
+}
+
+function toPersistedPlayMode(mode: SessionPlayMode): 'dnd' | 'hexplore' {
+  return mode === 'hexplore' ? 'hexplore' : 'dnd';
 }
 
 function normalizeSessionMemberRole(value: unknown): SessionMemberRole {
@@ -260,11 +272,13 @@ export async function createGameSession(draft: RoomSetupDraft, user: User) {
       room_code: joinCode,
       created_by: user.id,
       host_id: user.id,
-      mode: draft.allowAiDm || draft.playMode === 'ai_dm' ? 'ai_dm' : 'campaign',
+      mode: draft.playMode === 'warden_run'
+        ? 'warden_run'
+        : 'campaign',
       preset: draft.themeKey,
       choice_mode: 'vote',
       dice_roller_mode: 'highest_stat',
-      play_mode: draft.playMode,
+      play_mode: toPersistedPlayMode(draft.playMode),
       rules_version: defaultSessionRules.version,
       enabled_modules: defaultSessionRules.enabledModules,
       house_rules: draft.houseRules.trim() || defaultSessionRules.houseRules,
@@ -274,7 +288,7 @@ export async function createGameSession(draft: RoomSetupDraft, user: User) {
       theme_notes: draft.themeNotes.trim(),
       party_size: draft.partySize,
       max_players: draft.partySize,
-      allow_ai_dm: draft.allowAiDm,
+      allow_ai_dm: false,
       visibility: draft.visibility,
       rule_strictness: draft.ruleStrictness,
       status: 'draft',
@@ -289,13 +303,13 @@ export async function createGameSession(draft: RoomSetupDraft, user: User) {
         title: draft.title.trim(),
         join_code: joinCode,
         created_by: user.id,
-        play_mode: draft.playMode,
+        play_mode: toPersistedPlayMode(draft.playMode),
         rules_version: defaultSessionRules.version,
         enabled_modules: defaultSessionRules.enabledModules,
         house_rules: draft.houseRules.trim() || defaultSessionRules.houseRules,
         game_phase: 'setup',
       })
-      .select(combatSessionSelect)
+      .select(legacySessionSelect)
       .single();
 
     if (legacyResult.error) throw legacyResult.error;

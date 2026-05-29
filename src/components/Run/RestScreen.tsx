@@ -15,7 +15,7 @@ function isCaster(className: string | undefined) {
 }
 
 export function RestScreen() {
-  const { runState, activeCharacter, completeNode, dispatch } = useGameStore();
+  const { runState, activeCharacter, completeNode, dispatch, applyRunAllPartyHp } = useGameStore();
   const [chosen, setChosen] = useState<string | null>(null);
   const currentNode = runState ? getCurrentNode(runState) : null;
 
@@ -24,33 +24,11 @@ export function RestScreen() {
     setChosen(choiceId);
 
     if (choiceId === 'heal') {
-      const amount = Math.max(1, Math.ceil((activeCharacter.maxHitPoints ?? activeCharacter.hitPoints ?? 1) * 0.3));
-      for (const partyActor of runState.party ?? []) {
-        dispatch({
-          id: crypto.randomUUID(),
-          type: 'recover_hp',
-          sessionId: runState.sessionId,
-          actorId: activeCharacter.id,
-          targetId: partyActor.id,
-          createdAt: new Date().toISOString(),
-          source: 'user',
-          amount,
-          recoveryKind: 'rest',
-        });
-      }
-      if (!runState.party?.length) {
-        dispatch({
-          id: crypto.randomUUID(),
-          type: 'recover_hp',
-          sessionId: runState.sessionId,
-          actorId: activeCharacter.id,
-          targetId: activeCharacter.id,
-          createdAt: new Date().toISOString(),
-          source: 'user',
-          amount,
-          recoveryKind: 'rest',
-        });
-      }
+      const baseHp = runState.party?.length
+        ? Math.max(...runState.party.map((p) => p.hpMax))
+        : (activeCharacter.maxHitPoints ?? activeCharacter.hitPoints ?? 10);
+      const amount = Math.max(1, Math.ceil(baseHp * 0.3));
+      applyRunAllPartyHp(amount);
     }
 
     if (choiceId === 'cond') {
